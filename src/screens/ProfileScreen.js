@@ -1,4 +1,4 @@
-import React, { useContext, useState, useEffect } from 'react';
+import React, { useContext, useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -26,10 +26,15 @@ const AVATAR_PRESETS = [
   'https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=150&h=150&q=80'
 ];
 
-export default function ProfileScreen({ navigation }) {
+export default function ProfileScreen({ route, navigation }) {
   const { currentUser, updateSettings, LANGS } = useContext(AppContext);
   const [saveStatus, setSaveStatus] = useState('saved'); // 'saved', 'saving', 'idle'
   const [name, setName] = useState(currentUser.name);
+
+  // References and Glow states
+  const scrollRef = useRef(null);
+  const layoutOffsets = useRef({});
+  const [glowTarget, setGlowTarget] = useState(null);
 
   // Modal Visibility states
   const [isNativeLangModalVisible, setIsNativeLangModalVisible] = useState(false);
@@ -56,6 +61,37 @@ export default function ProfileScreen({ navigation }) {
     "Global communication is now seamless and natural for everyone."
   ];
 
+  // Scroll to and blink/glow target logic when route parameters change
+  useEffect(() => {
+    if (route.params?.scrollTo) {
+      const rawTarget = route.params.scrollTo;
+      let target = rawTarget;
+      if (rawTarget.startsWith('avatar')) {
+        target = 'avatar';
+      }
+      
+      const scrollTimer = setTimeout(() => {
+        if (layoutOffsets.current[target] !== undefined) {
+          scrollRef.current?.scrollTo({
+            y: layoutOffsets.current[target] - 12, // Scroll slightly above the element
+            animated: true
+          });
+        }
+        
+        // Trigger blinking yellow glow
+        setGlowTarget(target);
+        
+        const clearGlow = setTimeout(() => {
+          setGlowTarget(null);
+        }, 2500); // Glow remains visible for 2.5s
+        
+        return () => clearTimeout(clearGlow);
+      }, 400); // 400ms delay to ensure component layout coordinates are fully ready
+      
+      return () => clearTimeout(scrollTimer);
+    }
+  }, [route.params]);
+
   // Fluctuating volume meter logic (horizontal boxed progress bar)
   useEffect(() => {
     let interval;
@@ -69,7 +105,7 @@ export default function ProfileScreen({ navigation }) {
         setMicLevel(level);
       }, 100);
     } else {
-      setMicLevel(0);
+      setTimeout(() => setMicLevel(0), 0);
     }
     return () => {
       if (interval) clearInterval(interval);
@@ -127,29 +163,14 @@ export default function ProfileScreen({ navigation }) {
     };
   }, [playingLang]);
 
-  const startRecording = () => {
-    if (trainingProgress >= 100) return;
-    setIsRecording(true);
-  };
-
-  const stopRecording = () => {
-    setIsRecording(false);
-  };
-
-  const handlePlayVoice = (langCode) => {
-    if (playingLang) return; // already playing
-    setPlayingLang(langCode);
-    setPlayProgress(0);
-  };
-
   // Auto-saving configuration
-  const handleAutoSave = (newSettings) => {
+  function handleAutoSave(newSettings) {
     setSaveStatus('saving');
     updateSettings(newSettings);
     setTimeout(() => {
       setSaveStatus('saved');
     }, 800);
-  };
+  }
 
   const handleNameChange = (val) => {
     setName(val);
@@ -173,7 +194,7 @@ export default function ProfileScreen({ navigation }) {
     } else {
       list.push(code);
     }
-    handleAutoSave({ secondaryLangs: list, secondaryLangsSelected: true });
+    handleAutoSave({ secondaryLangs: list, secondaryLangsSelected: list.length > 0 });
   };
 
   const handleTogglePref = (key) => {
@@ -215,6 +236,21 @@ export default function ProfileScreen({ navigation }) {
     setTrainingProgress(0);
     setIsRecording(false);
     setIsTrainingModalVisible(true);
+  };
+
+  const startRecording = () => {
+    if (trainingProgress >= 100) return;
+    setIsRecording(true);
+  };
+
+  const stopRecording = () => {
+    setIsRecording(false);
+  };
+
+  const handlePlayVoice = (langCode) => {
+    if (playingLang) return; // already playing
+    setPlayingLang(langCode);
+    setPlayProgress(0);
   };
 
   const isDark = currentUser.prefDarkTheme;
@@ -300,9 +336,16 @@ export default function ProfileScreen({ navigation }) {
         </View>
       </SafeAreaView>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Avatar presets selector */}
-        <View style={styles.avatarSection}>
+        <View
+          onLayout={(e) => { layoutOffsets.current.avatar = e.nativeEvent.layout.y; }}
+          style={[
+            styles.avatarSection,
+            glowTarget === 'avatar' && styles.glowSection,
+            { borderWidth: 2, borderColor: glowTarget === 'avatar' ? '#F59E0B' : 'transparent', borderRadius: 20, padding: 8 }
+          ]}
+        >
           <View style={[styles.avatarPreviewContainer, { backgroundColor: colors.primary }]}>
             <Image source={{ uri: currentUser.avatar }} style={[styles.avatarPreview, { borderColor: colors.cardBg }]} />
           </View>
@@ -324,7 +367,15 @@ export default function ProfileScreen({ navigation }) {
           </View>
         </View>
 
-        <View style={styles.formGroup}>
+        {/* Display name field */}
+        <View
+          onLayout={(e) => { layoutOffsets.current.username = e.nativeEvent.layout.y; }}
+          style={[
+            styles.formGroup,
+            glowTarget === 'username' && styles.glowSection,
+            { borderWidth: 2, borderColor: glowTarget === 'username' ? '#F59E0B' : 'transparent', borderRadius: 16, padding: 8 }
+          ]}
+        >
           <Text style={[styles.label, { color: colors.textMuted }]}>Display Name</Text>
           <TextInput
             style={[styles.inputField, { backgroundColor: colors.cardBg, color: colors.text, borderColor: colors.border }]}
@@ -336,7 +387,14 @@ export default function ProfileScreen({ navigation }) {
         </View>
 
         {/* Native language picker (Show 4 + Show All) */}
-        <View style={styles.formGroup}>
+        <View
+          onLayout={(e) => { layoutOffsets.current.nativeLang = e.nativeEvent.layout.y; }}
+          style={[
+            styles.formGroup,
+            glowTarget === 'nativeLang' && styles.glowSection,
+            { borderWidth: 2, borderColor: glowTarget === 'nativeLang' ? '#F59E0B' : 'transparent', borderRadius: 16, padding: 8 }
+          ]}
+        >
           <Text style={[styles.label, { color: colors.textMuted }]}>Native Language</Text>
           <View style={styles.langPills}>
             {getNativePills().map((code) => {
@@ -374,7 +432,14 @@ export default function ProfileScreen({ navigation }) {
         </View>
 
         {/* Train Voice AI Section (Placed below Native Language) */}
-        <View style={styles.formGroup}>
+        <View
+          onLayout={(e) => { layoutOffsets.current.voice = e.nativeEvent.layout.y; }}
+          style={[
+            styles.formGroup,
+            glowTarget === 'voice' && styles.glowSection,
+            { borderWidth: 2, borderColor: glowTarget === 'voice' ? '#F59E0B' : 'transparent', borderRadius: 16, padding: 8 }
+          ]}
+        >
           <Text style={[styles.label, { color: colors.textMuted }]}>Voice AI Profile</Text>
           <View style={[styles.voiceAICard, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
             <View style={styles.voiceAIRow}>
@@ -415,7 +480,14 @@ export default function ProfileScreen({ navigation }) {
         </View>
 
         {/* Secondary target languages selection (Show 4 + Show All) */}
-        <View style={styles.formGroup}>
+        <View
+          onLayout={(e) => { layoutOffsets.current.secondaryLang = e.nativeEvent.layout.y; }}
+          style={[
+            styles.formGroup,
+            glowTarget === 'secondaryLang' && styles.glowSection,
+            { borderWidth: 2, borderColor: glowTarget === 'secondaryLang' ? '#F59E0B' : 'transparent', borderRadius: 16, padding: 8 }
+          ]}
+        >
           <Text style={[styles.label, { color: colors.textMuted }]}>Secondary Languages (To Translate)</Text>
           <View style={styles.langPills}>
             {getSecondaryPills().map((code) => {
@@ -672,7 +744,7 @@ export default function ProfileScreen({ navigation }) {
                 {/* Sentence Reading Card */}
                 <View style={[styles.sentenceCard, { backgroundColor: colors.bg, borderColor: colors.border }]}>
                   <Text style={[styles.sentenceText, { color: colors.text }]}>
-                    "{trainingSentences[trainingStep]}"
+                    {`"${trainingSentences[trainingStep]}"`}
                   </Text>
                 </View>
 
@@ -1312,5 +1384,13 @@ const styles = StyleSheet.create({
     width: 3,
     borderRadius: 1.5,
     minHeight: 4
+  },
+  glowSection: {
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 3
   }
 });

@@ -10,11 +10,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   Dimensions,
+  Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Path, Line, Rect } from "react-native-svg";
-import Animated, {
+import Svg, { Path, Line, Rect, Polygon } from "react-native-svg";
+import {
   useSharedValue,
   useAnimatedStyle,
   withRepeat,
@@ -22,6 +23,9 @@ import Animated, {
   withSequence,
   Easing,
 } from "react-native-reanimated";
+import { Audio } from "expo-av";
+import * as Speech from "expo-speech";
+import { translateText, translateVoice } from "../services/TranslationService";
 import { AppContext } from "../context/AppContext";
 
 const { width } = Dimensions.get("window");
@@ -58,8 +62,34 @@ function renderFlagOrEmoji(val) {
       />
     );
   }
-  return <Text style={styles.bubbleAvatarText}>{val}</Text>;
 }
+
+// Audio recording settings optimized for 16kHz mono voice compression (ideal for AI Speech-to-Text)
+const COMPRESSED_AUDIO_OPTIONS = {
+  android: {
+    extension: ".m4a",
+    outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+    audioEncoder: Audio.AndroidAudioEncoder.AAC,
+    sampleRate: 16000,
+    numberOfChannels: 1,
+    bitRate: 128000,
+  },
+  ios: {
+    extension: ".m4a",
+    audioQuality: Audio.IOSAudioQuality.MEDIUM,
+    sampleRate: 16000,
+    numberOfChannels: 1,
+    bitRate: 64000,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: {
+    mimeType: "audio/webm",
+    bitsPerSecond: 128000,
+  },
+  isMeteringEnabled: true,
+};
 
 export default function ConversationScreen({ route, navigation }) {
   const { partnerName, partnerAvatar, partnerFlag } = route.params || {
@@ -69,20 +99,71 @@ export default function ConversationScreen({ route, navigation }) {
     partnerFlag: "🌍",
   };
 
-  const { currentUser, getLangDetails, getLangDetailsFromFlag } =
+  const { currentUser, getLangDetails, getLangDetailsFromFlag, LANGS } =
     useContext(AppContext);
 
   const [isKeyboardMode, setIsKeyboardMode] = useState(false);
-  const [isMicActive, setIsMicActive] = useState(true);
   const [inputText, setInputText] = useState("");
   const [chatBubbles, setChatBubbles] = useState([]);
 
   const [subtitleReceived, setSubtitleReceived] = useState(
     "Waiting for speech...",
   );
-  const [subtitleUser, setSubtitleUser] = useState("Tap mic to start talking");
+  const [subtitleUser, setSubtitleUser] = useState("Hold mic to start talking");
+
+  const [recording, setRecording] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+
+  const getLangCodeFromFlag = (flagEmoji) => {
+    if (!LANGS) return "en";
+    for (const [code, details] of Object.entries(LANGS)) {
+      if (details.flag === flagEmoji) {
+        return code;
+      }
+    }
+    return "en";
+  };
 
   const chatScrollViewRef = useRef();
+
+  const [shimmerAnim] = useState(() => new Animated.Value(0.3));
+
+  // Shimmer loop for optimistic loading bubbles
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmerAnim, {
+          toValue: 1.0,
+          duration: 800,
+          useNativeDriver: Platform.OS !== "web",
+        }),
+        Animated.timing(shimmerAnim, {
+          toValue: 0.3,
+          duration: 800,
+          useNativeDriver: Platform.OS !== "web",
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, []);
+
+  const onRecordingStatusUpdate = (status) => {
+    if (status.metering !== undefined) {
+      const db = status.metering;
+      // Normal range of active voice is -60dB to 0dB. Normalise to [0, 1]
+      const normalized = Math.max(0, (db + 60) / 60);
+
+      // Animate shared values smoothly
+      orbScale.value = withTiming(1.0 + normalized * 0.45, { duration: 100 });
+      glow1Opacity.value = withTiming(0.1 + normalized * 0.5, {
+        duration: 100,
+      });
+      glow2Opacity.value = withTiming(0.2 + normalized * 0.6, {
+        duration: 100,
+      });
+    }
+  };
 
   // Shared Animation Values for the Orb
   const orbScale = useSharedValue(1);
@@ -93,41 +174,6 @@ export default function ConversationScreen({ route, navigation }) {
 
   // Set up breathing & fluid animations for the center orb
   useEffect(() => {
-    // Breathing scale animation
-    orbScale.value = withRepeat(
-      withSequence(
-        withTiming(1.15, {
-          duration: 1800,
-          easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-        }),
-        withTiming(1.0, {
-          duration: 1800,
-          easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-        }),
-      ),
-      -1,
-      true,
-    );
-
-    // Glowing loops
-    glow1Opacity.value = withRepeat(
-      withSequence(
-        withTiming(0.25, { duration: 1200 }),
-        withTiming(0.08, { duration: 1200 }),
-      ),
-      -1,
-      true,
-    );
-
-    glow2Opacity.value = withRepeat(
-      withSequence(
-        withTiming(0.4, { duration: 1600 }),
-        withTiming(0.15, { duration: 1600 }),
-      ),
-      -1,
-      true,
-    );
-
     // Continuous wave rotations
     waveRotate1.value = withRepeat(
       withTiming(360, { duration: 8000, easing: Easing.linear }),
@@ -141,6 +187,44 @@ export default function ConversationScreen({ route, navigation }) {
       false,
     );
   }, []);
+
+  // Update orb pulse animation based on recording status
+  useEffect(() => {
+    if (isRecording) {
+      // Do nothing: scale and glow opacity are driven dynamically by mic metering (onRecordingStatusUpdate)
+    } else {
+      orbScale.value = withRepeat(
+        withSequence(
+          withTiming(1.15, {
+            duration: 1800,
+            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+          }),
+          withTiming(1.0, {
+            duration: 1800,
+            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+          }),
+        ),
+        -1,
+        true,
+      );
+      glow1Opacity.value = withRepeat(
+        withSequence(
+          withTiming(0.25, { duration: 1200 }),
+          withTiming(0.08, { duration: 1200 }),
+        ),
+        -1,
+        true,
+      );
+      glow2Opacity.value = withRepeat(
+        withSequence(
+          withTiming(0.4, { duration: 1600 }),
+          withTiming(0.15, { duration: 1600 }),
+        ),
+        -1,
+        true,
+      );
+    }
+  }, [isRecording]);
 
   // Animated styles
   const animatedOrbStyle = useAnimatedStyle(() => ({
@@ -183,59 +267,58 @@ export default function ConversationScreen({ route, navigation }) {
       : "#4F46E5",
   };
 
-  // Simulated conversations script
+  // Request microphone permissions on component mount
   useEffect(() => {
-    setChatBubbles([
-      {
-        id: "initial",
-        sender: "partner",
-        avatar: partnerFlag,
-        text: "Hola, ¡bienvenido! La traducción en tiempo real ya está funcionando.",
-        origLang: "Spanish (Original)",
-        transText:
-          "Hello, welcome! The real-time translation is already working.",
-        transLang: "English (Translated)",
-      },
-    ]);
+    async function getPermission() {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== "granted") {
+        console.warn("Microphone permission not granted");
+      }
+    }
+    getPermission();
+  }, []);
 
-    const timeline = [
-      {
-        id: "sim-1",
-        sender: "user",
-        avatar: "🇺🇸",
-        text: "That is incredible. The connection took less than a second.",
-        origLang: "English (Original)",
-        transText: "Eso es increíble. La conexión tardó menos de un segundo.",
-        transLang: "Spanish (Translated)",
-      },
-      {
-        id: "sim-2",
-        sender: "partner",
-        avatar: partnerFlag,
-        text: "¡Exacto! El objetivo es comunicarse de inmediato sin barreras de idioma.",
-        origLang: "Spanish (Original)",
-        transText:
-          "Exactly! The goal is to communicate immediately without language barriers.",
-        transLang: "English (Translated)",
-      },
-    ];
+  // Set up initial greeting dynamically translated into the partner's language
+  useEffect(() => {
+    const partnerLang = getLangCodeFromFlag(partnerFlag);
+    const partnerLangName = getLangDetails(partnerLang).name;
+    const userLangName = getLangDetails(currentUser.nativeLang).name;
 
-    const timers = timeline.map((msg, index) => {
-      return setTimeout(
-        () => {
-          // Update subtitles overlays
-          if (msg.sender === "partner") {
-            setSubtitleReceived(msg.transText);
-          } else {
-            setSubtitleUser(msg.text);
-          }
-          setChatBubbles((prev) => [...prev, msg]);
-        },
-        (index + 1) * 3500,
-      );
-    });
-
-    return () => timers.forEach(clearTimeout);
+    async function setupWelcome() {
+      try {
+        const welcomeText = await translateText(
+          "Hello, welcome! Speak or type, and I will translate for you in real-time.",
+          partnerLang,
+        );
+        setChatBubbles([
+          {
+            id: "initial",
+            sender: "partner",
+            avatar: partnerFlag,
+            text: welcomeText,
+            origLang: `${partnerLangName} (Original)`,
+            transText:
+              "Hello, welcome! Speak or type, and I will translate for you in real-time.",
+            transLang: `${userLangName} (Translated)`,
+          },
+        ]);
+        setSubtitleReceived(welcomeText);
+      } catch (err) {
+        // Fallback welcome message
+        setChatBubbles([
+          {
+            id: "initial",
+            sender: "partner",
+            avatar: partnerFlag,
+            text: "¡Hola! Bienvenido.",
+            origLang: "Spanish (Original)",
+            transText: "Hello! Welcome.",
+            transLang: "English (Translated)",
+          },
+        ]);
+      }
+    }
+    setupWelcome();
   }, [partnerFlag]);
 
   // Scroll to bottom helper
@@ -248,16 +331,134 @@ export default function ConversationScreen({ route, navigation }) {
     }
   }, [chatBubbles, isKeyboardMode]);
 
-  const toggleMic = () => {
-    setIsMicActive(!isMicActive);
-    if (isMicActive) {
-      setSubtitleUser("Muted");
-    } else {
-      setSubtitleUser("Tap mic to start talking");
+  const startRecording = async () => {
+    try {
+      const permission = await Audio.getPermissionsAsync();
+      if (permission.status !== "granted") {
+        const request = await Audio.requestPermissionsAsync();
+        if (request.status !== "granted") {
+          alert("Microphone permission is required to use this feature.");
+          return;
+        }
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      console.log("Starting recording...");
+      const { recording: newRecording } = await Audio.Recording.createAsync(
+        COMPRESSED_AUDIO_OPTIONS,
+        onRecordingStatusUpdate,
+        100,
+      );
+      setRecording(newRecording);
+      setIsRecording(true);
+      setSubtitleUser("Recording voice...");
+    } catch (err) {
+      console.error("Failed to start recording", err);
     }
   };
 
-  const handleSendText = () => {
+  const stopRecording = async () => {
+    if (!recording) return;
+
+    console.log("Stopping recording...");
+    setIsRecording(false);
+    setSubtitleUser("Processing voice...");
+    setSubtitleReceived("Translating...");
+
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      setRecording(null);
+
+      // Deactivate recording audio mode so speaker output works
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      });
+
+      if (uri) {
+        await handleVoiceMessage(uri);
+      }
+    } catch (err) {
+      console.error("Failed to stop recording", err);
+      setSubtitleUser("Recording failed");
+      setSubtitleReceived("Error processing voice");
+    }
+  };
+
+  const handleVoiceMessage = async (audioUri) => {
+    const partnerLang = getLangCodeFromFlag(partnerFlag);
+    const partnerLangName = getLangDetails(partnerLang).name;
+    const userLangName = getLangDetails(currentUser.nativeLang).name;
+
+    try {
+      const result = await translateVoice(audioUri, partnerLang);
+      const { transcription, translation } = result;
+
+      // Update subtitle overlays
+      setSubtitleUser(transcription);
+      setSubtitleReceived(translation);
+
+      // Add user message to chat bubbles
+      const userMsgId = Date.now().toString();
+      const userMsg = {
+        id: userMsgId,
+        sender: "user",
+        avatar: "🇺🇸",
+        text: transcription,
+        origLang: `${userLangName} (Original)`,
+        transText: translation,
+        transLang: `${partnerLangName} (Translated)`,
+      };
+      setChatBubbles((prev) => [...prev, userMsg]);
+
+      // Speak translation out loud (simulating playing on partner's end)
+      Speech.speak(translation, { language: partnerLang });
+
+      // Simulate the partner responding back after 3.5 seconds
+      setTimeout(async () => {
+        try {
+          let partnerResponseBase =
+            "I understood you clearly! That worked perfectly.";
+          const partnerSpokenText = await translateText(
+            partnerResponseBase,
+            partnerLang,
+          );
+
+          const partnerMsg = {
+            id: (Date.now() + 1).toString(),
+            sender: "partner",
+            avatar: partnerFlag,
+            text: partnerSpokenText,
+            origLang: `${partnerLangName} (Original)`,
+            transText: partnerResponseBase,
+            transLang: `${userLangName} (Translated)`,
+          };
+
+          setSubtitleReceived(partnerSpokenText);
+          setSubtitleUser(partnerResponseBase);
+          setChatBubbles((prev) => [...prev, partnerMsg]);
+
+          // Speak partner's translated response to the user in their language
+          Speech.speak(partnerResponseBase, {
+            language: currentUser.nativeLang,
+          });
+        } catch (err) {
+          console.error("Failed to simulate partner response:", err);
+        }
+      }, 3500);
+    } catch (error) {
+      console.error("Voice translation error:", error);
+      setSubtitleUser("Voice translation failed");
+      setSubtitleReceived("Check server or API Key configuration.");
+    }
+  };
+
+  const handleSendText = async () => {
     if (!inputText.trim()) return;
 
     const text = inputText.trim();
@@ -265,36 +466,64 @@ export default function ConversationScreen({ route, navigation }) {
     setSubtitleUser(text);
     setSubtitleReceived("Translating...");
 
+    const partnerLang = getLangCodeFromFlag(partnerFlag);
+    const partnerLangName = getLangDetails(partnerLang).name;
+    const userLangName = getLangDetails(currentUser.nativeLang).name;
+
+    // Create temporary bubble while translating
+    const userMsgId = Date.now().toString();
     const userMsg = {
-      id: Date.now().toString(),
+      id: userMsgId,
       sender: "user",
       avatar: "🇺🇸",
       text: text,
-      origLang: "English (Original)",
+      origLang: `${userLangName} (Original)`,
       transText: "...",
-      transLang: "Spanish (Translated)",
+      transLang: `${partnerLangName} (Translated)`,
     };
-
     setChatBubbles((prev) => [...prev, userMsg]);
 
-    // Simulate translation reply
-    setTimeout(() => {
-      setSubtitleReceived(
-        "Understood. Message received and translated correctly.",
+    try {
+      const translation = await translateText(text, partnerLang);
+
+      // Update message with actual translation
+      setChatBubbles((prev) =>
+        prev.map((msg) =>
+          msg.id === userMsgId ? { ...msg, transText: translation } : msg,
+        ),
       );
+      setSubtitleReceived(translation);
 
-      const partnerReply = {
-        id: (Date.now() + 1).toString(),
-        sender: "partner",
-        avatar: partnerFlag,
-        text: "Entendido. Mensaje recibido y traducido correctamente.",
-        origLang: "Spanish (Original)",
-        transText: "Understood. Message received and translated correctly.",
-        transLang: "English (Translated)",
-      };
+      // Simulate partner responding with text
+      setTimeout(async () => {
+        try {
+          let partnerResponseBase = "Got your text! Thanks for checking in.";
+          const partnerSpokenText = await translateText(
+            partnerResponseBase,
+            partnerLang,
+          );
 
-      setChatBubbles((prev) => [...prev, partnerReply]);
-    }, 1200);
+          const partnerMsg = {
+            id: (Date.now() + 1).toString(),
+            sender: "partner",
+            avatar: partnerFlag,
+            text: partnerSpokenText,
+            origLang: `${partnerLangName} (Original)`,
+            transText: partnerResponseBase,
+            transLang: `${userLangName} (Translated)`,
+          };
+
+          setSubtitleReceived(partnerSpokenText);
+          setSubtitleUser(partnerResponseBase);
+          setChatBubbles((prev) => [...prev, partnerMsg]);
+        } catch (err) {
+          console.error("Failed to translate simulated partner reply:", err);
+        }
+      }, 2000);
+    } catch (error) {
+      console.error("Text translation error:", error);
+      setSubtitleReceived("Translation failed");
+    }
   };
 
   // Render unified bubble headers and dividers
@@ -395,14 +624,44 @@ export default function ConversationScreen({ route, navigation }) {
                 },
               ]}
             />
-            <Text
-              style={[
-                styles.bubbleTextTrans,
-                isUser ? { color: "#93C5FD" } : { color: colors.primary },
-              ]}
-            >
-              {bubble.transText}
-            </Text>
+            {bubble.transText === "..." ? (
+              <Animated.View
+                style={{
+                  opacity: shimmerAnim,
+                  height: 16,
+                  width: 140,
+                  borderRadius: 8,
+                  overflow: "hidden",
+                  marginTop: 4,
+                }}
+              >
+                <LinearGradient
+                  colors={[
+                    isUser
+                      ? "rgba(255, 255, 255, 0.15)"
+                      : "rgba(139, 92, 246, 0.1)",
+                    isUser
+                      ? "rgba(255, 255, 255, 0.45)"
+                      : "rgba(139, 92, 246, 0.25)",
+                    isUser
+                      ? "rgba(255, 255, 255, 0.15)"
+                      : "rgba(139, 92, 246, 0.1)",
+                  ]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={{ flex: 1 }}
+                />
+              </Animated.View>
+            ) : (
+              <Text
+                style={[
+                  styles.bubbleTextTrans,
+                  isUser ? { color: "#93C5FD" } : { color: colors.primary },
+                ]}
+              >
+                {bubble.transText}
+              </Text>
+            )}
           </View>
         </View>
       </View>
@@ -501,28 +760,35 @@ export default function ConversationScreen({ route, navigation }) {
               ]}
             />
 
-            <Animated.View
-              style={[
-                styles.orbCenter,
-                { backgroundColor: colors.primary },
-                animatedOrbStyle,
-              ]}
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPressIn={startRecording}
+              onPressOut={stopRecording}
+              style={{ borderRadius: 55 }}
             >
-              <LinearGradient
-                colors={[colors.primary, colors.accent]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.orbCenterGradient}
+              <Animated.View
+                style={[
+                  styles.orbCenter,
+                  { backgroundColor: colors.primary },
+                  animatedOrbStyle,
+                ]}
               >
-                {/* Moving Internal Fluid Waves */}
-                <Animated.View
-                  style={[styles.waveItem, styles.waveCyan, animatedWave1]}
-                />
-                <Animated.View
-                  style={[styles.waveItem, styles.waveBlue, animatedWave2]}
-                />
-              </LinearGradient>
-            </Animated.View>
+                <LinearGradient
+                  colors={[colors.primary, colors.accent]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.orbCenterGradient}
+                >
+                  {/* Moving Internal Fluid Waves */}
+                  <Animated.View
+                    style={[styles.waveItem, styles.waveCyan, animatedWave1]}
+                  />
+                  <Animated.View
+                    style={[styles.waveItem, styles.waveBlue, animatedWave2]}
+                  />
+                </LinearGradient>
+              </Animated.View>
+            </TouchableOpacity>
           </View>
         </View>
       ) : (
@@ -609,15 +875,14 @@ export default function ConversationScreen({ route, navigation }) {
               <TouchableOpacity
                 style={[
                   styles.controlCircle,
-                  isMicActive
+                  isRecording
                     ? { backgroundColor: colors.danger }
                     : {
-                        backgroundColor: colors.cardBg,
-                        borderColor: colors.border,
-                        borderWidth: 1,
+                        backgroundColor: colors.primary,
                       },
                 ]}
-                onPress={toggleMic}
+                onPressIn={startRecording}
+                onPressOut={stopRecording}
                 activeOpacity={0.7}
               >
                 <Svg
@@ -625,7 +890,7 @@ export default function ConversationScreen({ route, navigation }) {
                   height="24"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke={isMicActive ? "white" : colors.textMuted}
+                  stroke="white"
                   strokeWidth="2"
                   strokeLinecap="round"
                 >
@@ -636,7 +901,7 @@ export default function ConversationScreen({ route, navigation }) {
               <Text
                 style={[styles.micStatusLabel, { color: colors.textMuted }]}
               >
-                {isMicActive ? "Listening..." : "Muted"}
+                {isRecording ? "Recording..." : "Hold mic to speak"}
               </Text>
             </View>
           )}

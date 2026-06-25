@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import {
   StyleSheet,
   Text,
@@ -11,6 +11,11 @@ import {
   Easing,
   ActivityIndicator,
   TextInput,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -317,14 +322,30 @@ export default function HomeScreen({ navigation }) {
   const [posts, setPosts] = useState(INITIAL_POSTS);
   const [expandedComments, setExpandedComments] = useState({});
   const [commentInputs, setCommentInputs] = useState({});
+  const [startConvModalVisible, setStartConvModalVisible] = useState(false);
+  const [startConvSearch, setStartConvSearch] = useState("");
+  const [startConvFilter, setStartConvFilter] = useState("contacts");
+
+  // Post/Update creation states
+  const [postModalVisible, setPostModalVisible] = useState(false);
+  const [newPostText, setNewPostText] = useState("");
+  const [newPostImage, setNewPostImage] = useState(null);
+  const [newPostFlag, setNewPostFlag] = useState("🇺🇸");
+
+  // Bottom Sheet Comments state
+  const [activeCommentsPostId, setActiveCommentsPostId] = useState(null);
+  const [newCommentText, setNewCommentText] = useState("");
+
+  // Post Options Bottom Sheet state
+  const [optionsPost, setOptionsPost] = useState(null);
 
   // Gradient shifting animation value
-  const gradientAnim = useRef(new Animated.Value(0)).current;
+  const [gradientAnim] = useState(() => new Animated.Value(0));
 
   // Pulse animations for giant CTA button
-  const pulseAnim1 = useRef(new Animated.Value(0)).current;
-  const pulseAnim2 = useRef(new Animated.Value(0)).current;
-  const pulseAnim3 = useRef(new Animated.Value(0)).current;
+  const [pulseAnim1] = useState(() => new Animated.Value(0));
+  const [pulseAnim2] = useState(() => new Animated.Value(0));
+  const [pulseAnim3] = useState(() => new Animated.Value(0));
 
   // Start animated loops
   useEffect(() => {
@@ -350,7 +371,7 @@ export default function HomeScreen({ navigation }) {
           toValue: 1,
           duration: 1200,
           easing: Easing.bezier(0.16, 1, 0.3, 1),
-          useNativeDriver: true,
+          useNativeDriver: Platform.OS !== "web",
         }),
         Animated.sequence([
           Animated.delay(200),
@@ -358,7 +379,7 @@ export default function HomeScreen({ navigation }) {
             toValue: 1,
             duration: 1200,
             easing: Easing.bezier(0.16, 1, 0.3, 1),
-            useNativeDriver: true,
+            useNativeDriver: Platform.OS !== "web",
           }),
         ]),
         Animated.sequence([
@@ -367,7 +388,7 @@ export default function HomeScreen({ navigation }) {
             toValue: 1,
             duration: 1200,
             easing: Easing.bezier(0.16, 1, 0.3, 1),
-            useNativeDriver: true,
+            useNativeDriver: Platform.OS !== "web",
           }),
         ]),
       ]).start();
@@ -397,35 +418,62 @@ export default function HomeScreen({ navigation }) {
   // Define onboarding tasks
   const allTasks = [
     {
-      id: "avatar",
-      isCompleted: !!(currentUser.avatar && !currentUser.avatar.includes("photo-1534528741775-53994a69daeb")),
-      uncompletedLabel: "Add profile pic [1] or [2] or [3] or [4]",
-      completedLabel: `✓ Profile pic [${getAvatarIndex(currentUser.avatar)}] Added`
+      id: "avatar1",
+      isCompleted:
+        currentUser.avatar &&
+        currentUser.avatar.includes("photo-1534528741775-53994a69daeb"),
+      uncompletedLabel: "Add profile pic [1]",
+      completedLabel: "✓ Profile pic [1] Added",
+    },
+    {
+      id: "avatar2",
+      isCompleted:
+        currentUser.avatar &&
+        currentUser.avatar.includes("photo-1507003211169-0a1dd7228f2d"),
+      uncompletedLabel: "Add profile pic [2]",
+      completedLabel: "✓ Profile pic [2] Added",
+    },
+    {
+      id: "avatar3",
+      isCompleted:
+        currentUser.avatar &&
+        currentUser.avatar.includes("photo-1517841905240-472988babdf9"),
+      uncompletedLabel: "Add profile pic [3]",
+      completedLabel: "✓ Profile pic [3] Added",
+    },
+    {
+      id: "avatar4",
+      isCompleted:
+        currentUser.avatar &&
+        currentUser.avatar.includes("photo-1488426862026-3ee34a7d66df"),
+      uncompletedLabel: "Add profile pic [4]",
+      completedLabel: "✓ Profile pic [4] Added",
     },
     {
       id: "username",
       isCompleted: !!(currentUser.name && currentUser.name !== "Amani User"),
       uncompletedLabel: "Change username",
-      completedLabel: "✓ Username Changed"
+      completedLabel: "✓ Username Changed",
     },
     {
       id: "nativeLang",
       isCompleted: currentUser.nativeLangSelected === true,
       uncompletedLabel: "Add native language",
-      completedLabel: "✓ Native Language Added"
+      completedLabel: "✓ Native Language Added",
     },
     {
       id: "voice",
-      isCompleted: currentUser.micTested === true,
+      isCompleted:
+        currentUser.voiceAITrained === true || currentUser.micTested === true,
       uncompletedLabel: "Train your AI voice",
-      completedLabel: "✓ AI Voice Trained"
+      completedLabel: "✓ AI Voice Trained",
     },
     {
       id: "secondaryLang",
       isCompleted: currentUser.secondaryLangsSelected === true,
       uncompletedLabel: "Add secondary language",
-      completedLabel: "✓ Secondary Language Added"
-    }
+      completedLabel: "✓ Secondary Language Added",
+    },
   ];
 
   const completedTasks = allTasks.filter((t) => t.isCompleted);
@@ -476,12 +524,9 @@ export default function HomeScreen({ navigation }) {
   };
 
   const handleStartConv = () => {
-    navigation.navigate("Conversation", {
-      partnerName: "Unity Translation AI",
-      partnerAvatar:
-        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
-      partnerFlag: "🌍",
-    });
+    setStartConvSearch("");
+    setStartConvFilter("contacts");
+    setStartConvModalVisible(true);
   };
 
   const handlePartnerClick = (name, avatar, flag) => {
@@ -492,8 +537,8 @@ export default function HomeScreen({ navigation }) {
     });
   };
 
-  const handleOpenSettings = () => {
-    navigation.navigate("Profile");
+  const handleOpenSettings = (target) => {
+    navigation.navigate("Profile", { scrollTo: target });
   };
 
   const handleImportContacts = () => {
@@ -505,6 +550,212 @@ export default function HomeScreen({ navigation }) {
       setImported(true);
     }, 1200);
   };
+
+  const handleConfirmAddContact = (name) => {
+    Alert.alert(
+      "Add to Contacts",
+      `Would you like to add "${name}" to your contacts and start a conversation?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Add & Chat",
+          onPress: () => {
+            const newContact = {
+              id: "c_" + Date.now(),
+              name: name,
+              avatar:
+                "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+              flag: "🌍",
+              langName: "Universal Partner",
+              status: "Hey there! I am using Unity.",
+            };
+            setContacts((prev) => [...prev, newContact]);
+            setStartConvModalVisible(false);
+            handlePartnerClick(
+              newContact.name,
+              newContact.avatar,
+              newContact.flag,
+            );
+          },
+        },
+      ],
+    );
+  };
+
+  const handleCreatePost = () => {
+    if (!newPostText.trim()) return;
+    const userFlag = currentUser.nativeLang
+      ? getLangDetails(currentUser.nativeLang).flag || "🌍"
+      : "🌍";
+    const newPost = {
+      id: `post_${Date.now()}`,
+      authorName:
+        currentUser.name && currentUser.name !== "Amani User"
+          ? currentUser.name
+          : "Amani User",
+      avatar:
+        currentUser.avatar ||
+        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+      flag: newPostFlag || userFlag,
+      time: "Just now",
+      content: newPostText,
+      image: newPostImage,
+      likes: 0,
+      liked: false,
+      comments: [],
+    };
+    setPosts((prev) => [newPost, ...prev]);
+    setPostModalVisible(false);
+    setNewPostText("");
+    setNewPostImage(null);
+  };
+
+  const getAuthorAvatar = (authorName) => {
+    if (
+      authorName === currentUser.name ||
+      authorName === "Amani User" ||
+      authorName === "Me"
+    ) {
+      return currentUser.avatar;
+    }
+    // Search in INITIAL_POSTS
+    const postWithAuthor = INITIAL_POSTS.find(
+      (p) => p.authorName === authorName,
+    );
+    if (postWithAuthor) return postWithAuthor.avatar;
+
+    // Search in INITIAL_CONTACTS
+    const contactWithAuthor = INITIAL_CONTACTS.find(
+      (c) => c.name === authorName,
+    );
+    if (contactWithAuthor) return contactWithAuthor.avatar;
+
+    // Fallback
+    return "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&h=100&q=80";
+  };
+
+  const handlePostChat = (post) => {
+    const isOwner =
+      post.authorName === (currentUser.name || "Amani User") ||
+      post.authorName === "Me";
+    if (isOwner) {
+      Alert.alert("Chat", "You cannot start a conversation with yourself.");
+      return;
+    }
+
+    const existingContact = contacts.find(
+      (c) => c.name.toLowerCase() === post.authorName.toLowerCase(),
+    );
+
+    if (existingContact) {
+      handlePartnerClick(
+        existingContact.name,
+        existingContact.avatar,
+        existingContact.flag,
+      );
+    } else {
+      Alert.alert(
+        "Add to Contacts",
+        `Would you like to add "${post.authorName}" to your contacts and start a conversation?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Add & Chat",
+            onPress: () => {
+              const newContact = {
+                id: "c_" + Date.now(),
+                name: post.authorName,
+                avatar:
+                  post.avatar ||
+                  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+                flag: post.flag || "🌍",
+                langName: "Translator Partner",
+                status: "Hey there! Let's translate.",
+              };
+              setContacts((prev) => [...prev, newContact]);
+              handlePartnerClick(
+                newContact.name,
+                newContact.avatar,
+                newContact.flag,
+              );
+            },
+          },
+        ],
+      );
+    }
+  };
+
+  const handlePostMoreOptions = (post) => {
+    setOptionsPost(post);
+  };
+
+  const handleDeletePost = (postId) => {
+    Alert.alert(
+      "Delete Update",
+      "Are you sure you want to delete this update post? This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            setPosts((prev) => prev.filter((p) => p.id !== postId));
+            setOptionsPost(null);
+          },
+        },
+      ],
+    );
+  };
+
+  const handleSharePost = (post) => {
+    Alert.alert("Share", `Successfully shared post by ${post.authorName}!`);
+    setOptionsPost(null);
+  };
+
+  const handleCopyLink = () => {
+    Alert.alert("Copy Link", "Post link copied to clipboard!");
+    setOptionsPost(null);
+  };
+
+  const handleReportPost = (post) => {
+    Alert.alert("Reported", "Thank you! We will review this post.");
+    setOptionsPost(null);
+  };
+
+  const handleOpenComments = (postId) => {
+    setActiveCommentsPostId(postId);
+    setNewCommentText("");
+  };
+
+  const handleSheetAddComment = () => {
+    if (!newCommentText.trim() || !activeCommentsPostId) return;
+    setPosts((prev) =>
+      prev.map((post) => {
+        if (post.id === activeCommentsPostId) {
+          return {
+            ...post,
+            comments: [
+              ...post.comments,
+              {
+                id: Date.now().toString(),
+                author:
+                  currentUser.name && currentUser.name !== "Amani User"
+                    ? currentUser.name
+                    : "Amani User",
+                content: newCommentText.trim(),
+              },
+            ],
+          };
+        }
+        return post;
+      }),
+    );
+    setNewCommentText("");
+  };
+
+  const activePost = activeCommentsPostId
+    ? posts.find((p) => p.id === activeCommentsPostId)
+    : null;
 
   const handleToggleLike = (postId) => {
     setPosts((prev) =>
@@ -1301,7 +1552,7 @@ export default function HomeScreen({ navigation }) {
                         {renderFlagOrEmoji(post.flag)}
                       </View>
                     </View>
-                    <View style={styles.postAuthorInfo}>
+                    <View style={[styles.postAuthorInfo, { flex: 1 }]}>
                       <Text
                         style={[styles.postAuthorName, { color: colors.text }]}
                       >
@@ -1315,6 +1566,45 @@ export default function HomeScreen({ navigation }) {
                       >
                         {post.time}
                       </Text>
+                    </View>
+
+                    {/* Header Action Icons: Chat + 3-Dot Options */}
+                    <View style={styles.postHeaderActions}>
+                      <TouchableOpacity
+                        onPress={() => handlePostChat(post)}
+                        style={styles.postHeaderActionBtn}
+                        activeOpacity={0.7}
+                      >
+                        <Svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke={colors.textMuted}
+                          strokeWidth="2.2"
+                        >
+                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                        </Svg>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => handlePostMoreOptions(post)}
+                        style={styles.postHeaderActionBtn}
+                        activeOpacity={0.7}
+                      >
+                        <Svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke={colors.textMuted}
+                          strokeWidth="2.5"
+                        >
+                          <circle cx="12" cy="12" r="1.5" />
+                          <circle cx="6" cy="12" r="1.5" />
+                          <circle cx="18" cy="12" r="1.5" />
+                        </Svg>
+                      </TouchableOpacity>
                     </View>
                   </View>
 
@@ -1350,7 +1640,7 @@ export default function HomeScreen({ navigation }) {
                       {post.likes} {post.likes === 1 ? "Like" : "Likes"}
                     </Text>
                     <TouchableOpacity
-                      onPress={() => handleToggleComments(post.id)}
+                      onPress={() => handleOpenComments(post.id)}
                     >
                       <Text
                         style={[
@@ -1396,7 +1686,7 @@ export default function HomeScreen({ navigation }) {
 
                     <TouchableOpacity
                       style={styles.postActionBtn}
-                      onPress={() => handleToggleComments(post.id)}
+                      onPress={() => handleOpenComments(post.id)}
                     >
                       <Svg
                         width="20"
@@ -1420,81 +1710,6 @@ export default function HomeScreen({ navigation }) {
                       </Text>
                     </TouchableOpacity>
                   </View>
-
-                  {/* Comments Section */}
-                  {isCommentsVisible && (
-                    <View
-                      style={[
-                        styles.commentsSection,
-                        { borderTopColor: colors.border },
-                      ]}
-                    >
-                      {/* Comments List */}
-                      {post.comments.map((comment) => (
-                        <View key={comment.id} style={styles.commentItem}>
-                          <Text
-                            style={[
-                              styles.commentAuthor,
-                              { color: colors.text },
-                            ]}
-                          >
-                            {comment.author}:{" "}
-                            <Text
-                              style={[
-                                styles.commentContent,
-                                { color: colors.textMuted },
-                              ]}
-                            >
-                              {comment.content}
-                            </Text>
-                          </Text>
-                        </View>
-                      ))}
-
-                      {/* Comment Input */}
-                      <View style={styles.commentInputRow}>
-                        <TextInput
-                          style={[
-                            styles.commentInput,
-                            {
-                              backgroundColor: colors.bg,
-                              color: colors.text,
-                              borderColor: colors.border,
-                            },
-                          ]}
-                          placeholder="Write a comment..."
-                          placeholderTextColor={colors.textDimmed}
-                          value={commentInputs[post.id] || ""}
-                          onChangeText={(text) =>
-                            setCommentInputs((prev) => ({
-                              ...prev,
-                              [post.id]: text,
-                            }))
-                          }
-                          onSubmitEditing={() => handleAddComment(post.id)}
-                        />
-                        <TouchableOpacity
-                          style={[
-                            styles.commentSendBtn,
-                            { backgroundColor: colors.primary },
-                          ]}
-                          onPress={() => handleAddComment(post.id)}
-                        >
-                          <Svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="white"
-                            strokeWidth="3"
-                          >
-                            <line x1="22" y1="2" x2="11" y2="13" />
-                            <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                          </Svg>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  )}
                 </View>
               );
             })}
@@ -1503,41 +1718,6 @@ export default function HomeScreen({ navigation }) {
 
         {activeTab === "calls" && (
           <View>
-            <View
-              style={[
-                styles.groupCtaCard,
-                { backgroundColor: colors.cardBg, borderColor: colors.border },
-              ]}
-            >
-              <View
-                style={[
-                  styles.groupCtaIcon,
-                  { backgroundColor: "rgba(2, 132, 199, 0.1)" },
-                ]}
-              >
-                <Svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke={colors.accent}
-                  strokeWidth="2.5"
-                >
-                  <Path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-                </Svg>
-              </View>
-              <View style={styles.groupCtaInfo}>
-                <Text style={[styles.groupCtaTitle, { color: colors.text }]}>
-                  Start Voice Call
-                </Text>
-                <Text
-                  style={[styles.groupCtaDesc, { color: colors.textMuted }]}
-                >
-                  Call any contact with live translation
-                </Text>
-              </View>
-            </View>
-
             <Text style={[styles.sectionTitle, { color: colors.textDimmed }]}>
               Recent Translations
             </Text>
@@ -1628,7 +1808,14 @@ export default function HomeScreen({ navigation }) {
 
       {/* Centered Premium Onboarding Popup Card (adapts to light/dark themes dynamically!) */}
       {onboardingVisible && (
-        <View style={[styles.onboardingOverlay, { pointerEvents: "box-none" }]}>
+        <View
+          style={[
+            styles.onboardingOverlay,
+            Platform.OS === "web"
+              ? { pointerEvents: "none" }
+              : { pointerEvents: "box-none" },
+          ]}
+        >
           <View
             style={[
               styles.onboardingCard,
@@ -1727,7 +1914,7 @@ export default function HomeScreen({ navigation }) {
                           },
                     ]}
                     disabled={task.isCompleted}
-                    onPress={handleOpenSettings}
+                    onPress={() => handleOpenSettings(task.id)}
                   >
                     <Text
                       style={[
@@ -1737,7 +1924,9 @@ export default function HomeScreen({ navigation }) {
                           : { color: colors.textMuted },
                       ]}
                     >
-                      {task.isCompleted ? task.completedLabel : task.uncompletedLabel}
+                      {task.isCompleted
+                        ? task.completedLabel
+                        : task.uncompletedLabel}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -1745,8 +1934,12 @@ export default function HomeScreen({ navigation }) {
             ) : (
               <View style={styles.shoutoutContainer}>
                 <Text style={styles.shoutoutTitle}>🎉 Profile Complete!</Text>
-                <Text style={[styles.shoutoutText, { color: colors.textDimmed }]}>
-                  You're all set! You can customize settings in the settings menu.
+                <Text
+                  style={[styles.shoutoutText, { color: colors.textDimmed }]}
+                >
+                  {
+                    "You're all set! You can customize settings in the settings menu."
+                  }
                 </Text>
               </View>
             )}
@@ -1763,6 +1956,42 @@ export default function HomeScreen({ navigation }) {
         >
           <LinearGradient
             colors={["#0D9488", "#059669"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.fabGradient}
+          >
+            <Svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="white"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <Line x1="12" y1="5" x2="12" y2="19" />
+              <Line x1="5" y1="12" x2="19" y2="12" />
+            </Svg>
+          </LinearGradient>
+        </TouchableOpacity>
+      )}
+
+      {/* Floating Action Button for Updates Tab */}
+      {activeTab === "updates" && (
+        <TouchableOpacity
+          style={styles.fab}
+          activeOpacity={0.8}
+          onPress={() => {
+            const userFlag = currentUser.nativeLang
+              ? getLangDetails(currentUser.nativeLang).flag || "🌍"
+              : "🌍";
+            setNewPostFlag(userFlag);
+            setPostModalVisible(true);
+          }}
+        >
+          <LinearGradient
+            colors={[colors.primary, "#6D28D9"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.fabGradient}
@@ -1825,48 +2054,6 @@ export default function HomeScreen({ navigation }) {
             ]}
           >
             Chats
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.tabBarBtn}
-          onPress={() => setActiveTab("updates")}
-        >
-          <View
-            style={[
-              styles.tabIconBg,
-              activeTab === "updates" && {
-                backgroundColor: colors.primaryGlow,
-              },
-            ]}
-          >
-            <Svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke={
-                activeTab === "updates" ? colors.primary : colors.textDimmed
-              }
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <Path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
-              <Path d="M12 6v6l4 2" />
-            </Svg>
-          </View>
-          <Text
-            style={[
-              styles.tabBarLabel,
-              {
-                color:
-                  activeTab === "updates" ? colors.primary : colors.textDimmed,
-                fontWeight: activeTab === "updates" ? "600" : "500",
-              },
-            ]}
-          >
-            Updates
           </Text>
         </TouchableOpacity>
 
@@ -1948,7 +2135,979 @@ export default function HomeScreen({ navigation }) {
             Calls
           </Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.tabBarBtn}
+          onPress={() => setActiveTab("updates")}
+        >
+          <View
+            style={[
+              styles.tabIconBg,
+              activeTab === "updates" && {
+                backgroundColor: colors.primaryGlow,
+              },
+            ]}
+          >
+            <Svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke={
+                activeTab === "updates" ? colors.primary : colors.textDimmed
+              }
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <Path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
+              <Path d="M12 6v6l4 2" />
+            </Svg>
+          </View>
+          <Text
+            style={[
+              styles.tabBarLabel,
+              {
+                color:
+                  activeTab === "updates" ? colors.primary : colors.textDimmed,
+                fontWeight: activeTab === "updates" ? "600" : "500",
+              },
+            ]}
+          >
+            Updates
+          </Text>
+        </TouchableOpacity>
       </View>
+
+      {/* Create Post Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={postModalVisible}
+        onRequestClose={() => setPostModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.createPostModalContent,
+              { backgroundColor: colors.cardBg, borderColor: colors.border },
+            ]}
+          >
+            {/* Modal Header */}
+            <View
+              style={[
+                styles.createPostHeader,
+                { borderBottomColor: colors.border },
+              ]}
+            >
+              <TouchableOpacity
+                onPress={() => setPostModalVisible(false)}
+                style={[
+                  styles.createPostCloseBtn,
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.08)"
+                      : "rgba(0,0,0,0.05)",
+                  },
+                ]}
+              >
+                <Text
+                  style={[styles.createPostCloseText, { color: colors.text }]}
+                >
+                  &times;
+                </Text>
+              </TouchableOpacity>
+              <Text style={[styles.createPostTitle, { color: colors.text }]}>
+                Create Update
+              </Text>
+              <TouchableOpacity
+                style={[
+                  styles.createPostSubmitBtn,
+                  {
+                    backgroundColor: newPostText.trim()
+                      ? colors.primary
+                      : colors.border,
+                  },
+                ]}
+                onPress={handleCreatePost}
+                disabled={!newPostText.trim()}
+              >
+                <Text
+                  style={[
+                    styles.createPostSubmitBtnText,
+                    { color: newPostText.trim() ? "white" : colors.textDimmed },
+                  ]}
+                >
+                  Post
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Author Profile Row */}
+            <View style={styles.createPostUserRow}>
+              <Image
+                source={{
+                  uri:
+                    currentUser.avatar ||
+                    "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+                }}
+                style={styles.createPostUserAvatar}
+              />
+              <View style={styles.createPostUserInfo}>
+                <Text
+                  style={[styles.createPostUserName, { color: colors.text }]}
+                >
+                  {currentUser.name || "Amani User"}
+                </Text>
+
+                {/* Scrollable Row of Flags to tag post */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.tagFlagsScroll}
+                >
+                  {[
+                    "🇺🇸",
+                    "🇪🇸",
+                    "🇫🇷",
+                    "🇰🇪",
+                    "🇯🇵",
+                    "🇩🇪",
+                    "🇨🇳",
+                    "🇸🇦",
+                    "🇮🇹",
+                    "🇧🇷",
+                    "🇷🇺",
+                    "🇰🇷",
+                    "🇮🇳",
+                    "🇹🇷",
+                  ].map((flag) => {
+                    const isSelected = newPostFlag === flag;
+                    return (
+                      <TouchableOpacity
+                        key={flag}
+                        style={[
+                          styles.tagFlagBtn,
+                          isSelected && {
+                            backgroundColor: colors.primaryGlow,
+                            borderColor: colors.primary,
+                          },
+                        ]}
+                        onPress={() => setNewPostFlag(flag)}
+                      >
+                        <Text style={styles.tagFlagText}>{flag}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </View>
+
+            {/* Text Input area */}
+            <TextInput
+              style={[
+                styles.createPostInput,
+                { color: colors.text, borderColor: colors.border },
+              ]}
+              placeholder="What's on your mind? Share an update..."
+              placeholderTextColor={colors.textDimmed}
+              multiline
+              value={newPostText}
+              onChangeText={setNewPostText}
+              textAlignVertical="top"
+            />
+
+            {/* Selected image preview */}
+            {newPostImage && (
+              <View style={styles.createPostImgPreviewContainer}>
+                <Image
+                  source={{ uri: newPostImage }}
+                  style={styles.createPostImgPreview}
+                />
+                <TouchableOpacity
+                  style={[
+                    styles.deleteImgBtn,
+                    { backgroundColor: colors.danger },
+                  ]}
+                  onPress={() => setNewPostImage(null)}
+                >
+                  <Text style={styles.deleteImgBtnText}>&times;</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Photo preset attachments list */}
+            <Text style={[styles.attachLabel, { color: colors.textMuted }]}>
+              Attach a Photo Preset
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.presetImagesScroll}
+            >
+              {[
+                "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=300&q=80",
+                "https://images.unsplash.com/photo-1501854140801-50d01698950b?auto=format&fit=crop&w=300&q=80",
+                "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=300&q=80",
+                "https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?auto=format&fit=crop&w=300&q=80",
+                "https://images.unsplash.com/photo-1472214222541-d510753a4907?auto=format&fit=crop&w=300&q=80",
+              ].map((url, idx) => {
+                const isSelected = newPostImage === url;
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={[
+                      styles.presetImgBtn,
+                      isSelected && {
+                        borderColor: colors.primary,
+                        borderWidth: 2,
+                      },
+                    ]}
+                    onPress={() => setNewPostImage(url)}
+                  >
+                    <Image
+                      source={{ uri: url }}
+                      style={styles.presetImgThumb}
+                    />
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Post Options Bottom Sheet Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={optionsPost !== null}
+        onRequestClose={() => setOptionsPost(null)}
+      >
+        <View style={styles.optionsSheetOverlay}>
+          <Pressable
+            style={styles.optionsSheetBackdrop}
+            onPress={() => setOptionsPost(null)}
+          />
+
+          <View
+            style={[
+              styles.optionsSheetContent,
+              { backgroundColor: colors.cardBg, borderColor: colors.border },
+            ]}
+          >
+            <View
+              style={[
+                styles.optionsSheetHandle,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(255, 255, 255, 0.2)"
+                    : "rgba(0, 0, 0, 0.15)",
+                },
+              ]}
+            />
+
+            <View style={styles.optionsSheetList}>
+              {optionsPost && (
+                <>
+                  {/* Share Option */}
+                  <TouchableOpacity
+                    style={[
+                      styles.optionsSheetItem,
+                      { borderBottomColor: colors.border },
+                    ]}
+                    onPress={() => handleSharePost(optionsPost)}
+                    activeOpacity={0.7}
+                  >
+                    <Svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={colors.text}
+                      strokeWidth="2"
+                    >
+                      <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+                      <polyline points="16 6 12 2 8 6" />
+                      <line x1="12" y1="2" x2="12" y2="15" />
+                    </Svg>
+                    <Text
+                      style={[
+                        styles.optionsSheetItemText,
+                        { color: colors.text },
+                      ]}
+                    >
+                      Share Update
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Copy Link Option */}
+                  <TouchableOpacity
+                    style={[
+                      styles.optionsSheetItem,
+                      { borderBottomColor: colors.border },
+                    ]}
+                    onPress={handleCopyLink}
+                    activeOpacity={0.7}
+                  >
+                    <Svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={colors.text}
+                      strokeWidth="2"
+                    >
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </Svg>
+                    <Text
+                      style={[
+                        styles.optionsSheetItemText,
+                        { color: colors.text },
+                      ]}
+                    >
+                      Copy Link
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Owner Delete Option vs Non-Owner Actions */}
+                  {optionsPost.authorName ===
+                    (currentUser.name || "Amani User") ||
+                  optionsPost.authorName === "Me" ? (
+                    <TouchableOpacity
+                      style={[styles.optionsSheetItem, styles.deleteOptionItem]}
+                      onPress={() => handleDeletePost(optionsPost.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#EF4444"
+                        strokeWidth="2"
+                      >
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        <line x1="10" y1="11" x2="10" y2="17" />
+                        <line x1="14" y1="11" x2="14" y2="17" />
+                      </Svg>
+                      <Text
+                        style={[
+                          styles.optionsSheetItemText,
+                          { color: "#EF4444", fontWeight: "600" },
+                        ]}
+                      >
+                        Delete Update
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <>
+                      <TouchableOpacity
+                        style={[
+                          styles.optionsSheetItem,
+                          { borderBottomColor: colors.border },
+                        ]}
+                        onPress={() => handleReportPost(optionsPost)}
+                        activeOpacity={0.7}
+                      >
+                        <Svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#EF4444"
+                          strokeWidth="2"
+                        >
+                          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                          <line x1="4" y1="22" x2="4" y2="15" />
+                        </Svg>
+                        <Text
+                          style={[
+                            styles.optionsSheetItemText,
+                            { color: "#EF4444" },
+                          ]}
+                        >
+                          Report Update
+                        </Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.optionsSheetCancelBtn,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(0,0,0,0.05)",
+                },
+              ]}
+              onPress={() => setOptionsPost(null)}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[styles.optionsSheetCancelText, { color: colors.text }]}
+              >
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Bottom Sheet Comments Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={activeCommentsPostId !== null}
+        onRequestClose={() => setActiveCommentsPostId(null)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.bottomSheetOverlay}
+        >
+          {/* Backdrop pressable to close sheet */}
+          <Pressable
+            style={styles.bottomSheetBackdrop}
+            onPress={() => setActiveCommentsPostId(null)}
+          />
+
+          <View
+            style={[
+              styles.bottomSheetContent,
+              { backgroundColor: colors.cardBg, borderColor: colors.border },
+            ]}
+          >
+            {/* Grabber Handle */}
+            <View
+              style={[
+                styles.bottomSheetHandle,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(255, 255, 255, 0.2)"
+                    : "rgba(0, 0, 0, 0.15)",
+                },
+              ]}
+            />
+
+            {/* Header */}
+            <View
+              style={[
+                styles.bottomSheetHeader,
+                { borderBottomColor: colors.border },
+              ]}
+            >
+              <Text style={[styles.bottomSheetTitle, { color: colors.text }]}>
+                Comments ({activePost ? activePost.comments.length : 0})
+              </Text>
+              <TouchableOpacity
+                onPress={() => setActiveCommentsPostId(null)}
+                style={[
+                  styles.bottomSheetCloseBtn,
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.08)"
+                      : "rgba(0,0,0,0.05)",
+                  },
+                ]}
+              >
+                <Text
+                  style={[styles.bottomSheetCloseText, { color: colors.text }]}
+                >
+                  &times;
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Comments List */}
+            <ScrollView
+              contentContainerStyle={styles.bottomSheetScroll}
+              showsVerticalScrollIndicator={false}
+            >
+              {activePost && activePost.comments.length > 0 ? (
+                activePost.comments.map((comment) => (
+                  <View key={comment.id} style={styles.bottomSheetCommentItem}>
+                    <View style={styles.bottomSheetCommentAvatarContainer}>
+                      <Image
+                        source={{ uri: getAuthorAvatar(comment.author) }}
+                        style={styles.bottomSheetCommentAvatar}
+                      />
+                    </View>
+                    <View style={styles.bottomSheetCommentContentContainer}>
+                      <View
+                        style={[
+                          styles.bottomSheetCommentBubble,
+                          { backgroundColor: isDark ? "#1E1636" : "#E4E6EB" },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.bottomSheetCommentAuthor,
+                            { color: colors.text },
+                          ]}
+                        >
+                          {comment.author}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.bottomSheetCommentText,
+                            { color: colors.text },
+                          ]}
+                        >
+                          {comment.content}
+                        </Text>
+                      </View>
+
+                      {/* Facebook action row under the bubble */}
+                      <View style={styles.bottomSheetCommentActions}>
+                        <Text
+                          style={[
+                            styles.bottomSheetCommentActionText,
+                            { color: colors.textDimmed },
+                          ]}
+                        >
+                          Just now
+                        </Text>
+                        <Text
+                          style={[
+                            styles.bottomSheetCommentActionBullet,
+                            { color: colors.textDimmed },
+                          ]}
+                        >
+                          •
+                        </Text>
+                        <TouchableOpacity activeOpacity={0.7}>
+                          <Text
+                            style={[
+                              styles.bottomSheetCommentActionBtnText,
+                              { color: colors.textMuted },
+                            ]}
+                          >
+                            Like
+                          </Text>
+                        </TouchableOpacity>
+                        <Text
+                          style={[
+                            styles.bottomSheetCommentActionBullet,
+                            { color: colors.textDimmed },
+                          ]}
+                        >
+                          •
+                        </Text>
+                        <TouchableOpacity activeOpacity={0.7}>
+                          <Text
+                            style={[
+                              styles.bottomSheetCommentActionBtnText,
+                              { color: colors.textMuted },
+                            ]}
+                          >
+                            Reply
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                ))
+              ) : (
+                <View style={styles.noCommentsContainer}>
+                  <Text
+                    style={[
+                      styles.noCommentsText,
+                      { color: colors.textDimmed },
+                    ]}
+                  >
+                    No comments yet. Be the first to comment!
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+
+            {/* Comment Input Bar */}
+            <View
+              style={[
+                styles.bottomSheetInputRow,
+                { borderTopColor: colors.border },
+              ]}
+            >
+              <View style={styles.bottomSheetInputActionsLeft}>
+                <TouchableOpacity
+                  style={styles.bottomSheetInputIconBtn}
+                  activeOpacity={0.7}
+                >
+                  <Svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.textDimmed}
+                    strokeWidth="2"
+                  >
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                    <circle cx="12" cy="13" r="4" />
+                  </Svg>
+                </TouchableOpacity>
+              </View>
+              <TextInput
+                style={[
+                  styles.bottomSheetInput,
+                  {
+                    backgroundColor: isDark ? "#1E1636" : "#F1F5F9",
+                    color: colors.text,
+                    borderColor: colors.border,
+                  },
+                ]}
+                placeholder="Write a comment..."
+                placeholderTextColor={colors.textDimmed}
+                value={newCommentText}
+                onChangeText={setNewCommentText}
+                onSubmitEditing={handleSheetAddComment}
+              />
+              <TouchableOpacity
+                style={[
+                  styles.bottomSheetSendBtn,
+                  {
+                    backgroundColor: newCommentText.trim()
+                      ? colors.primary
+                      : isDark
+                        ? "rgba(255,255,255,0.05)"
+                        : "rgba(0,0,0,0.05)",
+                  },
+                ]}
+                onPress={handleSheetAddComment}
+                disabled={!newCommentText.trim()}
+              >
+                <Svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={newCommentText.trim() ? "white" : colors.textDimmed}
+                  strokeWidth="2.5"
+                >
+                  <line x1="22" y1="2" x2="11" y2="13" />
+                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                </Svg>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Start Conversation Modal (Search and filter popup) */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={startConvModalVisible}
+        onRequestClose={() => setStartConvModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.startConvModalContent,
+              { backgroundColor: colors.cardBg, borderColor: colors.border },
+            ]}
+          >
+            {/* Modal Header */}
+            <View style={styles.modalHeaderRow}>
+              <Text style={[styles.modalTitleText, { color: colors.text }]}>
+                Start Translation Chat
+              </Text>
+              <TouchableOpacity
+                onPress={() => setStartConvModalVisible(false)}
+                style={[styles.modalCloseBtn, { backgroundColor: colors.bg }]}
+              >
+                <Text
+                  style={[
+                    styles.modalCloseBtnText,
+                    { color: colors.textDimmed },
+                  ]}
+                >
+                  &times;
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Filter Tabs / Chips: "From Contact" and "From Global" */}
+            <View style={styles.modalFilterRow}>
+              <TouchableOpacity
+                style={[
+                  styles.modalFilterChip,
+                  startConvFilter === "contacts"
+                    ? {
+                        backgroundColor: colors.primaryGlow,
+                        borderColor: colors.primary,
+                      }
+                    : {
+                        backgroundColor: colors.bg,
+                        borderColor: colors.border,
+                      },
+                ]}
+                onPress={() => setStartConvFilter("contacts")}
+              >
+                <Text
+                  style={[
+                    styles.modalFilterChipText,
+                    {
+                      color:
+                        startConvFilter === "contacts"
+                          ? colors.primary
+                          : colors.textMuted,
+                    },
+                  ]}
+                >
+                  From Contacts
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.modalFilterChip,
+                  startConvFilter === "global"
+                    ? {
+                        backgroundColor: colors.primaryGlow,
+                        borderColor: colors.primary,
+                      }
+                    : {
+                        backgroundColor: colors.bg,
+                        borderColor: colors.border,
+                      },
+                ]}
+                onPress={() => setStartConvFilter("global")}
+              >
+                <Text
+                  style={[
+                    styles.modalFilterChipText,
+                    {
+                      color:
+                        startConvFilter === "global"
+                          ? colors.primary
+                          : colors.textMuted,
+                    },
+                  ]}
+                >
+                  From Global
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Search Input */}
+            <View
+              style={[
+                styles.modalSearchBox,
+                { backgroundColor: colors.bg, borderColor: colors.border },
+              ]}
+            >
+              <Svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={colors.textDimmed}
+                strokeWidth="2"
+                style={{ marginRight: 8 }}
+              >
+                <Circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </Svg>
+              <TextInput
+                style={[styles.modalSearchInput, { color: colors.text }]}
+                placeholder="Search by name or UID"
+                placeholderTextColor={colors.textDimmed}
+                value={startConvSearch}
+                onChangeText={setStartConvSearch}
+              />
+            </View>
+
+            {/* Scrollable list of matched partners */}
+            <ScrollView
+              style={styles.modalScrollList}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {(() => {
+                const sourceList =
+                  startConvFilter === "contacts" ? contacts : EXPLORE_PEOPLE;
+                const filtered = sourceList.filter(
+                  (item) =>
+                    item.name
+                      .toLowerCase()
+                      .includes(startConvSearch.toLowerCase()) ||
+                    item.id
+                      .toLowerCase()
+                      .includes(startConvSearch.toLowerCase()),
+                );
+
+                if (filtered.length === 0) {
+                  return (
+                    <View style={styles.modalEmptyState}>
+                      <Text
+                        style={[
+                          styles.modalEmptyText,
+                          { color: colors.textDimmed, marginBottom: 16 },
+                        ]}
+                      >
+                        {`No partners found matching "${startConvSearch}"`}
+                      </Text>
+                      {startConvFilter === "contacts" &&
+                        startConvSearch.trim().length > 0 && (
+                          <TouchableOpacity
+                            style={[
+                              styles.modalAddContactCard,
+                              { borderColor: colors.border },
+                            ]}
+                            onPress={() =>
+                              handleConfirmAddContact(startConvSearch.trim())
+                            }
+                            activeOpacity={0.7}
+                          >
+                            <View
+                              style={[
+                                styles.modalAddContactIconBg,
+                                { backgroundColor: colors.primaryGlow },
+                              ]}
+                            >
+                              <Svg
+                                width="20"
+                                height="20"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke={colors.primary}
+                                strokeWidth="2.5"
+                              >
+                                <Path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                                <Circle cx="9" cy="7" r="4" />
+                                <Line x1="19" y1="8" x2="19" y2="14" />
+                                <Line x1="16" y1="11" x2="22" y2="11" />
+                              </Svg>
+                            </View>
+                            <View style={{ flex: 1, marginLeft: 12 }}>
+                              <Text
+                                style={[
+                                  styles.modalAddContactText,
+                                  { color: colors.text },
+                                ]}
+                              >
+                                {`Add "${startConvSearch.trim()}" to Contacts`}
+                              </Text>
+                              <Text
+                                style={{
+                                  color: colors.textDimmed,
+                                  fontSize: 11,
+                                  marginTop: 2,
+                                }}
+                              >
+                                Start a new translated conversation
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        )}
+                    </View>
+                  );
+                }
+
+                return filtered.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[
+                      styles.modalPartnerCard,
+                      { borderBottomColor: colors.border },
+                    ]}
+                    onPress={() => {
+                      setStartConvModalVisible(false);
+                      handlePartnerClick(item.name, item.avatar, item.flag);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.modalAvatarContainer}>
+                      <Image
+                        source={{ uri: item.avatar }}
+                        style={styles.modalAvatar}
+                      />
+                      <View
+                        style={[
+                          styles.modalFlagBadge,
+                          { backgroundColor: colors.bg },
+                        ]}
+                      >
+                        {renderFlagOrEmoji(item.flag)}
+                      </View>
+                    </View>
+                    <View style={styles.modalPartnerInfo}>
+                      <View style={styles.modalNameRow}>
+                        <Text
+                          style={[
+                            styles.modalPartnerName,
+                            { color: colors.text },
+                          ]}
+                        >
+                          {item.name}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.modalPartnerUid,
+                            { color: colors.textDimmed },
+                          ]}
+                        >
+                          #{item.id}
+                        </Text>
+                      </View>
+                      <Text
+                        style={[
+                          styles.modalPartnerLang,
+                          { color: colors.primary },
+                        ]}
+                      >
+                        {item.langName}
+                      </Text>
+                      {startConvFilter === "contacts" ? (
+                        <Text
+                          style={[
+                            styles.modalPartnerBio,
+                            { color: colors.textMuted },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {item.status}
+                        </Text>
+                      ) : (
+                        <Text
+                          style={[
+                            styles.modalPartnerBio,
+                            { color: colors.textMuted },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {item.bio}
+                        </Text>
+                      )}
+                    </View>
+                    <View
+                      style={[
+                        styles.modalPartnerCta,
+                        { backgroundColor: colors.primaryGlow },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.modalPartnerCtaText,
+                          { color: colors.primary },
+                        ]}
+                      >
+                        Chat
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ));
+              })()}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -2002,7 +3161,7 @@ const styles = StyleSheet.create({
     height: 170,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 28,
   },
   giantCta: {
     width: 130,
@@ -2015,7 +3174,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 20,
     elevation: 8,
-    marginBottom: 20,
   },
   giantCtaGradient: {
     flex: 1,
@@ -2094,7 +3252,6 @@ const styles = StyleSheet.create({
   multiFlagsWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
   },
   flagImageMulti: {
     width: 14,
@@ -2289,7 +3446,6 @@ const styles = StyleSheet.create({
   postActionBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
     paddingVertical: 4,
     paddingHorizontal: 12,
   },
@@ -2315,7 +3471,6 @@ const styles = StyleSheet.create({
   commentInputRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
     marginTop: 10,
   },
   commentInput: {
@@ -2505,7 +3660,6 @@ const styles = StyleSheet.create({
   promptOptions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
   },
   optionPill: {
     borderWidth: 1,
@@ -2593,7 +3747,6 @@ const styles = StyleSheet.create({
   filterContainer: {
     flexDirection: "row",
     paddingHorizontal: 20,
-    gap: 8,
     marginTop: 12,
     marginBottom: 16,
   },
@@ -2624,5 +3777,505 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: "center",
     lineHeight: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(10, 6, 18, 0.6)",
+    justifyContent: "flex-end",
+  },
+  startConvModalContent: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    paddingTop: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    height: "80%",
+  },
+  modalHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  modalTitleText: {
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalCloseBtnText: {
+    fontSize: 22,
+    lineHeight: 24,
+  },
+  modalFilterRow: {
+    flexDirection: "row",
+    marginBottom: 16,
+  },
+  modalFilterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  modalFilterChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  modalSearchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    height: 44,
+    marginBottom: 16,
+  },
+  modalSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    height: "100%",
+    padding: 0,
+  },
+  modalScrollList: {
+    flex: 1,
+  },
+  modalPartnerCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  modalAvatarContainer: {
+    position: "relative",
+  },
+  modalAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  modalFlagBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+    elevation: 2,
+    overflow: "hidden",
+  },
+  modalPartnerInfo: {
+    flex: 1,
+    marginLeft: 12,
+    marginRight: 8,
+  },
+  modalNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  modalPartnerName: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  modalPartnerUid: {
+    fontSize: 11,
+  },
+  modalPartnerLang: {
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  modalPartnerBio: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  modalPartnerCta: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  modalPartnerCtaText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  modalEmptyState: {
+    paddingVertical: 40,
+    alignItems: "center",
+  },
+  modalEmptyText: {
+    fontSize: 14,
+    textAlign: "center",
+  },
+  modalAddContactCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    width: "100%",
+    marginTop: 8,
+  },
+  modalAddContactIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalAddContactText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  bottomSheetOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  bottomSheetBackdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  bottomSheetContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 8,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    height: "75%",
+  },
+  bottomSheetHandle: {
+    width: 40,
+    height: 5,
+    borderRadius: 2.5,
+    alignSelf: "center",
+    marginVertical: 8,
+  },
+  bottomSheetHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  bottomSheetTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  bottomSheetCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  bottomSheetCloseText: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginTop: -2,
+  },
+  bottomSheetScroll: {
+    paddingVertical: 16,
+    paddingBottom: 40,
+  },
+  bottomSheetCommentItem: {
+    flexDirection: "row",
+    marginBottom: 16,
+    alignItems: "flex-start",
+  },
+  bottomSheetCommentAvatarContainer: {
+    marginRight: 10,
+  },
+  bottomSheetCommentAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  bottomSheetCommentContentContainer: {
+    flex: 1,
+  },
+  bottomSheetCommentBubble: {
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  bottomSheetCommentAuthor: {
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 3,
+  },
+  bottomSheetCommentText: {
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  bottomSheetCommentActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 4,
+    marginLeft: 12,
+  },
+  bottomSheetCommentActionText: {
+    fontSize: 12,
+  },
+  bottomSheetCommentActionBullet: {
+    fontSize: 12,
+    marginHorizontal: 6,
+  },
+  bottomSheetCommentActionBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  bottomSheetInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    paddingBottom: Platform.OS === "ios" ? 24 : 12,
+  },
+  bottomSheetInputActionsLeft: {
+    marginRight: 8,
+  },
+  bottomSheetInputIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  bottomSheetInput: {
+    flex: 1,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    marginRight: 8,
+    fontSize: 14,
+  },
+  bottomSheetSendBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  noCommentsContainer: {
+    paddingVertical: 40,
+    alignItems: "center",
+  },
+  noCommentsText: {
+    fontSize: 14,
+    textAlign: "center",
+  },
+  createPostModalContent: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    paddingTop: 16,
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    height: "85%",
+  },
+  createPostHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    marginBottom: 16,
+  },
+  createPostCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  createPostCloseText: {
+    fontSize: 22,
+    lineHeight: 24,
+  },
+  createPostTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  createPostSubmitBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  createPostSubmitBtnText: {
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  createPostUserRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  createPostUserAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 12,
+  },
+  createPostUserInfo: {
+    flex: 1,
+  },
+  createPostUserName: {
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  tagFlagsScroll: {
+    flexDirection: "row",
+    marginTop: 4,
+  },
+  tagFlagBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.05)",
+    marginRight: 6,
+  },
+  tagFlagText: {
+    fontSize: 14,
+  },
+  createPostInput: {
+    flex: 1,
+    fontSize: 16,
+    lineHeight: 22,
+    textAlignVertical: "top",
+    minHeight: 120,
+    paddingVertical: 8,
+  },
+  createPostImgPreviewContainer: {
+    position: "relative",
+    width: "100%",
+    height: 180,
+    borderRadius: 12,
+    overflow: "hidden",
+    marginVertical: 12,
+  },
+  createPostImgPreview: {
+    width: "100%",
+    height: "100%",
+  },
+  deleteImgBtn: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  deleteImgBtnText: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "700",
+    lineHeight: 20,
+  },
+  attachLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  presetImagesScroll: {
+    flexDirection: "row",
+    marginBottom: 20,
+  },
+  presetImgBtn: {
+    width: 72,
+    height: 72,
+    borderRadius: 10,
+    marginRight: 8,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  presetImgThumb: {
+    width: "100%",
+    height: "100%",
+  },
+  postHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  postHeaderActionBtn: {
+    padding: 4,
+  },
+  optionsSheetOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+  },
+  optionsSheetBackdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  optionsSheetContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+  },
+  optionsSheetHandle: {
+    width: 40,
+    height: 5,
+    borderRadius: 2.5,
+    alignSelf: "center",
+    marginBottom: 20,
+  },
+  optionsSheetList: {
+    marginBottom: 16,
+  },
+  optionsSheetItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  optionsSheetItemText: {
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  deleteOptionItem: {
+    borderBottomWidth: 0,
+  },
+  optionsSheetCancelBtn: {
+    borderRadius: 24,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  optionsSheetCancelText: {
+    fontSize: 15,
+    fontWeight: "600",
   },
 });

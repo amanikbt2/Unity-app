@@ -67,10 +67,6 @@ export const AppProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(DEFAULT_USER);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadSettings();
-  }, []);
-
   const loadSettings = async () => {
     try {
       const stored = await AsyncStorage.getItem('amani_profile_settings');
@@ -83,6 +79,13 @@ export const AppProvider = ({ children }) => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadSettings();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   const updateSettings = async (newSettings) => {
     try {
