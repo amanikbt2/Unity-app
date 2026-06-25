@@ -44,30 +44,6 @@ function getCountryCodeFromFlag(flagEmoji) {
   return code.length === 2 ? code : null;
 }
 
-// Helper to split a string containing flag emojis and other emojis
-function getFlagsFromText(text) {
-  if (!text) return [];
-  const chars = [...text];
-  const flags = [];
-  let currentFlag = "";
-  for (const char of chars) {
-    const cp = char.codePointAt(0);
-    if (cp >= 127462 && cp <= 127487) {
-      currentFlag += char;
-      if ([...currentFlag].length === 2) {
-        flags.push(currentFlag);
-        currentFlag = "";
-      }
-    } else {
-      if (currentFlag) {
-        currentFlag = "";
-      }
-      flags.push(char);
-    }
-  }
-  return flags;
-}
-
 // Helper to render flag image or fallback emoji/text
 function renderFlagOrEmoji(val) {
   const code = getCountryCodeFromFlag(val);
@@ -81,33 +57,6 @@ function renderFlagOrEmoji(val) {
     );
   }
   return <Text style={styles.flagText}>{val}</Text>;
-}
-
-// Helper to render multiple flag images side-by-side or standard emoji/text
-function renderMultiFlags(text) {
-  const items = getFlagsFromText(text);
-  return (
-    <View style={styles.multiFlagsWrapper}>
-      {items.map((item, idx) => {
-        const code = getCountryCodeFromFlag(item);
-        if (code) {
-          return (
-            <Image
-              key={idx}
-              source={{ uri: `https://flagcdn.com/w40/${code}.png` }}
-              style={styles.flagImageMulti}
-              resizeMode="cover"
-            />
-          );
-        }
-        return (
-          <Text key={idx} style={styles.flagTextMulti}>
-            {item}
-          </Text>
-        );
-      })}
-    </View>
-  );
 }
 
 const INITIAL_CONTACTS = [
@@ -311,8 +260,7 @@ const INITIAL_POSTS = [
 ];
 
 export default function HomeScreen({ navigation }) {
-  const { currentUser, updateSettings, getLangDetails } =
-    useContext(AppContext);
+  const { currentUser, getLangDetails } = useContext(AppContext);
   const [activeTab, setActiveTab] = useState("chats");
   const [onboardingVisible, setOnboardingVisible] = useState(true);
   const [contactsFilter, setContactsFilter] = useState("my");
@@ -320,8 +268,6 @@ export default function HomeScreen({ navigation }) {
   const [isImporting, setIsImporting] = useState(false);
   const [imported, setImported] = useState(false);
   const [posts, setPosts] = useState(INITIAL_POSTS);
-  const [expandedComments, setExpandedComments] = useState({});
-  const [commentInputs, setCommentInputs] = useState({});
   const [startConvModalVisible, setStartConvModalVisible] = useState(false);
   const [startConvSearch, setStartConvSearch] = useState("");
   const [startConvFilter, setStartConvFilter] = useState("contacts");
@@ -403,17 +349,7 @@ export default function HomeScreen({ navigation }) {
     return () => {
       clearInterval(pulseInterval);
     };
-  }, []);
-
-  // Helper to find preset index for avatar (returns 1-4)
-  const getAvatarIndex = (url) => {
-    if (!url) return 1;
-    if (url.includes("photo-1534528741775-53994a69daeb")) return 1;
-    if (url.includes("photo-1507003211169-0a1dd7228f2d")) return 2;
-    if (url.includes("photo-1517841905240-472988babdf9")) return 3;
-    if (url.includes("photo-1488426862026-3ee34a7d66df")) return 4;
-    return 1;
-  };
+  }, [gradientAnim, pulseAnim1, pulseAnim2, pulseAnim3]);
 
   // Define onboarding tasks
   const allTasks = [
@@ -770,40 +706,6 @@ export default function HomeScreen({ navigation }) {
         return post;
       }),
     );
-  };
-
-  const handleToggleComments = (postId) => {
-    setExpandedComments((prev) => ({
-      ...prev,
-      [postId]: !prev[postId],
-    }));
-  };
-
-  const handleAddComment = (postId) => {
-    const text = commentInputs[postId]?.trim();
-    if (!text) return;
-    setPosts((prev) =>
-      prev.map((post) => {
-        if (post.id === postId) {
-          return {
-            ...post,
-            comments: [
-              ...post.comments,
-              {
-                id: Date.now().toString(),
-                author: currentUser.name,
-                content: text,
-              },
-            ],
-          };
-        }
-        return post;
-      }),
-    );
-    setCommentInputs((prev) => ({
-      ...prev,
-      [postId]: "",
-    }));
   };
 
   // Interpolate animated gradient shifts
@@ -1524,7 +1426,6 @@ export default function HomeScreen({ navigation }) {
               Recent Updates
             </Text>
             {posts.map((post) => {
-              const isCommentsVisible = expandedComments[post.id];
               return (
                 <View
                   key={post.id}
@@ -1808,18 +1709,15 @@ export default function HomeScreen({ navigation }) {
 
       {/* Centered Premium Onboarding Popup Card (adapts to light/dark themes dynamically!) */}
       {onboardingVisible && (
-        <View
-          style={[
-            styles.onboardingOverlay,
-            Platform.OS === "web"
-              ? { pointerEvents: "none" }
-              : { pointerEvents: "box-none" },
-          ]}
-        >
+        <View style={[styles.onboardingOverlay, { pointerEvents: "box-none" }]}>
           <View
             style={[
               styles.onboardingCard,
-              { backgroundColor: colors.cardBg, borderColor: colors.border },
+              {
+                backgroundColor: colors.cardBg,
+                borderColor: colors.border,
+                pointerEvents: "auto",
+              },
             ]}
           >
             <View style={styles.onboardingHeader}>
