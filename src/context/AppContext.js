@@ -24,7 +24,20 @@ const LANGS = {
   sw: { name: 'Swahili', flag: '🇰🇪', country: 'Kenya' },
   ja: { name: 'Japanese', flag: '🇯🇵', country: 'Japan' },
   de: { name: 'German', flag: '🇩🇪', country: 'Germany' },
-  zh: { name: 'Chinese', flag: '🇨🇳', country: 'China' }
+  zh: { name: 'Chinese', flag: '🇨🇳', country: 'China' },
+  ar: { name: 'Arabic', flag: '🇸🇦', country: 'Saudi Arabia' },
+  it: { name: 'Italian', flag: '🇮🇹', country: 'Italy' },
+  pt: { name: 'Portuguese', flag: '🇧🇷', country: 'Brazil' },
+  ru: { name: 'Russian', flag: '🇷🇺', country: 'Russia' },
+  ko: { name: 'Korean', flag: '🇰🇷', country: 'South Korea' },
+  hi: { name: 'Hindi', flag: '🇮🇳', country: 'India' },
+  tr: { name: 'Turkish', flag: '🇹🇷', country: 'Turkey' },
+  nl: { name: 'Dutch', flag: '🇳🇱', country: 'Netherlands' },
+  pl: { name: 'Polish', flag: '🇵🇱', country: 'Poland' },
+  vi: { name: 'Vietnamese', flag: '🇻🇳', country: 'Vietnam' },
+  th: { name: 'Thai', flag: '🇹🇭', country: 'Thailand' },
+  el: { name: 'Greek', flag: '🇬🇷', country: 'Greece' },
+  he: { name: 'Hebrew', flag: '🇮🇱', country: 'Israel' }
 };
 
 const FLAG_MAP = {
@@ -34,7 +47,20 @@ const FLAG_MAP = {
   '🇰🇪': { name: 'Swahili', country: 'Kenya' },
   '🇫🇷': { name: 'French', country: 'France' },
   '🇩🇪': { name: 'German', country: 'Germany' },
-  '🇨🇳': { name: 'Chinese', country: 'China' }
+  '🇨🇳': { name: 'Chinese', country: 'China' },
+  '🇸🇦': { name: 'Arabic', country: 'Saudi Arabia' },
+  '🇮🇹': { name: 'Italian', country: 'Italy' },
+  '🇧🇷': { name: 'Portuguese', country: 'Brazil' },
+  '🇷🇺': { name: 'Russian', country: 'Russia' },
+  '🇰🇷': { name: 'Korean', country: 'South Korea' },
+  '🇮🇳': { name: 'Hindi', country: 'India' },
+  '🇹🇷': { name: 'Turkish', country: 'Turkey' },
+  '🇳🇱': { name: 'Dutch', country: 'Netherlands' },
+  '🇵🇱': { name: 'Polish', country: 'Poland' },
+  '🇻🇳': { name: 'Vietnamese', country: 'Vietnam' },
+  '🇹🇭': { name: 'Thai', country: 'Thailand' },
+  '🇬🇷': { name: 'Greek', country: 'Greece' },
+  '🇮🇱': { name: 'Hebrew', country: 'Israel' }
 };
 
 export const AppProvider = ({ children }) => {

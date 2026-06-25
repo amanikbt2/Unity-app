@@ -26,6 +26,41 @@ import { AppContext } from "../context/AppContext";
 
 const { width } = Dimensions.get("window");
 
+// Helper to convert flag emoji to lowercase 2-letter country code
+function getCountryCodeFromFlag(flagEmoji) {
+  if (!flagEmoji || typeof flagEmoji !== "string") return null;
+  const chars = [...flagEmoji];
+  if (chars.length < 2) {
+    if (flagEmoji.length === 2 && /^[a-zA-Z]{2}$/.test(flagEmoji)) {
+      return flagEmoji.toLowerCase();
+    }
+    return null;
+  }
+  let code = "";
+  for (const char of chars) {
+    const codePoint = char.codePointAt(0);
+    if (codePoint >= 127462 && codePoint <= 127487) {
+      code += String.fromCharCode(codePoint - 127462 + 97);
+    }
+  }
+  return code.length === 2 ? code : null;
+}
+
+// Helper to render flag image or fallback emoji/text
+function renderFlagOrEmoji(val) {
+  const code = getCountryCodeFromFlag(val);
+  if (code) {
+    return (
+      <Image
+        source={{ uri: `https://flagcdn.com/w40/${code}.png` }}
+        style={styles.flagImage}
+        resizeMode="cover"
+      />
+    );
+  }
+  return <Text style={styles.bubbleAvatarText}>{val}</Text>;
+}
+
 export default function ConversationScreen({ route, navigation }) {
   const { partnerName, partnerAvatar, partnerFlag } = route.params || {
     partnerName: "Unity Translation AI",
@@ -296,7 +331,7 @@ export default function ConversationScreen({ route, navigation }) {
             { backgroundColor: colors.border },
           ]}
         >
-          <Text style={styles.bubbleAvatarText}>{flagEmoji}</Text>
+          {renderFlagOrEmoji(flagEmoji)}
         </View>
 
         <View
@@ -812,6 +847,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginHorizontal: 8,
+    overflow: "hidden",
+  },
+  flagImage: {
+    width: "100%",
+    height: "100%",
   },
   bubbleAvatarText: {
     fontSize: 14,

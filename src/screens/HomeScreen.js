@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect, useRef } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import {
   StyleSheet,
   Text,
@@ -9,6 +9,8 @@ import {
   Animated,
   Dimensions,
   Easing,
+  ActivityIndicator,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -17,18 +19,316 @@ import { AppContext } from "../context/AppContext";
 
 const { width } = Dimensions.get("window");
 
+// Helper to convert flag emoji to lowercase 2-letter country code
+function getCountryCodeFromFlag(flagEmoji) {
+  if (!flagEmoji || typeof flagEmoji !== "string") return null;
+  const chars = [...flagEmoji];
+  if (chars.length < 2) {
+    if (flagEmoji.length === 2 && /^[a-zA-Z]{2}$/.test(flagEmoji)) {
+      return flagEmoji.toLowerCase();
+    }
+    return null;
+  }
+  let code = "";
+  for (const char of chars) {
+    const codePoint = char.codePointAt(0);
+    if (codePoint >= 127462 && codePoint <= 127487) {
+      code += String.fromCharCode(codePoint - 127462 + 97);
+    }
+  }
+  return code.length === 2 ? code : null;
+}
+
+// Helper to split a string containing flag emojis and other emojis
+function getFlagsFromText(text) {
+  if (!text) return [];
+  const chars = [...text];
+  const flags = [];
+  let currentFlag = "";
+  for (const char of chars) {
+    const cp = char.codePointAt(0);
+    if (cp >= 127462 && cp <= 127487) {
+      currentFlag += char;
+      if ([...currentFlag].length === 2) {
+        flags.push(currentFlag);
+        currentFlag = "";
+      }
+    } else {
+      if (currentFlag) {
+        currentFlag = "";
+      }
+      flags.push(char);
+    }
+  }
+  return flags;
+}
+
+// Helper to render flag image or fallback emoji/text
+function renderFlagOrEmoji(val) {
+  const code = getCountryCodeFromFlag(val);
+  if (code) {
+    return (
+      <Image
+        source={{ uri: `https://flagcdn.com/w40/${code}.png` }}
+        style={styles.flagImage}
+        resizeMode="cover"
+      />
+    );
+  }
+  return <Text style={styles.flagText}>{val}</Text>;
+}
+
+// Helper to render multiple flag images side-by-side or standard emoji/text
+function renderMultiFlags(text) {
+  const items = getFlagsFromText(text);
+  return (
+    <View style={styles.multiFlagsWrapper}>
+      {items.map((item, idx) => {
+        const code = getCountryCodeFromFlag(item);
+        if (code) {
+          return (
+            <Image
+              key={idx}
+              source={{ uri: `https://flagcdn.com/w40/${code}.png` }}
+              style={styles.flagImageMulti}
+              resizeMode="cover"
+            />
+          );
+        }
+        return (
+          <Text key={idx} style={styles.flagTextMulti}>
+            {item}
+          </Text>
+        );
+      })}
+    </View>
+  );
+}
+
+const INITIAL_CONTACTS = [
+  {
+    id: "c1",
+    name: "Marcus Sterling",
+    avatar:
+      "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&h=150&q=80",
+    flag: "🇺🇸",
+    langName: "English (US)",
+    status: "Busy",
+  },
+  {
+    id: "c2",
+    name: "Yuki Tanaka",
+    avatar:
+      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+    flag: "🇯🇵",
+    langName: "Japanese",
+    status: "Available",
+  },
+  {
+    id: "c3",
+    name: "Lucas Dupont",
+    avatar:
+      "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=150&h=150&q=80",
+    flag: "🇫🇷",
+    langName: "French",
+    status: "In a meeting",
+  },
+];
+
+const IMPORTABLE_CONTACTS = [
+  {
+    id: "c4",
+    name: "Carlos Gomez",
+    avatar:
+      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80",
+    flag: "🇪🇸",
+    langName: "Spanish",
+    status: "Hey there! I am using Unity.",
+  },
+  {
+    id: "c5",
+    name: "Aisha Diallo",
+    avatar:
+      "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=150&h=150&q=80",
+    flag: "🇰🇪",
+    langName: "Swahili",
+    status: "Available",
+  },
+  {
+    id: "c6",
+    name: "Chloe Laurent",
+    avatar:
+      "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
+    flag: "🇫🇷",
+    langName: "French",
+    status: "Out for lunch",
+  },
+];
+
+const EXPLORE_PEOPLE = [
+  {
+    id: "e1",
+    name: "Amélie Dubois",
+    avatar:
+      "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=300&h=300&q=80",
+    flag: "🇫🇷",
+    langName: "French (France)",
+    bio: "Hi! I am a culinary chef in Paris. Let's exchange recipes!",
+  },
+  {
+    id: "e2",
+    name: "Hiroshi Sato",
+    avatar:
+      "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=300&h=300&q=80",
+    flag: "🇯🇵",
+    langName: "Japanese (Japan)",
+    bio: "Tech enthusiast and history buff. Happy to translate and chat!",
+  },
+  {
+    id: "e3",
+    name: "Isabella Silva",
+    avatar:
+      "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=300&h=300&q=80",
+    flag: "🇧🇷",
+    langName: "Portuguese (Brazil)",
+    bio: "Architect from São Paulo. Looking to make global friends.",
+  },
+  {
+    id: "e4",
+    name: "Rajesh Kumar",
+    avatar:
+      "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=300&h=300&q=80",
+    flag: "🇮🇳",
+    langName: "Hindi (India)",
+    bio: "Software engineer who loves yoga and trekking. Let's connect!",
+  },
+];
+
+const INITIAL_POSTS = [
+  {
+    id: "p1",
+    authorName: "Sarah Jenkins",
+    avatar:
+      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&h=150&q=80",
+    flag: "🇺🇸",
+    time: "2 hours ago",
+    content:
+      "Just arrived in Tokyo! The translation app has been a lifesaver for ordering food and finding my hotel. Highly recommend it! 🗼🇯🇵",
+    image:
+      "https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&w=600&q=80",
+    likes: 24,
+    liked: false,
+    comments: [
+      {
+        id: "c1_1",
+        author: "Yuki Tanaka",
+        content:
+          "Welcome to Japan! Let me know if you need any recommendations.",
+      },
+      {
+        id: "c1_2",
+        author: "Sarah Jenkins",
+        content:
+          "Thank you Yuki! I would love to get some sushi recommendations.",
+      },
+    ],
+  },
+  {
+    id: "p2",
+    authorName: "Carlos Gomez",
+    avatar:
+      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80",
+    flag: "🇪🇸",
+    time: "4 hours ago",
+    content:
+      "Preparando la presentación para la cumbre europea de mañana. Gracias a Dios por la traducción de documentos en tiempo real de Unity, me ahorró horas de trabajo duro. 🇪🇺💼",
+    image: null,
+    likes: 12,
+    liked: false,
+    comments: [
+      {
+        id: "c2_1",
+        author: "Lucas Dupont",
+        content: "Bonne chance Carlos! Everything will go well.",
+      },
+    ],
+  },
+  {
+    id: "p3",
+    authorName: "Amara Okoro",
+    avatar:
+      "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=150&h=150&q=80",
+    flag: "🇰🇪",
+    time: "Yesterday",
+    content:
+      "Beautiful sunset over the savannah today. Nature never ceases to amaze me. 🌅🦁",
+    image:
+      "https://images.unsplash.com/photo-1516426122078-c23e76319801?auto=format&fit=crop&w=600&q=80",
+    likes: 45,
+    liked: true,
+    comments: [],
+  },
+  {
+    id: "p4",
+    authorName: "Kenji Sato",
+    avatar:
+      "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=150&h=150&q=80",
+    flag: "🇯🇵",
+    time: "2 days ago",
+    content:
+      "Practicing English pronunciation tonight. It gets easier when you have an AI listener that corrects you politely! 🗣️📖",
+    image: null,
+    likes: 18,
+    liked: false,
+    comments: [
+      {
+        id: "c4_1",
+        author: "Marcus Sterling",
+        content: "Keep it up, Kenji! Your English is already excellent.",
+      },
+    ],
+  },
+  {
+    id: "p5",
+    authorName: "Elena Rostova",
+    avatar:
+      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+    flag: "🇷🇺",
+    time: "3 days ago",
+    content:
+      "Walking around Red Square in Moscow. The winter air is freezing but the view is magical. ❄️🕌",
+    image:
+      "https://images.unsplash.com/photo-1513326738677-b964603b136d?auto=format&fit=crop&w=600&q=80",
+    likes: 67,
+    liked: false,
+    comments: [],
+  },
+];
+
 export default function HomeScreen({ navigation }) {
   const { currentUser, updateSettings, getLangDetails } =
     useContext(AppContext);
   const [activeTab, setActiveTab] = useState("chats");
   const [onboardingVisible, setOnboardingVisible] = useState(true);
-  const [groupsFilter, setGroupsFilter] = useState("my");
+  const [contactsFilter, setContactsFilter] = useState("my");
+  const [contacts, setContacts] = useState(INITIAL_CONTACTS);
+  const [isImporting, setIsImporting] = useState(false);
+  const [imported, setImported] = useState(false);
+  const [posts, setPosts] = useState(INITIAL_POSTS);
+  const [expandedComments, setExpandedComments] = useState({});
+  const [commentInputs, setCommentInputs] = useState({});
 
   // Gradient shifting animation value
   const gradientAnim = useRef(new Animated.Value(0)).current;
 
-  // Start animated fluid progress bar loop
+  // Pulse animations for giant CTA button
+  const pulseAnim1 = useRef(new Animated.Value(0)).current;
+  const pulseAnim2 = useRef(new Animated.Value(0)).current;
+  const pulseAnim3 = useRef(new Animated.Value(0)).current;
+
+  // Start animated loops
   useEffect(() => {
+    // Gradient loop
     Animated.loop(
       Animated.timing(gradientAnim, {
         toValue: 1,
@@ -37,44 +337,126 @@ export default function HomeScreen({ navigation }) {
         useNativeDriver: false,
       }),
     ).start();
+
+    // Pulse animation logic: trigger every 10 seconds.
+    // The animation itself is quick and beautiful (YouTube style).
+    const triggerPulse = () => {
+      pulseAnim1.setValue(0);
+      pulseAnim2.setValue(0);
+      pulseAnim3.setValue(0);
+
+      Animated.parallel([
+        Animated.timing(pulseAnim1, {
+          toValue: 1,
+          duration: 1200,
+          easing: Easing.bezier(0.16, 1, 0.3, 1),
+          useNativeDriver: true,
+        }),
+        Animated.sequence([
+          Animated.delay(200),
+          Animated.timing(pulseAnim2, {
+            toValue: 1,
+            duration: 1200,
+            easing: Easing.bezier(0.16, 1, 0.3, 1),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.delay(400),
+          Animated.timing(pulseAnim3, {
+            toValue: 1,
+            duration: 1200,
+            easing: Easing.bezier(0.16, 1, 0.3, 1),
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start();
+    };
+
+    // Trigger immediately on mount
+    triggerPulse();
+
+    // Trigger every 10 seconds
+    const pulseInterval = setInterval(triggerPulse, 10000);
+
+    return () => {
+      clearInterval(pulseInterval);
+    };
   }, []);
 
-  // Compute onboarding metrics
-  const isLanguagesCompleted =
-    currentUser.secondaryLangs && currentUser.secondaryLangs.length > 0;
-  const isVoiceCompleted = currentUser.micTested === true;
-  const isProfileCompleted =
-    currentUser.name &&
-    currentUser.name !== "Amani User" &&
-    currentUser.avatar &&
-    !currentUser.avatar.includes("photo-1534528741775-53994a69daeb");
+  // Helper to find preset index for avatar (returns 1-4)
+  const getAvatarIndex = (url) => {
+    if (!url) return 1;
+    if (url.includes("photo-1534528741775-53994a69daeb")) return 1;
+    if (url.includes("photo-1507003211169-0a1dd7228f2d")) return 2;
+    if (url.includes("photo-1517841905240-472988babdf9")) return 3;
+    if (url.includes("photo-1488426862026-3ee34a7d66df")) return 4;
+    return 1;
+  };
 
-  let completedSteps = 0;
-  if (currentUser.name && currentUser.name !== "Amani User") completedSteps++;
-  if (
-    currentUser.avatar &&
-    !currentUser.avatar.includes("photo-1534528741775-53994a69daeb")
-  )
-    completedSteps++;
-  if (currentUser.nativeLang) completedSteps++;
-  if (currentUser.secondaryLangs && currentUser.secondaryLangs.length > 0)
-    completedSteps++;
-  if (currentUser.micTested) completedSteps++;
-  if (currentUser.prefVad) completedSteps++;
-
-  const onboardingPct = Math.min(
-    100,
-    Math.max(20, Math.round((completedSteps / 6) * 100)),
-  );
-
-  useEffect(() => {
-    if (onboardingPct >= 100) {
-      const timer = setTimeout(() => {
-        setOnboardingVisible(false);
-      }, 1200);
-      return () => clearTimeout(timer);
+  // Define onboarding tasks
+  const allTasks = [
+    {
+      id: "avatar",
+      isCompleted: !!(currentUser.avatar && !currentUser.avatar.includes("photo-1534528741775-53994a69daeb")),
+      uncompletedLabel: "Add profile pic [1] or [2] or [3] or [4]",
+      completedLabel: `✓ Profile pic [${getAvatarIndex(currentUser.avatar)}] Added`
+    },
+    {
+      id: "username",
+      isCompleted: !!(currentUser.name && currentUser.name !== "Amani User"),
+      uncompletedLabel: "Change username",
+      completedLabel: "✓ Username Changed"
+    },
+    {
+      id: "nativeLang",
+      isCompleted: currentUser.nativeLangSelected === true,
+      uncompletedLabel: "Add native language",
+      completedLabel: "✓ Native Language Added"
+    },
+    {
+      id: "voice",
+      isCompleted: currentUser.micTested === true,
+      uncompletedLabel: "Train your AI voice",
+      completedLabel: "✓ AI Voice Trained"
+    },
+    {
+      id: "secondaryLang",
+      isCompleted: currentUser.secondaryLangsSelected === true,
+      uncompletedLabel: "Add secondary language",
+      completedLabel: "✓ Secondary Language Added"
     }
-  }, [onboardingPct]);
+  ];
+
+  const completedTasks = allTasks.filter((t) => t.isCompleted);
+  const uncompletedTasks = allTasks.filter((t) => !t.isCompleted);
+
+  // Compute onboarding metrics
+  const completedSteps = completedTasks.length;
+  const totalSteps = allTasks.length;
+  const onboardingPct = Math.round((completedSteps / totalSteps) * 100);
+
+  // Select exactly 3 tasks to display at a time (1 completed followed by 2 uncompleted)
+  let tasksToShow = [];
+  if (uncompletedTasks.length > 0) {
+    if (completedTasks.length > 0) {
+      // Show 1 completed task first
+      tasksToShow.push(completedTasks[0]);
+      // Show up to 2 uncompleted tasks
+      tasksToShow.push(uncompletedTasks[0]);
+      if (uncompletedTasks[1]) {
+        tasksToShow.push(uncompletedTasks[1]);
+      } else if (completedTasks[1]) {
+        tasksToShow.push(completedTasks[1]);
+      }
+    } else {
+      // No completed tasks yet, show first 3 uncompleted
+      tasksToShow = uncompletedTasks.slice(0, 3);
+    }
+  } else {
+    // All completed
+    tasksToShow = completedTasks.slice(0, 3);
+  }
 
   // Color mappings based on active dark theme preference
   const isDark = currentUser.prefDarkTheme;
@@ -114,6 +496,65 @@ export default function HomeScreen({ navigation }) {
     navigation.navigate("Profile");
   };
 
+  const handleImportContacts = () => {
+    if (imported || isImporting) return;
+    setIsImporting(true);
+    setTimeout(() => {
+      setContacts((prev) => [...prev, ...IMPORTABLE_CONTACTS]);
+      setIsImporting(false);
+      setImported(true);
+    }, 1200);
+  };
+
+  const handleToggleLike = (postId) => {
+    setPosts((prev) =>
+      prev.map((post) => {
+        if (post.id === postId) {
+          return {
+            ...post,
+            liked: !post.liked,
+            likes: post.liked ? post.likes - 1 : post.likes + 1,
+          };
+        }
+        return post;
+      }),
+    );
+  };
+
+  const handleToggleComments = (postId) => {
+    setExpandedComments((prev) => ({
+      ...prev,
+      [postId]: !prev[postId],
+    }));
+  };
+
+  const handleAddComment = (postId) => {
+    const text = commentInputs[postId]?.trim();
+    if (!text) return;
+    setPosts((prev) =>
+      prev.map((post) => {
+        if (post.id === postId) {
+          return {
+            ...post,
+            comments: [
+              ...post.comments,
+              {
+                id: Date.now().toString(),
+                author: currentUser.name,
+                content: text,
+              },
+            ],
+          };
+        }
+        return post;
+      }),
+    );
+    setCommentInputs((prev) => ({
+      ...prev,
+      [postId]: "",
+    }));
+  };
+
   // Interpolate animated gradient shifts
   const translateX = gradientAnim.interpolate({
     inputRange: [0, 1],
@@ -139,16 +580,20 @@ export default function HomeScreen({ navigation }) {
             <Text style={[styles.headerGreeting, { color: colors.text }]}>
               {activeTab === "chats"
                 ? "Chats"
-                : activeTab === "groups"
-                  ? "Groups"
-                  : "Calls"}
+                : activeTab === "updates"
+                  ? "Updates"
+                  : activeTab === "contacts"
+                    ? "Contacts"
+                    : "Calls"}
             </Text>
             <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
               {activeTab === "chats"
                 ? "You're ready to communicate instantly"
-                : activeTab === "groups"
-                  ? "Multi-language group conversations"
-                  : "Recent voice translation sessions"}
+                : activeTab === "updates"
+                  ? "Status & global community updates"
+                  : activeTab === "contacts"
+                    ? "Manage your contacts & explore people"
+                    : "Recent voice translation sessions"}
             </Text>
           </View>
           {/* Menu Button (Three horizontal lines menu like WhatsApp) */}
@@ -183,38 +628,112 @@ export default function HomeScreen({ navigation }) {
           <View>
             {/* Giant start mic CTA */}
             <View style={styles.ctaContainer}>
-              <TouchableOpacity
-                style={[styles.giantCta, { backgroundColor: colors.primary }]}
-                onPress={handleStartConv}
-                activeOpacity={0.85}
-              >
-                <LinearGradient
-                  colors={[colors.primary, "#6D28D9"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.giantCtaGradient}
+              <View style={styles.ctaButtonWrapper}>
+                {/* Pulse Ring 1 */}
+                <Animated.View
+                  style={[
+                    styles.pulseRing,
+                    {
+                      borderWidth: 1.5,
+                      borderColor: colors.primary,
+                      backgroundColor: "transparent",
+                      transform: [
+                        {
+                          scale: pulseAnim1.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [1.0, 1.25],
+                          }),
+                        },
+                      ],
+                      opacity: pulseAnim1.interpolate({
+                        inputRange: [0, 0.1, 0.8, 1],
+                        outputRange: [0, 0.8, 0.8, 0],
+                      }),
+                    },
+                  ]}
+                />
+
+                {/* Pulse Ring 2 */}
+                <Animated.View
+                  style={[
+                    styles.pulseRing,
+                    {
+                      borderWidth: 1.5,
+                      borderColor: colors.primary,
+                      backgroundColor: "transparent",
+                      transform: [
+                        {
+                          scale: pulseAnim2.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [1.0, 1.25],
+                          }),
+                        },
+                      ],
+                      opacity: pulseAnim2.interpolate({
+                        inputRange: [0, 0.1, 0.8, 1],
+                        outputRange: [0, 0.8, 0.8, 0],
+                      }),
+                    },
+                  ]}
+                />
+
+                {/* Pulse Ring 3 */}
+                <Animated.View
+                  style={[
+                    styles.pulseRing,
+                    {
+                      borderWidth: 1.5,
+                      borderColor: colors.primary,
+                      backgroundColor: "transparent",
+                      transform: [
+                        {
+                          scale: pulseAnim3.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [1.0, 1.25],
+                          }),
+                        },
+                      ],
+                      opacity: pulseAnim3.interpolate({
+                        inputRange: [0, 0.1, 0.8, 1],
+                        outputRange: [0, 0.8, 0.8, 0],
+                      }),
+                    },
+                  ]}
+                />
+
+                <TouchableOpacity
+                  style={[styles.giantCta, { backgroundColor: colors.primary }]}
+                  onPress={handleStartConv}
+                  activeOpacity={0.85}
                 >
-                  <Svg
-                    width="40"
-                    height="40"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="white"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                  <LinearGradient
+                    colors={[colors.primary, "#6D28D9"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.giantCtaGradient}
                   >
-                    <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                    <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <Line x1="12" x2="12" y1="19" y2="22" />
-                  </Svg>
-                </LinearGradient>
-              </TouchableOpacity>
+                    <Svg
+                      width="40"
+                      height="40"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="white"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                      <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <Line x1="12" x2="12" y1="19" y2="22" />
+                    </Svg>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
               <Text style={[styles.ctaTitle, { color: colors.text }]}>
                 Start a Conversation
               </Text>
               <Text style={[styles.ctaSubtitle, { color: colors.textMuted }]}>
-                Tap to translate voice in real-time
+                Tap to start new conversation
               </Text>
             </View>
 
@@ -250,7 +769,7 @@ export default function HomeScreen({ navigation }) {
                   <View
                     style={[styles.flagBadge, { backgroundColor: colors.bg }]}
                   >
-                    <Text style={styles.flagText}>🇪🇸</Text>
+                    {renderFlagOrEmoji("🇪🇸")}
                   </View>
                 </View>
                 <View style={styles.convDetails}>
@@ -308,7 +827,7 @@ export default function HomeScreen({ navigation }) {
                   <View
                     style={[styles.flagBadge, { backgroundColor: colors.bg }]}
                   >
-                    <Text style={styles.flagText}>🇯🇵</Text>
+                    {renderFlagOrEmoji("🇯🇵")}
                   </View>
                 </View>
                 <View style={styles.convDetails}>
@@ -366,7 +885,7 @@ export default function HomeScreen({ navigation }) {
                   <View
                     style={[styles.flagBadge, { backgroundColor: colors.bg }]}
                   >
-                    <Text style={styles.flagText}>🇰🇪</Text>
+                    {renderFlagOrEmoji("🇰🇪")}
                   </View>
                 </View>
                 <View style={styles.convDetails}>
@@ -405,13 +924,13 @@ export default function HomeScreen({ navigation }) {
           </View>
         )}
 
-        {activeTab === "groups" && (
+        {activeTab === "contacts" && (
           <View>
             <View style={styles.filterContainer}>
               <TouchableOpacity
                 style={[
                   styles.filterChip,
-                  groupsFilter === "my"
+                  contactsFilter === "my"
                     ? {
                         backgroundColor: colors.primaryGlow,
                         borderColor: colors.primary,
@@ -422,24 +941,24 @@ export default function HomeScreen({ navigation }) {
                       },
                 ]}
                 activeOpacity={0.7}
-                onPress={() => setGroupsFilter("my")}
+                onPress={() => setContactsFilter("my")}
               >
                 <Text
                   style={[
                     styles.filterChipText,
-                    groupsFilter === "my"
+                    contactsFilter === "my"
                       ? { color: colors.primary, fontWeight: "600" }
                       : { color: colors.textMuted },
                   ]}
                 >
-                  My Groups
+                  My Contacts
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={[
                   styles.filterChip,
-                  groupsFilter === "global"
+                  contactsFilter === "explore"
                     ? {
                         backgroundColor: colors.primaryGlow,
                         borderColor: colors.primary,
@@ -450,210 +969,535 @@ export default function HomeScreen({ navigation }) {
                       },
                 ]}
                 activeOpacity={0.7}
-                onPress={() => setGroupsFilter("global")}
+                onPress={() => setContactsFilter("explore")}
               >
                 <Text
                   style={[
                     styles.filterChipText,
-                    groupsFilter === "global"
+                    contactsFilter === "explore"
                       ? { color: colors.primary, fontWeight: "600" }
                       : { color: colors.textMuted },
                   ]}
                 >
-                  Global
+                  Explore People
                 </Text>
               </TouchableOpacity>
             </View>
 
+            {contactsFilter === "my" && (
+              <View>
+                {!imported ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.importCard,
+                      {
+                        backgroundColor: colors.cardBg,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                    onPress={handleImportContacts}
+                    activeOpacity={0.8}
+                    disabled={isImporting}
+                  >
+                    <LinearGradient
+                      colors={[
+                        "rgba(79, 70, 229, 0.08)",
+                        "rgba(6, 182, 212, 0.08)",
+                      ]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.importCardGradient}
+                    >
+                      <View
+                        style={[
+                          styles.importIconContainer,
+                          { backgroundColor: colors.primaryGlow },
+                        ]}
+                      >
+                        {isImporting ? (
+                          <ActivityIndicator
+                            size="small"
+                            color={colors.primary}
+                          />
+                        ) : (
+                          <Svg
+                            width="22"
+                            height="22"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke={colors.primary}
+                            strokeWidth="2.5"
+                          >
+                            <Path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                          </Svg>
+                        )}
+                      </View>
+                      <View style={styles.importInfo}>
+                        <Text
+                          style={[styles.importTitle, { color: colors.text }]}
+                        >
+                          {isImporting ? "Syncing..." : "Import Phone Contacts"}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.importDesc,
+                            { color: colors.textMuted },
+                          ]}
+                        >
+                          {isImporting
+                            ? "Reading address book..."
+                            : "Quickly sync your local phone contacts"}
+                        </Text>
+                      </View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                ) : (
+                  <View
+                    style={[
+                      styles.importSuccessCard,
+                      {
+                        backgroundColor: colors.cardBg,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.importSuccessText,
+                        { color: colors.accent },
+                      ]}
+                    >
+                      ✓ Successfully synced {IMPORTABLE_CONTACTS.length} phone
+                      contacts!
+                    </Text>
+                  </View>
+                )}
+
+                <Text
+                  style={[
+                    styles.sectionTitle,
+                    { color: colors.textDimmed, marginTop: 12 },
+                  ]}
+                >
+                  My Address Book
+                </Text>
+
+                <View
+                  style={[
+                    styles.convList,
+                    {
+                      backgroundColor: colors.cardBg,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  {contacts.map((contact, index) => (
+                    <TouchableOpacity
+                      key={contact.id}
+                      style={[
+                        styles.convCard,
+                        index === contacts.length - 1
+                          ? { borderBottomWidth: 0 }
+                          : { borderBottomColor: colors.border },
+                      ]}
+                      activeOpacity={0.7}
+                      onPress={() =>
+                        handlePartnerClick(
+                          contact.name,
+                          contact.avatar,
+                          contact.flag,
+                        )
+                      }
+                    >
+                      <View style={styles.avatarContainer}>
+                        <Image
+                          source={{ uri: contact.avatar }}
+                          style={styles.avatar}
+                        />
+                        <View
+                          style={[
+                            styles.flagBadge,
+                            { backgroundColor: colors.bg },
+                          ]}
+                        >
+                          {renderFlagOrEmoji(contact.flag)}
+                        </View>
+                      </View>
+                      <View style={styles.convDetails}>
+                        <View style={styles.convHeader}>
+                          <Text
+                            style={[styles.partnerName, { color: colors.text }]}
+                          >
+                            {contact.name}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.contactStatus,
+                              { color: colors.accent },
+                            ]}
+                          >
+                            {contact.status}
+                          </Text>
+                        </View>
+                        <Text
+                          style={[
+                            styles.convPreview,
+                            { color: colors.textMuted },
+                          ]}
+                        >
+                          Native: {contact.langName}
+                        </Text>
+                      </View>
+                      <View style={styles.convArrow}>
+                        <Svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke={colors.textDimmed}
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <Path d="M9 18l6-6-6-6" />
+                        </Svg>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {contactsFilter === "explore" && (
+              <View>
+                <Text
+                  style={[
+                    styles.sectionTitle,
+                    { color: colors.textDimmed, marginTop: 12 },
+                  ]}
+                >
+                  Explore Translation Partners
+                </Text>
+
+                <View style={styles.exploreGrid}>
+                  {EXPLORE_PEOPLE.map((person) => (
+                    <View
+                      key={person.id}
+                      style={[
+                        styles.exploreCard,
+                        {
+                          backgroundColor: colors.cardBg,
+                          borderColor: colors.border,
+                        },
+                      ]}
+                    >
+                      <Image
+                        source={{ uri: person.avatar }}
+                        style={styles.exploreImage}
+                      />
+                      <View
+                        style={[
+                          styles.exploreFlagBadge,
+                          { backgroundColor: colors.bg },
+                        ]}
+                      >
+                        {renderFlagOrEmoji(person.flag)}
+                      </View>
+                      <View style={styles.exploreCardDetails}>
+                        <Text
+                          style={[styles.exploreName, { color: colors.text }]}
+                          numberOfLines={1}
+                        >
+                          {person.name}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.exploreLang,
+                            { color: colors.primary },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {person.langName}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.exploreBio,
+                            { color: colors.textMuted },
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {person.bio}
+                        </Text>
+                        <TouchableOpacity
+                          style={[
+                            styles.exploreCta,
+                            { backgroundColor: colors.primary },
+                          ]}
+                          onPress={() =>
+                            handlePartnerClick(
+                              person.name,
+                              person.avatar,
+                              person.flag,
+                            )
+                          }
+                          activeOpacity={0.8}
+                        >
+                          <LinearGradient
+                            colors={[colors.primary, "#6D28D9"]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={styles.exploreCtaGradient}
+                          >
+                            <Text style={styles.exploreCtaText}>Chat Now</Text>
+                          </LinearGradient>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+
+        {activeTab === "updates" && (
+          <View style={styles.updatesContainer}>
             <Text
               style={[
                 styles.sectionTitle,
-                { color: colors.textDimmed, marginTop: 12 },
+                { color: colors.textDimmed, marginLeft: 20 },
               ]}
             >
-              Active Groups
+              Recent Updates
             </Text>
-
-            <View
-              style={[
-                styles.convList,
-                { backgroundColor: colors.cardBg, borderColor: colors.border },
-              ]}
-            >
-              {groupsFilter === "global" && (
-                <TouchableOpacity
-                  style={[styles.convCard, { borderBottomWidth: 0 }]}
-                  activeOpacity={0.7}
-                  onPress={handleStartConv}
+            {posts.map((post) => {
+              const isCommentsVisible = expandedComments[post.id];
+              return (
+                <View
+                  key={post.id}
+                  style={[
+                    styles.postCard,
+                    {
+                      backgroundColor: colors.cardBg,
+                      borderColor: colors.border,
+                    },
+                  ]}
                 >
+                  {/* Post Header */}
+                  <View style={styles.postHeader}>
+                    <View style={styles.avatarContainer}>
+                      <Image
+                        source={{ uri: post.avatar }}
+                        style={styles.postAvatar}
+                      />
+                      <View
+                        style={[
+                          styles.flagBadge,
+                          { backgroundColor: colors.bg },
+                        ]}
+                      >
+                        {renderFlagOrEmoji(post.flag)}
+                      </View>
+                    </View>
+                    <View style={styles.postAuthorInfo}>
+                      <Text
+                        style={[styles.postAuthorName, { color: colors.text }]}
+                      >
+                        {post.authorName}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.postTimeText,
+                          { color: colors.textDimmed },
+                        ]}
+                      >
+                        {post.time}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Post Content */}
+                  <Text
+                    style={[styles.postContentText, { color: colors.text }]}
+                  >
+                    {post.content}
+                  </Text>
+
+                  {/* Post Image */}
+                  {post.image && (
+                    <Image
+                      source={{ uri: post.image }}
+                      style={styles.postImage}
+                      resizeMode="cover"
+                    />
+                  )}
+
+                  {/* Post Stats */}
                   <View
                     style={[
-                      styles.groupAvatar,
-                      { backgroundColor: colors.primaryGlow },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.groupAvatarText,
-                        { color: colors.primary },
-                      ]}
-                    >
-                      GL
-                    </Text>
-                    <View
-                      style={[
-                        styles.flagBadgeMulti,
-                        { backgroundColor: colors.bg },
-                      ]}
-                    >
-                      <Text style={styles.flagTextMulti}>🌍</Text>
-                    </View>
-                  </View>
-                  <View style={styles.convDetails}>
-                    <View style={styles.convHeader}>
-                      <Text
-                        style={[styles.partnerName, { color: colors.text }]}
-                      >
-                        Global Chat Lounge
-                      </Text>
-                      <Text
-                        style={[styles.convTime, { color: colors.textDimmed }]}
-                      >
-                        Just now
-                      </Text>
-                    </View>
-                    <Text
-                      style={[styles.convPreview, { color: colors.textMuted }]}
-                      numberOfLines={1}
-                    >
-                      <Text style={styles.boldPreviewText}>Sophia: </Text>Hey
-                      everyone, welcome!
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-
-              {groupsFilter === "my" && (
-                <View>
-                  <TouchableOpacity
-                    style={[
-                      styles.convCard,
+                      styles.postStatsRow,
                       { borderBottomColor: colors.border },
                     ]}
-                    activeOpacity={0.7}
-                    onPress={handleStartConv}
                   >
-                    <View
+                    <Text
                       style={[
-                        styles.groupAvatar,
-                        { backgroundColor: colors.primaryGlow },
+                        styles.postStatsText,
+                        { color: colors.textDimmed },
                       ]}
+                    >
+                      {post.likes} {post.likes === 1 ? "Like" : "Likes"}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => handleToggleComments(post.id)}
                     >
                       <Text
                         style={[
-                          styles.groupAvatarText,
-                          { color: colors.primary },
+                          styles.postStatsText,
+                          { color: colors.textDimmed },
                         ]}
                       >
-                        ES
+                        {post.comments.length}{" "}
+                        {post.comments.length === 1 ? "Comment" : "Comments"}
                       </Text>
-                      <View
-                        style={[
-                          styles.flagBadgeMulti,
-                          { backgroundColor: colors.bg },
-                        ]}
-                      >
-                        <Text style={styles.flagTextMulti}>🇪🇸🇬🇧</Text>
-                      </View>
-                    </View>
-                    <View style={styles.convDetails}>
-                      <View style={styles.convHeader}>
-                        <Text
-                          style={[styles.partnerName, { color: colors.text }]}
-                        >
-                          Euro Summit Prep
-                        </Text>
-                        <Text
-                          style={[
-                            styles.convTime,
-                            { color: colors.textDimmed },
-                          ]}
-                        >
-                          3h ago
-                        </Text>
-                      </View>
-                      <Text
-                        style={[
-                          styles.convPreview,
-                          { color: colors.textMuted },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        <Text style={styles.boldPreviewText}>Mateo: </Text>El
-                        documento está listo.
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
+                    </TouchableOpacity>
+                  </View>
 
-                  <TouchableOpacity
-                    style={[styles.convCard, { borderBottomWidth: 0 }]}
-                    activeOpacity={0.7}
-                    onPress={handleStartConv}
-                  >
-                    <View
-                      style={[
-                        styles.groupAvatar,
-                        { backgroundColor: colors.primaryGlow },
-                      ]}
+                  {/* Post Actions */}
+                  <View style={styles.postActionsRow}>
+                    <TouchableOpacity
+                      style={styles.postActionBtn}
+                      onPress={() => handleToggleLike(post.id)}
                     >
+                      <Svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill={post.liked ? colors.danger : "none"}
+                        stroke={post.liked ? colors.danger : colors.textMuted}
+                        strokeWidth="2"
+                      >
+                        <Path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+                      </Svg>
                       <Text
                         style={[
-                          styles.groupAvatarText,
-                          { color: colors.primary },
+                          styles.postActionText,
+                          {
+                            color: post.liked
+                              ? colors.danger
+                              : colors.textMuted,
+                          },
                         ]}
                       >
-                        FT
+                        Like
                       </Text>
-                      <View
-                        style={[
-                          styles.flagBadgeMulti,
-                          { backgroundColor: colors.bg },
-                        ]}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.postActionBtn}
+                      onPress={() => handleToggleComments(post.id)}
+                    >
+                      <Svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke={colors.textMuted}
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
                       >
-                        <Text style={styles.flagTextMulti}>🤝</Text>
-                      </View>
-                    </View>
-                    <View style={styles.convDetails}>
-                      <View style={styles.convHeader}>
-                        <Text
-                          style={[styles.partnerName, { color: colors.text }]}
-                        >
-                          Family Trip 2026
-                        </Text>
-                        <Text
-                          style={[
-                            styles.convTime,
-                            { color: colors.textDimmed },
-                          ]}
-                        >
-                          2 days ago
-                        </Text>
-                      </View>
+                        <Path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                      </Svg>
                       <Text
                         style={[
-                          styles.convPreview,
+                          styles.postActionText,
                           { color: colors.textMuted },
                         ]}
-                        numberOfLines={1}
                       >
-                        <Text style={styles.boldPreviewText}>Mom: </Text>We
-                        should book the tour.
+                        Comment
                       </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Comments Section */}
+                  {isCommentsVisible && (
+                    <View
+                      style={[
+                        styles.commentsSection,
+                        { borderTopColor: colors.border },
+                      ]}
+                    >
+                      {/* Comments List */}
+                      {post.comments.map((comment) => (
+                        <View key={comment.id} style={styles.commentItem}>
+                          <Text
+                            style={[
+                              styles.commentAuthor,
+                              { color: colors.text },
+                            ]}
+                          >
+                            {comment.author}:{" "}
+                            <Text
+                              style={[
+                                styles.commentContent,
+                                { color: colors.textMuted },
+                              ]}
+                            >
+                              {comment.content}
+                            </Text>
+                          </Text>
+                        </View>
+                      ))}
+
+                      {/* Comment Input */}
+                      <View style={styles.commentInputRow}>
+                        <TextInput
+                          style={[
+                            styles.commentInput,
+                            {
+                              backgroundColor: colors.bg,
+                              color: colors.text,
+                              borderColor: colors.border,
+                            },
+                          ]}
+                          placeholder="Write a comment..."
+                          placeholderTextColor={colors.textDimmed}
+                          value={commentInputs[post.id] || ""}
+                          onChangeText={(text) =>
+                            setCommentInputs((prev) => ({
+                              ...prev,
+                              [post.id]: text,
+                            }))
+                          }
+                          onSubmitEditing={() => handleAddComment(post.id)}
+                        />
+                        <TouchableOpacity
+                          style={[
+                            styles.commentSendBtn,
+                            { backgroundColor: colors.primary },
+                          ]}
+                          onPress={() => handleAddComment(post.id)}
+                        >
+                          <Svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="white"
+                            strokeWidth="3"
+                          >
+                            <line x1="22" y1="2" x2="11" y2="13" />
+                            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                          </Svg>
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                  </TouchableOpacity>
+                  )}
                 </View>
-              )}
-            </View>
+              );
+            })}
           </View>
         )}
 
@@ -784,7 +1628,7 @@ export default function HomeScreen({ navigation }) {
 
       {/* Centered Premium Onboarding Popup Card (adapts to light/dark themes dynamically!) */}
       {onboardingVisible && (
-        <View style={styles.onboardingOverlay} pointerEvents="box-none">
+        <View style={[styles.onboardingOverlay, { pointerEvents: "box-none" }]}>
           <View
             style={[
               styles.onboardingCard,
@@ -868,89 +1712,50 @@ export default function HomeScreen({ navigation }) {
             </View>
 
             {/* Interactive Checklist Options (Pills) */}
-            <View style={styles.promptOptions}>
-              <TouchableOpacity
-                style={[
-                  styles.optionPill,
-                  isLanguagesCompleted
-                    ? styles.pillCompleted
-                    : {
-                        backgroundColor: colors.bg,
-                        borderColor: colors.border,
-                      },
-                ]}
-                disabled={isLanguagesCompleted}
-                onPress={handleOpenSettings}
-              >
-                <Text
-                  style={[
-                    styles.pillLabel,
-                    isLanguagesCompleted
-                      ? styles.pillLabelCompleted
-                      : { color: colors.textMuted },
-                  ]}
-                >
-                  {isLanguagesCompleted ? "✓ Languages Added" : "Add languages"}
+            {uncompletedTasks.length > 0 ? (
+              <View style={styles.promptOptions}>
+                {tasksToShow.map((task) => (
+                  <TouchableOpacity
+                    key={task.id}
+                    style={[
+                      styles.optionPill,
+                      task.isCompleted
+                        ? styles.pillCompleted
+                        : {
+                            backgroundColor: colors.bg,
+                            borderColor: colors.border,
+                          },
+                    ]}
+                    disabled={task.isCompleted}
+                    onPress={handleOpenSettings}
+                  >
+                    <Text
+                      style={[
+                        styles.pillLabel,
+                        task.isCompleted
+                          ? styles.pillLabelCompleted
+                          : { color: colors.textMuted },
+                      ]}
+                    >
+                      {task.isCompleted ? task.completedLabel : task.uncompletedLabel}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.shoutoutContainer}>
+                <Text style={styles.shoutoutTitle}>🎉 Profile Complete!</Text>
+                <Text style={[styles.shoutoutText, { color: colors.textDimmed }]}>
+                  You're all set! You can customize settings in the settings menu.
                 </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.optionPill,
-                  isVoiceCompleted
-                    ? styles.pillCompleted
-                    : {
-                        backgroundColor: colors.bg,
-                        borderColor: colors.border,
-                      },
-                ]}
-                disabled={isVoiceCompleted}
-                onPress={handleOpenSettings}
-              >
-                <Text
-                  style={[
-                    styles.pillLabel,
-                    isVoiceCompleted
-                      ? styles.pillLabelCompleted
-                      : { color: colors.textMuted },
-                  ]}
-                >
-                  {isVoiceCompleted
-                    ? "✓ Voice Setup Completed"
-                    : "Set up voice"}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.optionPill,
-                  isProfileCompleted
-                    ? styles.pillCompleted
-                    : styles.highlightPill,
-                ]}
-                disabled={isProfileCompleted}
-                onPress={handleOpenSettings}
-              >
-                <Text
-                  style={[
-                    styles.pillLabel,
-                    isProfileCompleted
-                      ? styles.pillLabelCompleted
-                      : styles.highlightLabel,
-                  ]}
-                >
-                  {isProfileCompleted
-                    ? "✓ Profile Completed"
-                    : "Complete profile"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+              </View>
+            )}
           </View>
         </View>
       )}
 
-      {/* Floating Action Button (Teal Gradient Floating Plus) for Groups Tab */}
-      {activeTab === "groups" && (
+      {/* Floating Action Button (Teal Gradient Floating Plus) for Contacts Tab */}
+      {activeTab === "contacts" && (
         <TouchableOpacity
           style={styles.fab}
           activeOpacity={0.8}
@@ -1025,12 +1830,14 @@ export default function HomeScreen({ navigation }) {
 
         <TouchableOpacity
           style={styles.tabBarBtn}
-          onPress={() => setActiveTab("groups")}
+          onPress={() => setActiveTab("updates")}
         >
           <View
             style={[
               styles.tabIconBg,
-              activeTab === "groups" && { backgroundColor: colors.primaryGlow },
+              activeTab === "updates" && {
+                backgroundColor: colors.primaryGlow,
+              },
             ]}
           >
             <Svg
@@ -1039,7 +1846,49 @@ export default function HomeScreen({ navigation }) {
               viewBox="0 0 24 24"
               fill="none"
               stroke={
-                activeTab === "groups" ? colors.primary : colors.textDimmed
+                activeTab === "updates" ? colors.primary : colors.textDimmed
+              }
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <Path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
+              <Path d="M12 6v6l4 2" />
+            </Svg>
+          </View>
+          <Text
+            style={[
+              styles.tabBarLabel,
+              {
+                color:
+                  activeTab === "updates" ? colors.primary : colors.textDimmed,
+                fontWeight: activeTab === "updates" ? "600" : "500",
+              },
+            ]}
+          >
+            Updates
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.tabBarBtn}
+          onPress={() => setActiveTab("contacts")}
+        >
+          <View
+            style={[
+              styles.tabIconBg,
+              activeTab === "contacts" && {
+                backgroundColor: colors.primaryGlow,
+              },
+            ]}
+          >
+            <Svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke={
+                activeTab === "contacts" ? colors.primary : colors.textDimmed
               }
               strokeWidth="2.2"
             >
@@ -1054,12 +1903,12 @@ export default function HomeScreen({ navigation }) {
               styles.tabBarLabel,
               {
                 color:
-                  activeTab === "groups" ? colors.primary : colors.textDimmed,
-                fontWeight: activeTab === "groups" ? "600" : "500",
+                  activeTab === "contacts" ? colors.primary : colors.textDimmed,
+                fontWeight: activeTab === "contacts" ? "600" : "500",
               },
             ]}
           >
-            Groups
+            Contacts
           </Text>
         </TouchableOpacity>
 
@@ -1143,9 +1992,17 @@ const styles = StyleSheet.create({
   },
   pulseRing: {
     position: "absolute",
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+  },
+  ctaButtonWrapper: {
+    position: "relative",
     width: 170,
     height: 170,
-    borderRadius: 85,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 8,
   },
   giantCta: {
     width: 130,
@@ -1225,9 +2082,256 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 2,
+    overflow: "hidden",
+  },
+  flagImage: {
+    width: "100%",
+    height: "100%",
   },
   flagText: {
     fontSize: 13,
+  },
+  multiFlagsWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  flagImageMulti: {
+    width: 14,
+    height: 10,
+    borderRadius: 1.5,
+  },
+  importCard: {
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  importCardGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+  },
+  importIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  importInfo: {
+    flex: 1,
+  },
+  importTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  importDesc: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  importSuccessCard: {
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  importSuccessText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  contactStatus: {
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  exploreGrid: {
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+  exploreCard: {
+    width: (width - 54) / 2,
+    borderRadius: 20,
+    borderWidth: 1,
+    overflow: "hidden",
+    marginBottom: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+    position: "relative",
+  },
+  exploreImage: {
+    width: "100%",
+    height: 120,
+  },
+  exploreFlagBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+    overflow: "hidden",
+  },
+  exploreCardDetails: {
+    padding: 12,
+    flex: 1,
+    justifyContent: "space-between",
+  },
+  exploreName: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  exploreLang: {
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 2,
+    marginBottom: 6,
+  },
+  exploreBio: {
+    fontSize: 12,
+    lineHeight: 16,
+    marginBottom: 12,
+    height: 32,
+  },
+  exploreCta: {
+    borderRadius: 10,
+    overflow: "hidden",
+  },
+  exploreCtaGradient: {
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  exploreCtaText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  updatesContainer: {
+    paddingTop: 8,
+  },
+  postCard: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.02,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  postHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  postAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  postAuthorInfo: {
+    marginLeft: 12,
+  },
+  postAuthorName: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  postTimeText: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  postContentText: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  postImage: {
+    width: "100%",
+    height: 200,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  postStatsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    marginBottom: 10,
+  },
+  postStatsText: {
+    fontSize: 12,
+  },
+  postActionsRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+  },
+  postActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+  },
+  postActionText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  commentsSection: {
+    marginTop: 12,
+    borderTopWidth: 1,
+    paddingTop: 12,
+  },
+  commentItem: {
+    marginBottom: 8,
+  },
+  commentAuthor: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  commentContent: {
+    fontWeight: "400",
+  },
+  commentInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+  },
+  commentInput: {
+    flex: 1,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    fontSize: 13,
+  },
+  commentSendBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: "center",
+    alignItems: "center",
   },
   convDetails: {
     flex: 1,
@@ -1300,7 +2404,11 @@ const styles = StyleSheet.create({
     bottom: -4,
     right: -4,
     paddingHorizontal: 4,
+    paddingVertical: 2,
     borderRadius: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
   },
   flagTextMulti: {
     fontSize: 11,
@@ -1498,5 +2606,23 @@ const styles = StyleSheet.create({
   filterChipText: {
     fontSize: 13,
     fontWeight: "500",
+  },
+  shoutoutContainer: {
+    padding: 12,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 6,
+  },
+  shoutoutTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#10B981",
+    marginBottom: 4,
+  },
+  shoutoutText: {
+    fontSize: 12,
+    textAlign: "center",
+    lineHeight: 16,
   },
 });
