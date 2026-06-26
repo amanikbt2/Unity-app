@@ -10,12 +10,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   Dimensions,
-  Animated,
+  Animated as RNAnimated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Path, Line, Rect, Polygon } from "react-native-svg";
-import {
+import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withRepeat,
@@ -125,19 +125,33 @@ export default function ConversationScreen({ route, navigation }) {
   };
 
   const chatScrollViewRef = useRef();
+  const recordingRef = useRef(null);
+  const isPreparingRef = useRef(false);
+  const shouldStopAfterPrepareRef = useRef(false);
 
-  const [shimmerAnim] = useState(() => new Animated.Value(0.3));
+  // Clean up recording on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingRef.current) {
+        recordingRef.current.stopAndUnloadAsync().catch((err) => {
+          console.error("Failed to stop recording on unmount", err);
+        });
+      }
+    };
+  }, []);
+
+  const [shimmerAnim] = useState(() => new RNAnimated.Value(0.3));
 
   // Shimmer loop for optimistic loading bubbles
   useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(shimmerAnim, {
+    const animation = RNAnimated.loop(
+      RNAnimated.sequence([
+        RNAnimated.timing(shimmerAnim, {
           toValue: 1.0,
           duration: 800,
           useNativeDriver: Platform.OS !== "web",
         }),
-        Animated.timing(shimmerAnim, {
+        RNAnimated.timing(shimmerAnim, {
           toValue: 0.3,
           duration: 800,
           useNativeDriver: Platform.OS !== "web",
@@ -332,12 +346,21 @@ export default function ConversationScreen({ route, navigation }) {
   }, [chatBubbles, isKeyboardMode]);
 
   const startRecording = async () => {
+    if (isPreparingRef.current || recordingRef.current) {
+      console.log("Recording is already preparing or active.");
+      return;
+    }
+
+    isPreparingRef.current = true;
+    shouldStopAfterPrepareRef.current = false;
+
     try {
       const permission = await Audio.getPermissionsAsync();
       if (permission.status !== "granted") {
         const request = await Audio.requestPermissionsAsync();
         if (request.status !== "granted") {
           alert("Microphone permission is required to use this feature.");
+          isPreparingRef.current = false;
           return;
         }
       }
@@ -348,31 +371,73 @@ export default function ConversationScreen({ route, navigation }) {
       });
 
       console.log("Starting recording...");
+
+      if (shouldStopAfterPrepareRef.current) {
+        console.log("User released button before preparation completed. Cancelling start.");
+        isPreparingRef.current = false;
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        });
+        return;
+      }
+
       const { recording: newRecording } = await Audio.Recording.createAsync(
         COMPRESSED_AUDIO_OPTIONS,
         onRecordingStatusUpdate,
         100,
       );
+
+      recordingRef.current = newRecording;
       setRecording(newRecording);
-      setIsRecording(true);
-      setSubtitleUser("Recording voice...");
+
+      if (shouldStopAfterPrepareRef.current) {
+        console.log("User released button during preparation. Stopping now.");
+        recordingRef.current = null;
+        setRecording(null);
+        await newRecording.stopAndUnloadAsync();
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        });
+      } else {
+        setIsRecording(true);
+        setSubtitleUser("Recording voice...");
+      }
     } catch (err) {
       console.error("Failed to start recording", err);
+    } finally {
+      isPreparingRef.current = false;
     }
   };
 
   const stopRecording = async () => {
-    if (!recording) return;
-
     console.log("Stopping recording...");
+
+    if (isPreparingRef.current) {
+      console.log("Still preparing. Setting shouldStopAfterPrepareRef flag.");
+      shouldStopAfterPrepareRef.current = true;
+      setIsRecording(false);
+      setSubtitleUser("Processing voice...");
+      setSubtitleReceived("Translating...");
+      return;
+    }
+
+    const currentRecording = recordingRef.current;
+    if (!currentRecording) {
+      console.log("No active recording to stop.");
+      return;
+    }
+
     setIsRecording(false);
     setSubtitleUser("Processing voice...");
     setSubtitleReceived("Translating...");
 
     try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
+      recordingRef.current = null;
       setRecording(null);
+      await currentRecording.stopAndUnloadAsync();
+      const uri = currentRecording.getURI();
 
       // Deactivate recording audio mode so speaker output works
       await Audio.setAudioModeAsync({
@@ -625,7 +690,7 @@ export default function ConversationScreen({ route, navigation }) {
               ]}
             />
             {bubble.transText === "..." ? (
-              <Animated.View
+              <RNAnimated.View
                 style={{
                   opacity: shimmerAnim,
                   height: 16,
@@ -651,7 +716,7 @@ export default function ConversationScreen({ route, navigation }) {
                   end={{ x: 1, y: 0 }}
                   style={{ flex: 1 }}
                 />
-              </Animated.View>
+              </RNAnimated.View>
             ) : (
               <Text
                 style={[
