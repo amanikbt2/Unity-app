@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability */
 import React, { useState, useEffect, useRef, useContext } from "react";
 import {
   StyleSheet,
@@ -69,6 +70,8 @@ function renderFlagOrEmoji(val) {
       />
     );
   }
+
+  return <Text style={styles.flagText}>{val}</Text>;
 }
 
 // Audio recording settings optimized for 16kHz mono voice compression (ideal for AI Speech-to-Text)
@@ -98,23 +101,7 @@ const COMPRESSED_AUDIO_OPTIONS = {
   },
   isMeteringEnabled: true,
 };
-// Recording status callback must be defined before useAudioRecorder
-function onRecordingStatusUpdate(status) {
-  if (status.metering !== undefined) {
-    const db = status.metering;
-    // Normal range of active voice is -60dB to 0dB. Normalise to [0, 1]
-    const normalized = Math.max(0, (db + 60) / 60);
 
-    // Animate shared values smoothly
-    orbScale.value = withTiming(1.0 + normalized * 0.45, { duration: 100 });
-    glow1Opacity.value = withTiming(0.1 + normalized * 0.5, {
-      duration: 100,
-    });
-    glow2Opacity.value = withTiming(0.2 + normalized * 0.6, {
-      duration: 100,
-    });
-  }
-}
 
 export default function ConversationScreen({ route, navigation }) {
   const { partnerName, partnerAvatar, partnerFlag, partnerId } =
@@ -138,6 +125,29 @@ export default function ConversationScreen({ route, navigation }) {
   );
   const [subtitleUser, setSubtitleUser] = useState("Hold mic to start talking");
 
+  // Shared Animation Values for the Orb
+  const orbScale = useSharedValue(1);
+  const glow1Opacity = useSharedValue(0.1);
+  const glow2Opacity = useSharedValue(0.2);
+  const waveRotate1 = useSharedValue(0);
+  const waveRotate2 = useSharedValue(0);
+
+  const onRecordingStatusUpdate = (status) => {
+    if (status.metering !== undefined) {
+      const db = status.metering;
+      // Normal range of active voice is -60dB to 0dB. Normalize to [0, 1].
+      const normalized = Math.max(0, (db + 60) / 60);
+
+      orbScale.value = withTiming(1.0 + normalized * 0.45, { duration: 100 });
+      glow1Opacity.value = withTiming(0.1 + normalized * 0.5, {
+        duration: 100,
+      });
+      glow2Opacity.value = withTiming(0.2 + normalized * 0.6, {
+        duration: 100,
+      });
+    }
+  };
+
   const recorder = useAudioRecorder(
     COMPRESSED_AUDIO_OPTIONS,
     onRecordingStatusUpdate,
@@ -156,7 +166,6 @@ export default function ConversationScreen({ route, navigation }) {
   };
 
   const chatScrollViewRef = useRef();
-  const recordingRef = useRef(null);
   const isPreparingRef = useRef(false);
   const shouldStopAfterPrepareRef = useRef(false);
 
@@ -188,12 +197,6 @@ export default function ConversationScreen({ route, navigation }) {
     animation.start();
     return () => animation.stop();
   }, []);
-  // Shared Animation Values for the Orb
-  const orbScale = useSharedValue(1);
-  const glow1Opacity = useSharedValue(0.1);
-  const glow2Opacity = useSharedValue(0.2);
-  const waveRotate1 = useSharedValue(0);
-  const waveRotate2 = useSharedValue(0);
 
   // Set up breathing & fluid animations for the center orb
   useEffect(() => {
@@ -214,7 +217,7 @@ export default function ConversationScreen({ route, navigation }) {
   // Update orb pulse animation based on recording status
   useEffect(() => {
     if (isRecording) {
-      // Do nothing: scale and glow opacity are driven dynamically by mic metering (onRecordingStatusUpdate)
+      // Keep the current scale while recording; idle breathing resumes after release.
     } else {
       orbScale.value = withRepeat(
         withSequence(

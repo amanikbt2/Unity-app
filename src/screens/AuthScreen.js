@@ -88,6 +88,11 @@ export default function AuthScreen({ navigation }) {
       } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
         console.log("Play services not available or outdated");
         alert("Play services not available on this device.");
+      } else if (error.code === "10" || error.code === "DEVELOPER_ERROR") {
+        console.error("Google Auth configuration error: ", error);
+        alert(
+          "Google Sign-In is not configured for this APK. Check that the Android OAuth client uses package com.amanikbt1.unityapp and this build's SHA-1 signing certificate.",
+        );
       } else {
         console.error("Google Auth Error: ", error);
         alert("Sign in failed: " + error.message);

@@ -27,7 +27,10 @@
       "expo-secure-store",
       "expo-image",
       "expo-status-bar",
-      "expo-audio",
+      ["expo-audio", {
+        "enableBackgroundPlayback": false,
+        "enableBackgroundRecording": false
+      }],
       "@react-native-google-signin/google-signin"
     ],
     "extra": {

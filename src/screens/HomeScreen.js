@@ -22,7 +22,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Path, Polygon, Line, Circle } from "react-native-svg";
+import Svg, { Path, Polygon, Line, Circle, Rect, Polyline } from "react-native-svg";
 import * as Contacts from "expo-contacts";
 import { AppContext } from "../context/AppContext";
 import {
@@ -172,6 +172,16 @@ const INITIAL_POSTS = [
 
 const SERVER_URL = "https://unity-3xc2.onrender.com";
 
+const normalizePost = (post) => ({
+  ...post,
+  likes: typeof post?.likes === "number" ? post.likes : 0,
+  liked: Boolean(post?.liked),
+  comments: Array.isArray(post?.comments) ? post.comments : [],
+});
+
+const normalizePosts = (posts) =>
+  Array.isArray(posts) ? posts.map(normalizePost) : [];
+
 export default function HomeScreen({ navigation }) {
   const { currentUser, getLangDetails } = useContext(AppContext);
   const insets = useSafeAreaInsets();
@@ -295,9 +305,10 @@ export default function HomeScreen({ navigation }) {
           }),
         );
 
-        await saveDbPosts(postsWithCachedMedia);
+        const normalizedPosts = postsWithCachedMedia.map(normalizePost);
+        await saveDbPosts(normalizedPosts);
         const updatedPosts = await getDbPosts();
-        setPosts(updatedPosts);
+        setPosts(normalizePosts(updatedPosts));
       }
 
       // 2. Fetch Explore Profiles from Server
@@ -351,10 +362,11 @@ export default function HomeScreen({ navigation }) {
         // 2. Load Posts
         const localPosts = await getDbPosts();
         if (localPosts.length > 0) {
-          setPosts(localPosts);
+          setPosts(normalizePosts(localPosts));
         } else {
-          await saveDbPosts(INITIAL_POSTS);
-          setPosts(INITIAL_POSTS);
+          const normalizedInitialPosts = normalizePosts(INITIAL_POSTS);
+          await saveDbPosts(normalizedInitialPosts);
+          setPosts(normalizedInitialPosts);
         }
 
         // 3. Load Explore Profiles
@@ -673,7 +685,7 @@ export default function HomeScreen({ navigation }) {
       liked: false,
       comments: [],
     };
-    setPosts((prev) => [newPost, ...prev]);
+    setPosts((prev) => [normalizePost(newPost), ...normalizePosts(prev)]);
     setPostModalVisible(false);
     setNewPostText("");
     setNewPostImage(null);
@@ -801,10 +813,13 @@ export default function HomeScreen({ navigation }) {
     setPosts((prev) =>
       prev.map((post) => {
         if (post.id === activeCommentsPostId) {
+          const currentComments = Array.isArray(post.comments)
+            ? post.comments
+            : [];
           return {
             ...post,
             comments: [
-              ...post.comments,
+              ...currentComments,
               {
                 id: Date.now().toString(),
                 author:
@@ -823,7 +838,7 @@ export default function HomeScreen({ navigation }) {
   };
 
   const activePost = activeCommentsPostId
-    ? posts.find((p) => p.id === activeCommentsPostId)
+    ? normalizePost(posts.find((p) => p.id === activeCommentsPostId))
     : null;
 
   const handleToggleLike = (postId) => {
@@ -859,8 +874,8 @@ export default function HomeScreen({ navigation }) {
     isMe: true,
   };
 
-  const displayedContacts = [myProfile, ...contacts.filter(c => c.id !== "me")];
-  const displayedExplore = [myProfile, ...exploreProfiles.filter(e => e.id !== "me")];
+  const displayedContacts = [myProfile, ...normalizePosts(contacts).filter(c => c.id !== "me")];
+  const displayedExplore = [myProfile, ...normalizePosts(exploreProfiles).filter(e => e.id !== "me")];
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
@@ -1330,8 +1345,8 @@ export default function HomeScreen({ navigation }) {
                             strokeWidth="2.5"
                           >
                             <Path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                            <polyline points="7 10 12 15 17 10" />
-                            <line x1="12" y1="15" x2="12" y2="3" />
+                            <Polyline points="7 10 12 15 17 10" />
+                            <Line x1="12" y1="15" x2="12" y2="3" />
                           </Svg>
                         )}
                       </View>
@@ -1635,7 +1650,7 @@ export default function HomeScreen({ navigation }) {
                           stroke={colors.textMuted}
                           strokeWidth="2.2"
                         >
-                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                          <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                         </Svg>
                       </TouchableOpacity>
 
@@ -1652,9 +1667,9 @@ export default function HomeScreen({ navigation }) {
                           stroke={colors.textMuted}
                           strokeWidth="2.5"
                         >
-                          <circle cx="12" cy="12" r="1.5" />
-                          <circle cx="6" cy="12" r="1.5" />
-                          <circle cx="18" cy="12" r="1.5" />
+                          <Circle cx="12" cy="12" r="1.5" />
+                          <Circle cx="6" cy="12" r="1.5" />
+                          <Circle cx="18" cy="12" r="1.5" />
                         </Svg>
                       </TouchableOpacity>
                     </View>
@@ -1700,8 +1715,8 @@ export default function HomeScreen({ navigation }) {
                           { color: colors.textDimmed },
                         ]}
                       >
-                        {post.comments.length}{" "}
-                        {post.comments.length === 1 ? "Comment" : "Comments"}
+                        {post.comments?.length ?? 0}{" "}
+                        {(post.comments?.length ?? 0) === 1 ? "Comment" : "Comments"}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -2487,9 +2502,9 @@ export default function HomeScreen({ navigation }) {
                       stroke={colors.text}
                       strokeWidth="2"
                     >
-                      <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
-                      <polyline points="16 6 12 2 8 6" />
-                      <line x1="12" y1="2" x2="12" y2="15" />
+                      <Path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+                      <Polyline points="16 6 12 2 8 6" />
+                      <Line x1="12" y1="2" x2="12" y2="15" />
                     </Svg>
                     <Text
                       style={[
@@ -2518,8 +2533,8 @@ export default function HomeScreen({ navigation }) {
                       stroke={colors.text}
                       strokeWidth="2"
                     >
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                      <Rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <Path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                     </Svg>
                     <Text
                       style={[
@@ -2548,10 +2563,10 @@ export default function HomeScreen({ navigation }) {
                         stroke="#EF4444"
                         strokeWidth="2"
                       >
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        <line x1="10" y1="11" x2="10" y2="17" />
-                        <line x1="14" y1="11" x2="14" y2="17" />
+                        <Polyline points="3 6 5 6 21 6" />
+                        <Path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        <Line x1="10" y1="11" x2="10" y2="17" />
+                        <Line x1="14" y1="11" x2="14" y2="17" />
                       </Svg>
                       <Text
                         style={[
@@ -2580,8 +2595,8 @@ export default function HomeScreen({ navigation }) {
                           stroke="#EF4444"
                           strokeWidth="2"
                         >
-                          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                          <line x1="4" y1="22" x2="4" y2="15" />
+                          <Path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                          <Line x1="4" y1="22" x2="4" y2="15" />
                         </Svg>
                         <Text
                           style={[
@@ -2663,7 +2678,7 @@ export default function HomeScreen({ navigation }) {
               ]}
             >
               <Text style={[styles.bottomSheetTitle, { color: colors.text }]}>
-                Comments ({activePost ? activePost.comments.length : 0})
+                Comments ({activePost ? activePost.comments?.length ?? 0 : 0})
               </Text>
               <TouchableOpacity
                 onPress={() => setActiveCommentsPostId(null)}
@@ -2689,8 +2704,8 @@ export default function HomeScreen({ navigation }) {
               contentContainerStyle={styles.bottomSheetScroll}
               showsVerticalScrollIndicator={false}
             >
-              {activePost && activePost.comments.length > 0 ? (
-                activePost.comments.map((comment) => (
+              {activePost && (activePost.comments?.length ?? 0) > 0 ? (
+                (activePost.comments ?? []).map((comment) => (
                   <View key={comment.id} style={styles.bottomSheetCommentItem}>
                     <View style={styles.bottomSheetCommentAvatarContainer}>
                       <Image
@@ -2807,8 +2822,8 @@ export default function HomeScreen({ navigation }) {
                     stroke={colors.textDimmed}
                     strokeWidth="2"
                   >
-                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                    <circle cx="12" cy="13" r="4" />
+                    <Path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                    <Circle cx="12" cy="13" r="4" />
                   </Svg>
                 </TouchableOpacity>
               </View>
@@ -2849,8 +2864,8 @@ export default function HomeScreen({ navigation }) {
                   stroke={newCommentText.trim() ? "white" : colors.textDimmed}
                   strokeWidth="2.5"
                 >
-                  <line x1="22" y1="2" x2="11" y2="13" />
-                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  <Line x1="22" y1="2" x2="11" y2="13" />
+                  <Polygon points="22 2 15 22 11 13 2 9 22 2" />
                 </Svg>
               </TouchableOpacity>
             </View>
@@ -2972,7 +2987,7 @@ export default function HomeScreen({ navigation }) {
                 style={{ marginRight: 8 }}
               >
                 <Circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                <Line x1="21" y1="21" x2="16.65" y2="16.65" />
               </Svg>
               <TextInput
                 style={[styles.modalSearchInput, { color: colors.text }]}

@@ -29,7 +29,7 @@ const AppContent = () => {
 
   return (
     <SafeAreaProvider>
-      <StatusBar style={currentUser.prefDarkTheme ? "light" : "dark"} />
+      <StatusBar style={currentUser?.prefDarkTheme ? "light" : "dark"} />
       <NavigationContainer>
         <Stack.Navigator
           initialRouteName={initialRoute}

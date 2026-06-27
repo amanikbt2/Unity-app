@@ -74,7 +74,7 @@ export const AppProvider = ({ children }) => {
     try {
       const stored = await AsyncStorage.getItem('amani_profile_settings');
       if (stored) {
-        setCurrentUser(JSON.parse(stored));
+        setCurrentUser({ ...DEFAULT_USER, ...JSON.parse(stored) });
       }
       const accounts = await AsyncStorage.getItem('amani_saved_accounts');
       if (accounts) {
@@ -96,7 +96,7 @@ export const AppProvider = ({ children }) => {
 
   const updateSettings = async (newSettings) => {
     try {
-      const updated = { ...currentUser, ...newSettings };
+      const updated = { ...DEFAULT_USER, ...currentUser, ...newSettings };
       setCurrentUser(updated);
       await AsyncStorage.setItem('amani_profile_settings', JSON.stringify(updated));
       
@@ -127,13 +127,14 @@ export const AppProvider = ({ children }) => {
 
   const loginAsSavedProfile = async (profile) => {
     try {
-      setCurrentUser(profile);
-      await AsyncStorage.setItem('amani_profile_settings', JSON.stringify(profile));
+      const mergedProfile = { ...DEFAULT_USER, ...profile };
+      setCurrentUser(mergedProfile);
+      await AsyncStorage.setItem('amani_profile_settings', JSON.stringify(mergedProfile));
       
       // Bring this account to the front of the list to indicate most recent
       setSavedAccounts((prevAccounts) => {
-        const filtered = prevAccounts.filter((acc) => acc.email !== profile.email);
-        const newAccounts = [profile, ...filtered];
+        const filtered = prevAccounts.filter((acc) => acc.email !== mergedProfile.email);
+        const newAccounts = [mergedProfile, ...filtered];
         AsyncStorage.setItem('amani_saved_accounts', JSON.stringify(newAccounts)).catch(console.error);
         return newAccounts;
       });
