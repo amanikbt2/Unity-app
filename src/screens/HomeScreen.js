@@ -17,10 +17,28 @@ import {
   Pressable,
   Alert,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Path, Polygon, Line, Circle } from "react-native-svg";
+import * as Contacts from "expo-contacts";
 import { AppContext } from "../context/AppContext";
+import {
+  initDatabase,
+  getContacts as getDbContacts,
+  saveContacts as saveDbContacts,
+  getPosts as getDbPosts,
+  savePosts as saveDbPosts,
+  getExploreProfiles as getDbExplore,
+  saveExploreProfiles as saveDbExplore,
+} from "../services/DatabaseService";
+import {
+  initDirectories,
+  cacheRemoteImage,
+  triggerCloudBackup,
+} from "../services/StorageService";
 
 const { width } = Dimensions.get("window");
 
@@ -78,45 +96,6 @@ const INITIAL_CONTACTS = [
     langName: "Japanese",
     status: "Available",
   },
-  {
-    id: "c3",
-    name: "Lucas Dupont",
-    avatar:
-      "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=150&h=150&q=80",
-    flag: "🇫🇷",
-    langName: "French",
-    status: "In a meeting",
-  },
-];
-
-const IMPORTABLE_CONTACTS = [
-  {
-    id: "c4",
-    name: "Carlos Gomez",
-    avatar:
-      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80",
-    flag: "🇪🇸",
-    langName: "Spanish",
-    status: "Hey there! I am using Unity.",
-  },
-  {
-    id: "c5",
-    name: "Aisha Diallo",
-    avatar:
-      "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=150&h=150&q=80",
-    flag: "🇰🇪",
-    langName: "Swahili",
-    status: "Available",
-  },
-  {
-    id: "c6",
-    name: "Chloe Laurent",
-    avatar:
-      "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
-    flag: "🇫🇷",
-    langName: "French",
-    status: "Out for lunch",
-  },
 ];
 
 const EXPLORE_PEOPLE = [
@@ -137,24 +116,6 @@ const EXPLORE_PEOPLE = [
     flag: "🇯🇵",
     langName: "Japanese (Japan)",
     bio: "Tech enthusiast and history buff. Happy to translate and chat!",
-  },
-  {
-    id: "e3",
-    name: "Isabella Silva",
-    avatar:
-      "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=300&h=300&q=80",
-    flag: "🇧🇷",
-    langName: "Portuguese (Brazil)",
-    bio: "Architect from São Paulo. Looking to make global friends.",
-  },
-  {
-    id: "e4",
-    name: "Rajesh Kumar",
-    avatar:
-      "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=300&h=300&q=80",
-    flag: "🇮🇳",
-    langName: "Hindi (India)",
-    bio: "Software engineer who loves yoga and trekking. Let's connect!",
   },
 ];
 
@@ -207,60 +168,13 @@ const INITIAL_POSTS = [
       },
     ],
   },
-  {
-    id: "p3",
-    authorName: "Amara Okoro",
-    avatar:
-      "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=150&h=150&q=80",
-    flag: "🇰🇪",
-    time: "Yesterday",
-    content:
-      "Beautiful sunset over the savannah today. Nature never ceases to amaze me. 🌅🦁",
-    image:
-      "https://images.unsplash.com/photo-1516426122078-c23e76319801?auto=format&fit=crop&w=600&q=80",
-    likes: 45,
-    liked: true,
-    comments: [],
-  },
-  {
-    id: "p4",
-    authorName: "Kenji Sato",
-    avatar:
-      "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=150&h=150&q=80",
-    flag: "🇯🇵",
-    time: "2 days ago",
-    content:
-      "Practicing English pronunciation tonight. It gets easier when you have an AI listener that corrects you politely! 🗣️📖",
-    image: null,
-    likes: 18,
-    liked: false,
-    comments: [
-      {
-        id: "c4_1",
-        author: "Marcus Sterling",
-        content: "Keep it up, Kenji! Your English is already excellent.",
-      },
-    ],
-  },
-  {
-    id: "p5",
-    authorName: "Elena Rostova",
-    avatar:
-      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
-    flag: "🇷🇺",
-    time: "3 days ago",
-    content:
-      "Walking around Red Square in Moscow. The winter air is freezing but the view is magical. ❄️🕌",
-    image:
-      "https://images.unsplash.com/photo-1513326738677-b964603b136d?auto=format&fit=crop&w=600&q=80",
-    likes: 67,
-    liked: false,
-    comments: [],
-  },
 ];
+
+const SERVER_URL = "https://unity-3xc2.onrender.com";
 
 export default function HomeScreen({ navigation }) {
   const { currentUser, getLangDetails } = useContext(AppContext);
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState("chats");
   const [onboardingVisible, setOnboardingVisible] = useState(true);
   const [contactsFilter, setContactsFilter] = useState("my");
@@ -268,6 +182,7 @@ export default function HomeScreen({ navigation }) {
   const [isImporting, setIsImporting] = useState(false);
   const [imported, setImported] = useState(false);
   const [posts, setPosts] = useState(INITIAL_POSTS);
+  const [exploreProfiles, setExploreProfiles] = useState(EXPLORE_PEOPLE);
   const [startConvModalVisible, setStartConvModalVisible] = useState(false);
   const [startConvSearch, setStartConvSearch] = useState("");
   const [startConvFilter, setStartConvFilter] = useState("contacts");
@@ -350,6 +265,120 @@ export default function HomeScreen({ navigation }) {
       clearInterval(pulseInterval);
     };
   }, [gradientAnim, pulseAnim1, pulseAnim2, pulseAnim3]);
+
+  // Background Pre-fetching function (TikTok style)
+  const preFetchServerData = async () => {
+    try {
+      console.log(
+        "[HomeScreen] Silently pre-fetching feed & explore profiles...",
+      );
+
+      // 1. Fetch Posts from Server
+      const postsResponse = await fetch(`${SERVER_URL}/api/posts`);
+      if (postsResponse.ok) {
+        const remotePosts = await postsResponse.json();
+
+        // Cache images in background
+        const postsWithCachedMedia = await Promise.all(
+          remotePosts.map(async (post) => {
+            const localImg = post.image
+              ? await cacheRemoteImage(post.image, "image")
+              : null;
+            const localAvatar = post.avatar
+              ? await cacheRemoteImage(post.avatar, "avatar")
+              : null;
+            return {
+              ...post,
+              image_local_path: localImg || "",
+              avatar_local_path: localAvatar || "",
+            };
+          }),
+        );
+
+        await saveDbPosts(postsWithCachedMedia);
+        const updatedPosts = await getDbPosts();
+        setPosts(updatedPosts);
+      }
+
+      // 2. Fetch Explore Profiles from Server
+      const exploreResponse = await fetch(`${SERVER_URL}/api/explore`);
+      if (exploreResponse.ok) {
+        const remoteExplore = await exploreResponse.json();
+
+        // Cache avatars in background
+        const exploreWithCachedMedia = await Promise.all(
+          remoteExplore.map(async (profile) => {
+            const localAvatar = profile.avatar
+              ? await cacheRemoteImage(profile.avatar, "avatar")
+              : null;
+            return {
+              ...profile,
+              avatar_local_path: localAvatar || "",
+            };
+          }),
+        );
+
+        await saveDbExplore(exploreWithCachedMedia);
+        const updatedExplore = await getDbExplore();
+        setExploreProfiles(updatedExplore);
+      }
+    } catch (err) {
+      console.warn(
+        "[HomeScreen] Offline or server pre-fetch failed:",
+        err.message,
+      );
+    }
+  };
+
+  // Load offline data and pre-fetch server data on mount
+  useEffect(() => {
+    async function loadLocalData() {
+      try {
+        await initDatabase();
+        await initDirectories();
+
+        // 1. Load Contacts
+        const localContacts = await getDbContacts();
+        if (localContacts.length > 0) {
+          setContacts(localContacts);
+          setImported(true);
+        } else {
+          // Prepopulate database with default contacts
+          await saveDbContacts(INITIAL_CONTACTS);
+          setContacts(INITIAL_CONTACTS);
+        }
+
+        // 2. Load Posts
+        const localPosts = await getDbPosts();
+        if (localPosts.length > 0) {
+          setPosts(localPosts);
+        } else {
+          await saveDbPosts(INITIAL_POSTS);
+          setPosts(INITIAL_POSTS);
+        }
+
+        // 3. Load Explore Profiles
+        const localExplore = await getDbExplore();
+        if (localExplore.length > 0) {
+          setExploreProfiles(localExplore);
+        } else {
+          await saveDbExplore(EXPLORE_PEOPLE);
+          setExploreProfiles(EXPLORE_PEOPLE);
+        }
+
+        // 4. Pre-fetch from Server
+        preFetchServerData();
+
+        // 5. Cloud Backup Check
+        triggerCloudBackup().catch((err) =>
+          console.warn("Background backup check failed:", err.message),
+        );
+      } catch (e) {
+        console.error("Error loading local DB data on mount:", e);
+      }
+    }
+    loadLocalData();
+  }, []);
 
   // Define onboarding tasks
   const allTasks = [
@@ -465,11 +494,12 @@ export default function HomeScreen({ navigation }) {
     setStartConvModalVisible(true);
   };
 
-  const handlePartnerClick = (name, avatar, flag) => {
+  const handlePartnerClick = (name, avatar, flag, id) => {
     navigation.navigate("Conversation", {
       partnerName: name,
       partnerAvatar: avatar,
       partnerFlag: flag,
+      partnerId: id || name,
     });
   };
 
@@ -477,14 +507,117 @@ export default function HomeScreen({ navigation }) {
     navigation.navigate("Profile", { scrollTo: target });
   };
 
-  const handleImportContacts = () => {
-    if (imported || isImporting) return;
+  const handleImportContacts = async () => {
+    if (isImporting) return;
     setIsImporting(true);
-    setTimeout(() => {
-      setContacts((prev) => [...prev, ...IMPORTABLE_CONTACTS]);
+    try {
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Denied",
+          "Permission to access contacts was denied. Please enable it in settings.",
+        );
+        setIsImporting(false);
+        return;
+      }
+
+      console.log("[Contacts] Fetching device contacts...");
+      const { data } = await Contacts.getContactsAsync({
+        fields: [
+          Contacts.Fields.Name,
+          Contacts.Fields.PhoneNumbers,
+          Contacts.Fields.Emails,
+          Contacts.Fields.Image,
+        ],
+      });
+
+      if (data && data.length > 0) {
+        console.log(
+          `[Contacts] Found ${data.length} device contacts. Syncing...`,
+        );
+
+        // Format and map device contacts (taking top 50 for smart fast syncing)
+        const formattedContacts = await Promise.all(
+          data.slice(0, 50).map(async (item, idx) => {
+            const phone =
+              item.phoneNumbers && item.phoneNumbers.length > 0
+                ? item.phoneNumbers[0].number
+                : "";
+            const email =
+              item.emails && item.emails.length > 0 ? item.emails[0].email : "";
+
+            // Smart flag assignment based on phone number country prefix
+            let flag = "🇺🇸"; // Default
+            let lang = "English";
+            if (phone.includes("+33")) {
+              flag = "🇫🇷";
+              lang = "French";
+            } else if (phone.includes("+81")) {
+              flag = "🇯🇵";
+              lang = "Japanese";
+            } else if (phone.includes("+34")) {
+              flag = "🇪🇸";
+              lang = "Spanish";
+            } else if (phone.includes("+254")) {
+              flag = "🇰🇪";
+              lang = "Swahili";
+            } else {
+              const simulatedLangs = [
+                { flag: "🇺🇸", lang: "English" },
+                { flag: "🇪🇸", lang: "Spanish" },
+                { flag: "🇫🇷", lang: "French" },
+                { flag: "🇯🇵", lang: "Japanese" },
+              ];
+              const choice = simulatedLangs[idx % simulatedLangs.length];
+              flag = choice.flag;
+              lang = choice.lang;
+            }
+
+            // Cache contact image locally if available
+            let localAvatar = "";
+            if (item.image && item.image.uri) {
+              localAvatar = await cacheRemoteImage(item.image.uri, "avatar");
+            } else {
+              localAvatar = `https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80`;
+            }
+
+            return {
+              id: item.id || `c_device_${Date.now()}_${idx}`,
+              name: item.name || "Unnamed Contact",
+              phone: phone,
+              email: email,
+              flag: flag,
+              langName: lang,
+              status: "Available on Unity",
+              is_synced: 1,
+              avatar: localAvatar,
+            };
+          }),
+        );
+
+        // Save contacts to SQLite database
+        await saveDbContacts(formattedContacts);
+
+        // Refresh local contacts list
+        const updatedContacts = await getDbContacts();
+        setContacts(updatedContacts);
+        setImported(true);
+        Alert.alert(
+          "Sync Complete",
+          `Successfully synced ${formattedContacts.length} contacts from your phone!`,
+        );
+      } else {
+        Alert.alert(
+          "No Contacts Found",
+          "No contacts were found on this device.",
+        );
+      }
+    } catch (e) {
+      console.error("[Contacts] Sync error:", e);
+      Alert.alert("Sync Failed", "An error occurred while importing contacts.");
+    } finally {
       setIsImporting(false);
-      setImported(true);
-    }, 1200);
+    }
   };
 
   const handleConfirmAddContact = (name) => {
@@ -713,6 +846,21 @@ export default function HomeScreen({ navigation }) {
     inputRange: [0, 1],
     outputRange: [0, -width * 0.6],
   });
+
+  // Prepare current user profile for injection
+  const myProfile = {
+    id: "me",
+    name: `(Me) ${currentUser.name && currentUser.name !== "Amani User" ? currentUser.name : "Amani User"}`,
+    avatar: currentUser.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+    flag: currentUser.nativeLang ? (getLangDetails(currentUser.nativeLang)?.flag || "🌍") : "🌍",
+    langName: currentUser.nativeLang ? (getLangDetails(currentUser.nativeLang)?.name || "Universal") : "Universal",
+    status: currentUser.bio || "Online",
+    bio: currentUser.bio || "This is me!",
+    isMe: true,
+  };
+
+  const displayedContacts = [myProfile, ...contacts.filter(c => c.id !== "me")];
+  const displayedExplore = [myProfile, ...exploreProfiles.filter(e => e.id !== "me")];
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
@@ -1222,8 +1370,7 @@ export default function HomeScreen({ navigation }) {
                         { color: colors.accent },
                       ]}
                     >
-                      ✓ Successfully synced {IMPORTABLE_CONTACTS.length} phone
-                      contacts!
+                      ✓ Successfully synced {contacts.length} phone contacts!
                     </Text>
                   </View>
                 )}
@@ -1246,7 +1393,7 @@ export default function HomeScreen({ navigation }) {
                     },
                   ]}
                 >
-                  {contacts.map((contact, index) => (
+                  {displayedContacts.map((contact, index) => (
                     <TouchableOpacity
                       key={contact.id}
                       style={[
@@ -1261,6 +1408,7 @@ export default function HomeScreen({ navigation }) {
                           contact.name,
                           contact.avatar,
                           contact.flag,
+                          contact.id,
                         )
                       }
                     >
@@ -1335,7 +1483,7 @@ export default function HomeScreen({ navigation }) {
                 </Text>
 
                 <View style={styles.exploreGrid}>
-                  {EXPLORE_PEOPLE.map((person) => (
+                  {displayedExplore.map((person) => (
                     <View
                       key={person.id}
                       style={[
@@ -1347,7 +1495,9 @@ export default function HomeScreen({ navigation }) {
                       ]}
                     >
                       <Image
-                        source={{ uri: person.avatar }}
+                        source={{
+                          uri: person.avatar_local_path || person.avatar,
+                        }}
                         style={styles.exploreImage}
                       />
                       <View
@@ -1391,8 +1541,9 @@ export default function HomeScreen({ navigation }) {
                           onPress={() =>
                             handlePartnerClick(
                               person.name,
-                              person.avatar,
+                              person.avatar_local_path || person.avatar,
                               person.flag,
+                              person.id,
                             )
                           }
                           activeOpacity={0.8}
@@ -1441,7 +1592,7 @@ export default function HomeScreen({ navigation }) {
                   <View style={styles.postHeader}>
                     <View style={styles.avatarContainer}>
                       <Image
-                        source={{ uri: post.avatar }}
+                        source={{ uri: post.avatar_local_path || post.avatar }}
                         style={styles.postAvatar}
                       />
                       <View
@@ -1519,7 +1670,7 @@ export default function HomeScreen({ navigation }) {
                   {/* Post Image */}
                   {post.image && (
                     <Image
-                      source={{ uri: post.image }}
+                      source={{ uri: post.image_local_path || post.image }}
                       style={styles.postImage}
                       resizeMode="cover"
                     />
@@ -1709,140 +1860,146 @@ export default function HomeScreen({ navigation }) {
 
       {/* Centered Premium Onboarding Popup Card (adapts to light/dark themes dynamically!) */}
       {onboardingVisible && (
-        <View style={[styles.onboardingOverlay, { pointerEvents: "box-none" }]}>
-          <View
-            style={[
-              styles.onboardingCard,
-              {
-                backgroundColor: colors.cardBg,
-                borderColor: colors.border,
-                pointerEvents: "auto",
-              },
-            ]}
-          >
-            <View style={styles.onboardingHeader}>
-              <View
-                style={[
-                  styles.promptIcon,
-                  { backgroundColor: colors.primaryGlow },
-                ]}
-              >
-                <Svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#A855F7"
-                  strokeWidth="2"
-                >
-                  <Polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                </Svg>
-              </View>
-              <View style={styles.promptDetails}>
-                <Text style={[styles.promptTitle, { color: colors.text }]}>
-                  Complete your profile
-                </Text>
-                <Text
+        <Modal
+          visible={onboardingVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setOnboardingVisible(false)}
+        >
+          <View style={styles.onboardingOverlay}>
+            <View
+              style={[
+                styles.onboardingCard,
+                {
+                  backgroundColor: colors.cardBg,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <View style={styles.onboardingHeader}>
+                <View
                   style={[
-                    styles.promptProgressText,
-                    { color: colors.textMuted },
+                    styles.promptIcon,
+                    { backgroundColor: colors.primaryGlow },
                   ]}
                 >
-                  {onboardingPct}% completed
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setOnboardingVisible(false)}
-                style={styles.closeMiniBtn}
-              >
-                <Text
-                  style={[styles.closeMiniText, { color: colors.textDimmed }]}
+                  <Svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#A855F7"
+                    strokeWidth="2"
+                  >
+                    <Polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                  </Svg>
+                </View>
+                <View style={styles.promptDetails}>
+                  <Text style={[styles.promptTitle, { color: colors.text }]}>
+                    Complete your profile
+                  </Text>
+                  <Text
+                    style={[
+                      styles.promptProgressText,
+                      { color: colors.textMuted },
+                    ]}
+                  >
+                    {onboardingPct}% completed
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setOnboardingVisible(false)}
+                  style={styles.closeMiniBtn}
                 >
-                  &times;
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <Text
+                    style={[styles.closeMiniText, { color: colors.textDimmed }]}
+                  >
+                    &times;
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-            {/* Fluid shifting gradient progress bar */}
-            <View style={styles.progressBarContainer}>
-              <Animated.View
-                style={[
-                  styles.progressBarFill,
-                  {
-                    width: `${onboardingPct}%`,
-                  },
-                ]}
-              >
+              {/* Fluid shifting gradient progress bar */}
+              <View style={styles.progressBarContainer}>
                 <Animated.View
                   style={[
-                    styles.fluidGradientContainer,
+                    styles.progressBarFill,
                     {
-                      transform: [{ translateX }],
+                      width: `${onboardingPct}%`,
                     },
                   ]}
                 >
-                  <LinearGradient
-                    colors={[
-                      colors.primary,
-                      "#EC4899",
-                      colors.accent,
-                      colors.primary,
-                    ]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.progressBarGradient}
-                  />
-                </Animated.View>
-              </Animated.View>
-            </View>
-
-            {/* Interactive Checklist Options (Pills) */}
-            {uncompletedTasks.length > 0 ? (
-              <View style={styles.promptOptions}>
-                {tasksToShow.map((task) => (
-                  <TouchableOpacity
-                    key={task.id}
+                  <Animated.View
                     style={[
-                      styles.optionPill,
-                      task.isCompleted
-                        ? styles.pillCompleted
-                        : {
-                            backgroundColor: colors.bg,
-                            borderColor: colors.border,
-                          },
+                      styles.fluidGradientContainer,
+                      {
+                        transform: [{ translateX }],
+                      },
                     ]}
-                    disabled={task.isCompleted}
-                    onPress={() => handleOpenSettings(task.id)}
                   >
-                    <Text
-                      style={[
-                        styles.pillLabel,
-                        task.isCompleted
-                          ? styles.pillLabelCompleted
-                          : { color: colors.textMuted },
+                    <LinearGradient
+                      colors={[
+                        colors.primary,
+                        "#EC4899",
+                        colors.accent,
+                        colors.primary,
                       ]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.progressBarGradient}
+                    />
+                  </Animated.View>
+                </Animated.View>
+              </View>
+
+              {/* Interactive Checklist Options (Pills) */}
+              {uncompletedTasks.length > 0 ? (
+                <View style={styles.promptOptions}>
+                  {tasksToShow.map((task) => (
+                    <TouchableOpacity
+                      key={task.id}
+                      style={[
+                        styles.optionPill,
+                        task.isCompleted
+                          ? styles.pillCompleted
+                          : {
+                              backgroundColor: colors.bg,
+                              borderColor: colors.border,
+                            },
+                      ]}
+                      disabled={task.isCompleted}
+                      onPress={() => handleOpenSettings(task.id)}
                     >
-                      {task.isCompleted
-                        ? task.completedLabel
-                        : task.uncompletedLabel}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            ) : (
-              <View style={styles.shoutoutContainer}>
-                <Text style={styles.shoutoutTitle}>🎉 Profile Complete!</Text>
-                <Text
-                  style={[styles.shoutoutText, { color: colors.textDimmed }]}
-                >
-                  {
-                    "You're all set! You can customize settings in the settings menu."
-                  }
-                </Text>
-              </View>
-            )}
+                      <Text
+                        style={[
+                          styles.pillLabel,
+                          task.isCompleted
+                            ? styles.pillLabelCompleted
+                            : { color: colors.textMuted },
+                        ]}
+                      >
+                        {task.isCompleted
+                          ? task.completedLabel
+                          : task.uncompletedLabel}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.shoutoutContainer}>
+                  <Text style={styles.shoutoutTitle}>🎉 Profile Complete!</Text>
+                  <Text
+                    style={[styles.shoutoutText, { color: colors.textDimmed }]}
+                  >
+                    {
+                      "You're all set! You can customize settings in the settings menu."
+                    }
+                  </Text>
+                </View>
+              )}
+            </View>
           </View>
-        </View>
+        </Modal>
       )}
 
       {/* Floating Action Button (Teal Gradient Floating Plus) for Contacts Tab */}
@@ -1915,7 +2072,12 @@ export default function HomeScreen({ navigation }) {
       <View
         style={[
           styles.tabBar,
-          { backgroundColor: colors.cardBg, borderColor: colors.border },
+          {
+            backgroundColor: colors.cardBg,
+            borderColor: colors.border,
+            paddingBottom: insets.bottom > 0 ? insets.bottom : 10,
+            height: 66 + (insets.bottom > 0 ? insets.bottom : 10),
+          },
         ]}
       >
         <TouchableOpacity
@@ -2829,7 +2991,7 @@ export default function HomeScreen({ navigation }) {
             >
               {(() => {
                 const sourceList =
-                  startConvFilter === "contacts" ? contacts : EXPLORE_PEOPLE;
+                  startConvFilter === "contacts" ? displayedContacts : displayedExplore;
                 const filtered = sourceList.filter(
                   (item) =>
                     item.name
@@ -2917,13 +3079,18 @@ export default function HomeScreen({ navigation }) {
                     ]}
                     onPress={() => {
                       setStartConvModalVisible(false);
-                      handlePartnerClick(item.name, item.avatar, item.flag);
+                      handlePartnerClick(
+                        item.name,
+                        item.avatar_local_path || item.avatar,
+                        item.flag,
+                        item.id,
+                      );
                     }}
                     activeOpacity={0.7}
                   >
                     <View style={styles.modalAvatarContainer}>
                       <Image
-                        source={{ uri: item.avatar }}
+                        source={{ uri: item.avatar_local_path || item.avatar }}
                         style={styles.modalAvatar}
                       />
                       <View
@@ -3067,11 +3234,18 @@ const styles = StyleSheet.create({
     borderRadius: 65,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#8B5CF6",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.35,
-    shadowRadius: 20,
-    elevation: 8,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 10px 20px rgba(139,92,246,0.35)",
+      },
+      default: {
+        shadowColor: "#8B5CF6",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.35,
+        shadowRadius: 20,
+        elevation: 8,
+      },
+    }),
   },
   giantCtaGradient: {
     flex: 1,
@@ -3102,11 +3276,18 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginHorizontal: 20,
     overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02,
-    shadowRadius: 6,
-    elevation: 1,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 2px 6px rgba(0,0,0,0.02)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.02,
+        shadowRadius: 6,
+        elevation: 1,
+      },
+    }),
   },
   convCard: {
     flexDirection: "row",
@@ -3133,11 +3314,18 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 1px 2px rgba(0,0,0,0.2)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 2,
+        elevation: 2,
+      },
+    }),
     overflow: "hidden",
   },
   flagImage: {
@@ -3218,11 +3406,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: "hidden",
     marginBottom: 14,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 4px 8px rgba(0,0,0,0.04)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 8,
+        elevation: 2,
+      },
+    }),
     position: "relative",
   },
   exploreImage: {
@@ -3238,11 +3433,18 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 2px 4px rgba(0,0,0,0.15)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 4,
+        elevation: 3,
+      },
+    }),
     overflow: "hidden",
   },
   exploreCardDetails: {
@@ -3289,11 +3491,18 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     padding: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.02,
-    shadowRadius: 8,
-    elevation: 2,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 4px 8px rgba(0,0,0,0.02)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.02,
+        shadowRadius: 8,
+        elevation: 2,
+      },
+    }),
   },
   postHeader: {
     flexDirection: "row",
@@ -3497,11 +3706,18 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 24,
     borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 10,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 10px 20px rgba(0,0,0,0.15)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.15,
+        shadowRadius: 20,
+        elevation: 10,
+      },
+    }),
   },
   onboardingHeader: {
     flexDirection: "row",
@@ -3600,11 +3816,18 @@ const styles = StyleSheet.create({
     justifyContent: "space-around",
     alignItems: "center",
     paddingBottom: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    elevation: 8,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px -4px 10px rgba(0,0,0,0.04)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.04,
+        shadowRadius: 10,
+        elevation: 8,
+      },
+    }),
   },
   fab: {
     position: "absolute",
@@ -3613,11 +3836,18 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    shadowColor: "#0D9488",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 8,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 4px 6px rgba(13,148,136,0.3)",
+      },
+      default: {
+        shadowColor: "#0D9488",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 6,
+        elevation: 8,
+      },
+    }),
     zIndex: 10,
   },
   fabGradient: {
@@ -3767,11 +3997,18 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1,
-    elevation: 2,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 1px 1px rgba(0,0,0,0.2)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 1,
+        elevation: 2,
+      },
+    }),
     overflow: "hidden",
   },
   modalPartnerInfo: {

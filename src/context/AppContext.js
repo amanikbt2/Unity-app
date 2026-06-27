@@ -14,7 +14,9 @@ const DEFAULT_USER = {
   prefHaptics: true,
   prefVad: false,
   prefShowTranscripts: false,
-  micTested: false
+  micTested: false,
+  isRealUser: false,
+  email: ''
 };
 
 const LANGS = {
@@ -65,6 +67,7 @@ const FLAG_MAP = {
 
 export const AppProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(DEFAULT_USER);
+  const [savedAccounts, setSavedAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const loadSettings = async () => {
@@ -72,6 +75,10 @@ export const AppProvider = ({ children }) => {
       const stored = await AsyncStorage.getItem('amani_profile_settings');
       if (stored) {
         setCurrentUser(JSON.parse(stored));
+      }
+      const accounts = await AsyncStorage.getItem('amani_saved_accounts');
+      if (accounts) {
+        setSavedAccounts(JSON.parse(accounts));
       }
     } catch (e) {
       console.error('Error loading config', e);
@@ -92,8 +99,46 @@ export const AppProvider = ({ children }) => {
       const updated = { ...currentUser, ...newSettings };
       setCurrentUser(updated);
       await AsyncStorage.setItem('amani_profile_settings', JSON.stringify(updated));
+      
+      // If it's a real user, ensure they are in the saved accounts list
+      if (updated.isRealUser && updated.email) {
+        setSavedAccounts((prevAccounts) => {
+          const filtered = prevAccounts.filter((acc) => acc.email !== updated.email);
+          const newAccounts = [updated, ...filtered];
+          AsyncStorage.setItem('amani_saved_accounts', JSON.stringify(newAccounts)).catch(console.error);
+          return newAccounts;
+        });
+      }
     } catch (e) {
       console.error('Error saving config', e);
+    }
+  };
+
+  const logoutUser = async () => {
+    try {
+      // Keep the user in savedAccounts (already handled during updateSettings)
+      // Just clear the current active session
+      setCurrentUser(DEFAULT_USER);
+      await AsyncStorage.setItem('amani_profile_settings', JSON.stringify(DEFAULT_USER));
+    } catch (e) {
+      console.error('Error logging out user', e);
+    }
+  };
+
+  const loginAsSavedProfile = async (profile) => {
+    try {
+      setCurrentUser(profile);
+      await AsyncStorage.setItem('amani_profile_settings', JSON.stringify(profile));
+      
+      // Bring this account to the front of the list to indicate most recent
+      setSavedAccounts((prevAccounts) => {
+        const filtered = prevAccounts.filter((acc) => acc.email !== profile.email);
+        const newAccounts = [profile, ...filtered];
+        AsyncStorage.setItem('amani_saved_accounts', JSON.stringify(newAccounts)).catch(console.error);
+        return newAccounts;
+      });
+    } catch (e) {
+      console.error('Error fast-logging in', e);
     }
   };
 
@@ -110,6 +155,9 @@ export const AppProvider = ({ children }) => {
       value={{
         currentUser,
         updateSettings,
+        logoutUser,
+        loginAsSavedProfile,
+        savedAccounts,
         getLangDetails,
         getLangDetailsFromFlag,
         loading,

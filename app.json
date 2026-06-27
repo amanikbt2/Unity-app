@@ -2,6 +2,7 @@
   "expo": {
     "name": "Unity-app",
     "slug": "Unity-app",
+    "scheme": "unityapp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,17 +11,25 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.amanikbt1.unityapp",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
-      "package": "com.amanikbt1.Unityapp"
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      "expo-sqlite",
+      "expo-secure-store",
+      "expo-image",
+      "expo-status-bar",
+      "expo-audio",
+      "@react-native-google-signin/google-signin"
+    ],
     "extra": {
       "eas": {
         "projectId": "fad38d9d-1186-4f85-b710-c5a580465b71"

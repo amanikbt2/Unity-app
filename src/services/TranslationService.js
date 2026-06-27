@@ -1,17 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import Constants from "expo-constants";
 
-// Dynamically resolve local host IP for physical devices running Expo Go
-const getBaseUrl = () => {
-  const debuggerHost = Constants.expoConfig?.hostUri || Constants.manifest?.debuggerHost;
-  if (debuggerHost) {
-    const ip = debuggerHost.split(":")[0];
-    return `http://${ip}:3000`;
-  }
-  return "http://localhost:3000";
-};
-
-const BASE_URL = getBaseUrl();
+const BASE_URL = "https://unity-3xc2.onrender.com";
 
 /**
  * Translates a text message using the secure server translation gateway.

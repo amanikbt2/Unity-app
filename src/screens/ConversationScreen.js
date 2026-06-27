@@ -23,10 +23,17 @@ import Animated, {
   withSequence,
   Easing,
 } from "react-native-reanimated";
-import { Audio } from "expo-av";
+import {
+  useAudioRecorder,
+  AudioModule,
+  AudioQuality,
+  IOSOutputFormat,
+} from "expo-audio";
 import * as Speech from "expo-speech";
+import * as FileSystem from "expo-file-system/legacy";
 import { translateText, translateVoice } from "../services/TranslationService";
 import { AppContext } from "../context/AppContext";
+import { saveChat, getChats } from "../services/DatabaseService";
 
 const { width } = Dimensions.get("window");
 
@@ -68,15 +75,16 @@ function renderFlagOrEmoji(val) {
 const COMPRESSED_AUDIO_OPTIONS = {
   android: {
     extension: ".m4a",
-    outputFormat: Audio.AndroidOutputFormat.MPEG_4,
-    audioEncoder: Audio.AndroidAudioEncoder.AAC,
+    outputFormat: "mpeg4",
+    audioEncoder: "aac",
     sampleRate: 16000,
     numberOfChannels: 1,
     bitRate: 128000,
   },
   ios: {
     extension: ".m4a",
-    audioQuality: Audio.IOSAudioQuality.MEDIUM,
+    audioQuality: AudioQuality.MEDIUM,
+    outputFormat: IOSOutputFormat.MPEG4AAC,
     sampleRate: 16000,
     numberOfChannels: 1,
     bitRate: 64000,
@@ -90,14 +98,33 @@ const COMPRESSED_AUDIO_OPTIONS = {
   },
   isMeteringEnabled: true,
 };
+// Recording status callback must be defined before useAudioRecorder
+function onRecordingStatusUpdate(status) {
+  if (status.metering !== undefined) {
+    const db = status.metering;
+    // Normal range of active voice is -60dB to 0dB. Normalise to [0, 1]
+    const normalized = Math.max(0, (db + 60) / 60);
+
+    // Animate shared values smoothly
+    orbScale.value = withTiming(1.0 + normalized * 0.45, { duration: 100 });
+    glow1Opacity.value = withTiming(0.1 + normalized * 0.5, {
+      duration: 100,
+    });
+    glow2Opacity.value = withTiming(0.2 + normalized * 0.6, {
+      duration: 100,
+    });
+  }
+}
 
 export default function ConversationScreen({ route, navigation }) {
-  const { partnerName, partnerAvatar, partnerFlag } = route.params || {
-    partnerName: "Unity Translation AI",
-    partnerAvatar:
-      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
-    partnerFlag: "🌍",
-  };
+  const { partnerName, partnerAvatar, partnerFlag, partnerId } =
+    route.params || {
+      partnerName: "Unity Translation AI",
+      partnerAvatar:
+        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+      partnerFlag: "🌍",
+      partnerId: "Unity Translation AI",
+    };
 
   const { currentUser, getLangDetails, getLangDetailsFromFlag, LANGS } =
     useContext(AppContext);
@@ -111,7 +138,11 @@ export default function ConversationScreen({ route, navigation }) {
   );
   const [subtitleUser, setSubtitleUser] = useState("Hold mic to start talking");
 
-  const [recording, setRecording] = useState(null);
+  const recorder = useAudioRecorder(
+    COMPRESSED_AUDIO_OPTIONS,
+    onRecordingStatusUpdate,
+  );
+
   const [isRecording, setIsRecording] = useState(false);
 
   const getLangCodeFromFlag = (flagEmoji) => {
@@ -132,11 +163,7 @@ export default function ConversationScreen({ route, navigation }) {
   // Clean up recording on unmount
   useEffect(() => {
     return () => {
-      if (recordingRef.current) {
-        recordingRef.current.stopAndUnloadAsync().catch((err) => {
-          console.error("Failed to stop recording on unmount", err);
-        });
-      }
+      // recorder hook automatically cleans up on unmount in expo-audio
     };
   }, []);
 
@@ -161,24 +188,6 @@ export default function ConversationScreen({ route, navigation }) {
     animation.start();
     return () => animation.stop();
   }, []);
-
-  const onRecordingStatusUpdate = (status) => {
-    if (status.metering !== undefined) {
-      const db = status.metering;
-      // Normal range of active voice is -60dB to 0dB. Normalise to [0, 1]
-      const normalized = Math.max(0, (db + 60) / 60);
-
-      // Animate shared values smoothly
-      orbScale.value = withTiming(1.0 + normalized * 0.45, { duration: 100 });
-      glow1Opacity.value = withTiming(0.1 + normalized * 0.5, {
-        duration: 100,
-      });
-      glow2Opacity.value = withTiming(0.2 + normalized * 0.6, {
-        duration: 100,
-      });
-    }
-  };
-
   // Shared Animation Values for the Orb
   const orbScale = useSharedValue(1);
   const glow1Opacity = useSharedValue(0.1);
@@ -284,7 +293,7 @@ export default function ConversationScreen({ route, navigation }) {
   // Request microphone permissions on component mount
   useEffect(() => {
     async function getPermission() {
-      const { status } = await Audio.requestPermissionsAsync();
+      const { status } = await AudioModule.requestRecordingPermissionsAsync();
       if (status !== "granted") {
         console.warn("Microphone permission not granted");
       }
@@ -292,48 +301,74 @@ export default function ConversationScreen({ route, navigation }) {
     getPermission();
   }, []);
 
-  // Set up initial greeting dynamically translated into the partner's language
+  // Load local chat history or set up welcome message
   useEffect(() => {
-    const partnerLang = getLangCodeFromFlag(partnerFlag);
-    const partnerLangName = getLangDetails(partnerLang).name;
-    const userLangName = getLangDetails(currentUser.nativeLang).name;
-
-    async function setupWelcome() {
+    async function loadChatHistory() {
       try {
-        const welcomeText = await translateText(
-          "Hello, welcome! Speak or type, and I will translate for you in real-time.",
-          partnerLang,
-        );
-        setChatBubbles([
-          {
-            id: "initial",
-            sender: "partner",
-            avatar: partnerFlag,
+        const dbChats = await getChats(partnerId);
+        if (dbChats && dbChats.length > 0) {
+          const formatted = dbChats.map((item) => ({
+            id: item.id,
+            sender: item.sender,
+            avatar: item.sender === "user" ? currentUser.avatar : partnerFlag,
+            text: item.text,
+            origLang: item.orig_lang,
+            transText: item.trans_text,
+            transLang: item.trans_lang,
+          }));
+          setChatBubbles(formatted);
+          if (formatted.length > 0) {
+            setSubtitleReceived(
+              formatted[formatted.length - 1].transText ||
+                "Waiting for speech...",
+            );
+          }
+        } else {
+          const partnerLang = getLangCodeFromFlag(partnerFlag);
+          const partnerLangName = getLangDetails(partnerLang).name;
+          const userLangName = getLangDetails(currentUser.nativeLang).name;
+
+          let welcomeText =
+            "Hello, welcome! Speak or type, and I will translate for you in real-time.";
+          try {
+            welcomeText = await translateText(welcomeText, partnerLang);
+          } catch (e) {
+            console.warn("Welcome translate failed, using fallback:", e);
+          }
+
+          const firstMsg = {
+            id: "initial_" + Date.now(),
+            partner_id: partnerId,
             text: welcomeText,
-            origLang: `${partnerLangName} (Original)`,
-            transText:
+            trans_text:
               "Hello, welcome! Speak or type, and I will translate for you in real-time.",
-            transLang: `${userLangName} (Translated)`,
-          },
-        ]);
-        setSubtitleReceived(welcomeText);
-      } catch (err) {
-        // Fallback welcome message
-        setChatBubbles([
-          {
-            id: "initial",
             sender: "partner",
-            avatar: partnerFlag,
-            text: "¡Hola! Bienvenido.",
-            origLang: "Spanish (Original)",
-            transText: "Hello! Welcome.",
-            transLang: "English (Translated)",
-          },
-        ]);
+            orig_lang: `${partnerLangName} (Original)`,
+            trans_lang: `${userLangName} (Translated)`,
+            timestamp: Date.now(),
+          };
+
+          await saveChat(firstMsg);
+
+          setChatBubbles([
+            {
+              id: firstMsg.id,
+              sender: firstMsg.sender,
+              avatar: partnerFlag,
+              text: firstMsg.text,
+              origLang: firstMsg.orig_lang,
+              transText: firstMsg.trans_text,
+              transLang: firstMsg.trans_lang,
+            },
+          ]);
+          setSubtitleReceived(welcomeText);
+        }
+      } catch (e) {
+        console.error("Error loading chat history:", e);
       }
     }
-    setupWelcome();
-  }, [partnerFlag]);
+    loadChatHistory();
+  }, [partnerId]);
 
   // Scroll to bottom helper
   useEffect(() => {
@@ -346,7 +381,7 @@ export default function ConversationScreen({ route, navigation }) {
   }, [chatBubbles, isKeyboardMode]);
 
   const startRecording = async () => {
-    if (isPreparingRef.current || recordingRef.current) {
+    if (isPreparingRef.current || recorder.isRecording || isRecording) {
       console.log("Recording is already preparing or active.");
       return;
     }
@@ -355,9 +390,9 @@ export default function ConversationScreen({ route, navigation }) {
     shouldStopAfterPrepareRef.current = false;
 
     try {
-      const permission = await Audio.getPermissionsAsync();
+      const permission = await AudioModule.getRecordingPermissionsAsync();
       if (permission.status !== "granted") {
-        const request = await Audio.requestPermissionsAsync();
+        const request = await AudioModule.requestRecordingPermissionsAsync();
         if (request.status !== "granted") {
           alert("Microphone permission is required to use this feature.");
           isPreparingRef.current = false;
@@ -365,7 +400,7 @@ export default function ConversationScreen({ route, navigation }) {
         }
       }
 
-      await Audio.setAudioModeAsync({
+      await AudioModule.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
       });
@@ -373,30 +408,24 @@ export default function ConversationScreen({ route, navigation }) {
       console.log("Starting recording...");
 
       if (shouldStopAfterPrepareRef.current) {
-        console.log("User released button before preparation completed. Cancelling start.");
+        console.log(
+          "User released button before preparation completed. Cancelling start.",
+        );
         isPreparingRef.current = false;
-        await Audio.setAudioModeAsync({
+        await AudioModule.setAudioModeAsync({
           allowsRecordingIOS: false,
           playsInSilentModeIOS: true,
         });
         return;
       }
 
-      const { recording: newRecording } = await Audio.Recording.createAsync(
-        COMPRESSED_AUDIO_OPTIONS,
-        onRecordingStatusUpdate,
-        100,
-      );
-
-      recordingRef.current = newRecording;
-      setRecording(newRecording);
+      await recorder.prepareToRecordAsync();
+      recorder.record();
 
       if (shouldStopAfterPrepareRef.current) {
         console.log("User released button during preparation. Stopping now.");
-        recordingRef.current = null;
-        setRecording(null);
-        await newRecording.stopAndUnloadAsync();
-        await Audio.setAudioModeAsync({
+        await recorder.stop();
+        await AudioModule.setAudioModeAsync({
           allowsRecordingIOS: false,
           playsInSilentModeIOS: true,
         });
@@ -423,8 +452,7 @@ export default function ConversationScreen({ route, navigation }) {
       return;
     }
 
-    const currentRecording = recordingRef.current;
-    if (!currentRecording) {
+    if (!recorder.isRecording && !isRecording) {
       console.log("No active recording to stop.");
       return;
     }
@@ -434,13 +462,11 @@ export default function ConversationScreen({ route, navigation }) {
     setSubtitleReceived("Translating...");
 
     try {
-      recordingRef.current = null;
-      setRecording(null);
-      await currentRecording.stopAndUnloadAsync();
-      const uri = currentRecording.getURI();
+      await recorder.stop();
+      const uri = recorder.uri;
 
       // Deactivate recording audio mode so speaker output works
-      await Audio.setAudioModeAsync({
+      await AudioModule.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
       });
@@ -469,7 +495,7 @@ export default function ConversationScreen({ route, navigation }) {
       setSubtitleReceived(translation);
 
       // Add user message to chat bubbles
-      const userMsgId = Date.now().toString();
+      const userMsgId = "msg_" + Date.now();
       const userMsg = {
         id: userMsgId,
         sender: "user",
@@ -481,8 +507,25 @@ export default function ConversationScreen({ route, navigation }) {
       };
       setChatBubbles((prev) => [...prev, userMsg]);
 
+      // Save user message to SQLite
+      await saveChat({
+        id: userMsgId,
+        partner_id: partnerId,
+        text: transcription,
+        trans_text: translation,
+        sender: "user",
+        orig_lang: `${userLangName} (Original)`,
+        trans_lang: `${partnerLangName} (Translated)`,
+        timestamp: Date.now(),
+      });
+
       // Speak translation out loud (simulating playing on partner's end)
       Speech.speak(translation, { language: partnerLang });
+
+      // Clean up transient audio file immediately
+      await FileSystem.deleteAsync(audioUri, { idempotent: true }).catch(
+        (err) => console.warn("Failed to delete transient audio file:", err),
+      );
 
       // Simulate the partner responding back after 3.5 seconds
       setTimeout(async () => {
@@ -494,8 +537,9 @@ export default function ConversationScreen({ route, navigation }) {
             partnerLang,
           );
 
+          const partnerMsgId = "msg_" + (Date.now() + 1);
           const partnerMsg = {
-            id: (Date.now() + 1).toString(),
+            id: partnerMsgId,
             sender: "partner",
             avatar: partnerFlag,
             text: partnerSpokenText,
@@ -507,6 +551,18 @@ export default function ConversationScreen({ route, navigation }) {
           setSubtitleReceived(partnerSpokenText);
           setSubtitleUser(partnerResponseBase);
           setChatBubbles((prev) => [...prev, partnerMsg]);
+
+          // Save partner response to SQLite
+          await saveChat({
+            id: partnerMsgId,
+            partner_id: partnerId,
+            text: partnerSpokenText,
+            trans_text: partnerResponseBase,
+            sender: "partner",
+            orig_lang: `${partnerLangName} (Original)`,
+            trans_lang: `${userLangName} (Translated)`,
+            timestamp: Date.now(),
+          });
 
           // Speak partner's translated response to the user in their language
           Speech.speak(partnerResponseBase, {
@@ -520,6 +576,11 @@ export default function ConversationScreen({ route, navigation }) {
       console.error("Voice translation error:", error);
       setSubtitleUser("Voice translation failed");
       setSubtitleReceived("Check server or API Key configuration.");
+
+      // Still clean up the file on failure
+      await FileSystem.deleteAsync(audioUri, { idempotent: true }).catch(
+        (err) => console.warn("Failed to delete transient audio file:", err),
+      );
     }
   };
 
@@ -536,7 +597,7 @@ export default function ConversationScreen({ route, navigation }) {
     const userLangName = getLangDetails(currentUser.nativeLang).name;
 
     // Create temporary bubble while translating
-    const userMsgId = Date.now().toString();
+    const userMsgId = "msg_" + Date.now();
     const userMsg = {
       id: userMsgId,
       sender: "user",
@@ -559,6 +620,18 @@ export default function ConversationScreen({ route, navigation }) {
       );
       setSubtitleReceived(translation);
 
+      // Save user message to SQLite
+      await saveChat({
+        id: userMsgId,
+        partner_id: partnerId,
+        text: text,
+        trans_text: translation,
+        sender: "user",
+        orig_lang: `${userLangName} (Original)`,
+        trans_lang: `${partnerLangName} (Translated)`,
+        timestamp: Date.now(),
+      });
+
       // Simulate partner responding with text
       setTimeout(async () => {
         try {
@@ -568,8 +641,9 @@ export default function ConversationScreen({ route, navigation }) {
             partnerLang,
           );
 
+          const partnerMsgId = "msg_" + (Date.now() + 1);
           const partnerMsg = {
-            id: (Date.now() + 1).toString(),
+            id: partnerMsgId,
             sender: "partner",
             avatar: partnerFlag,
             text: partnerSpokenText,
@@ -581,6 +655,18 @@ export default function ConversationScreen({ route, navigation }) {
           setSubtitleReceived(partnerSpokenText);
           setSubtitleUser(partnerResponseBase);
           setChatBubbles((prev) => [...prev, partnerMsg]);
+
+          // Save partner reply to SQLite
+          await saveChat({
+            id: partnerMsgId,
+            partner_id: partnerId,
+            text: partnerSpokenText,
+            trans_text: partnerResponseBase,
+            sender: "partner",
+            orig_lang: `${partnerLangName} (Original)`,
+            trans_lang: `${userLangName} (Translated)`,
+            timestamp: Date.now(),
+          });
         } catch (err) {
           console.error("Failed to translate simulated partner reply:", err);
         }
@@ -1070,10 +1156,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginTop: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.02,
-    shadowRadius: 3,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 1px 3px rgba(0,0,0,0.08)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.02,
+        shadowRadius: 3,
+      },
+    }),
   },
   subtitleLineReceived: {
     fontSize: 18,
@@ -1113,10 +1206,17 @@ const styles = StyleSheet.create({
     height: 110,
     borderRadius: 55,
     overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.25,
-    shadowRadius: 15,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 10px 15px rgba(0,0,0,0.12)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.25,
+        shadowRadius: 15,
+      },
+    }),
     elevation: 8,
   },
   orbCenterGradient: {
@@ -1190,10 +1290,17 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 1px 2px rgba(0,0,0,0.08)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+      },
+    }),
     elevation: 1,
   },
   bubbleHeader: {

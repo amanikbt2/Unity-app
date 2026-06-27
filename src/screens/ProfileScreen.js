@@ -1,4 +1,4 @@
-import React, { useContext, useState, useEffect, useRef } from 'react';
+import React, { useContext, useState, useEffect, useRef } from "react";
 import {
   StyleSheet,
   Text,
@@ -10,25 +10,35 @@ import {
   Switch,
   ActivityIndicator,
   Modal,
-  Dimensions
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Path, Line } from 'react-native-svg';
-import { AppContext } from '../context/AppContext';
+  Dimensions,
+  Alert,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
+import Svg, { Path, Line, Circle, Rect, Polyline } from "react-native-svg";
+import { AppContext } from "../context/AppContext";
+import {
+  getStorageStats,
+  runSmartStorageCleanup,
+  clearLocalMediaCache,
+  triggerCloudBackup,
+} from "../services/StorageService";
+import { clearDatabase } from "../services/DatabaseService";
+import * as ImagePicker from "expo-image-picker";
 
-const { width, height } = Dimensions.get('window');
+const { width, height } = Dimensions.get("window");
 
 const AVATAR_PRESETS = [
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80',
-  'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=150&h=150&q=80',
-  'https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=150&h=150&q=80'
+  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80",
+  "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=150&h=150&q=80",
+  "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=150&h=150&q=80",
 ];
 
 export default function ProfileScreen({ route, navigation }) {
-  const { currentUser, updateSettings, LANGS } = useContext(AppContext);
-  const [saveStatus, setSaveStatus] = useState('saved'); // 'saved', 'saving', 'idle'
+  const { currentUser, updateSettings, logoutUser, LANGS } =
+    useContext(AppContext);
+  const [saveStatus, setSaveStatus] = useState("saved"); // 'saved', 'saving', 'idle'
   const [name, setName] = useState(currentUser.name);
 
   // References and Glow states
@@ -37,8 +47,12 @@ export default function ProfileScreen({ route, navigation }) {
   const [glowTarget, setGlowTarget] = useState(null);
 
   // Modal Visibility states
-  const [isNativeLangModalVisible, setIsNativeLangModalVisible] = useState(false);
-  const [isSecondaryLangModalVisible, setIsSecondaryLangModalVisible] = useState(false);
+  const [isImageSourceModalVisible, setIsImageSourceModalVisible] =
+    useState(false);
+  const [isNativeLangModalVisible, setIsNativeLangModalVisible] =
+    useState(false);
+  const [isSecondaryLangModalVisible, setIsSecondaryLangModalVisible] =
+    useState(false);
   const [isTrainingModalVisible, setIsTrainingModalVisible] = useState(false);
   const [isTestingModalVisible, setIsTestingModalVisible] = useState(false);
 
@@ -55,39 +69,151 @@ export default function ProfileScreen({ route, navigation }) {
   const [isTestingMic, setIsTestingMic] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
 
+  // Storage & Data management state
+  const [storageStats, setStorageStats] = useState({
+    imagesSize: "0.00",
+    avatarsSize: "0.00",
+    totalSize: "0.00",
+  });
+  const [isCleaning, setIsCleaning] = useState(false);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+
+  const loadStats = async () => {
+    try {
+      const stats = await getStorageStats();
+      setStorageStats(stats);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    const fetchStats = async () => {
+      try {
+        const stats = await getStorageStats();
+        if (active) {
+          setStorageStats(stats);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    fetchStats();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleSmartCleanup = async () => {
+    setIsCleaning(true);
+    try {
+      const result = await runSmartStorageCleanup();
+      await loadStats();
+      Alert.alert(
+        "Cleanup Complete",
+        `Successfully purged ${result.imagesDeleted} post images and ${result.avatarsDeleted} stale contact avatars. Active contacts' avatars were preserved.`,
+      );
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Cleanup Failed", "Unable to complete storage cleanup.");
+    } finally {
+      setIsCleaning(false);
+    }
+  };
+
+  const handleCloudBackup = async () => {
+    setIsBackingUp(true);
+    try {
+      const success = await triggerCloudBackup(true); // force backup
+      if (success) {
+        Alert.alert(
+          "Backup Complete",
+          "All contacts and chat transcripts backed up securely to the server.",
+        );
+      } else {
+        Alert.alert(
+          "Backup Failed",
+          "Unable to reach the backup server. Please check your internet connection.",
+        );
+      }
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Backup Failed", "An error occurred during background sync.");
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    Alert.alert("Log Out", "Are you sure you want to log out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Log Out",
+        style: "destructive",
+        onPress: async () => {
+          await logoutUser();
+          navigation.reset({
+            index: 0,
+            routes: [{ name: "Auth" }],
+          });
+        },
+      },
+    ]);
+  };
+
+  const handleClearAll = () => {
+    Alert.alert(
+      "Clear Database",
+      "Are you sure you want to delete all messages, contacts, and media? This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear Everything",
+          style: "destructive",
+          onPress: async () => {
+            await clearDatabase();
+            await clearLocalMediaCache();
+            await loadStats();
+          },
+        },
+      ],
+    );
+  };
+
   const trainingSentences = [
     "The quick brown fox jumps over the lazy dog.",
     "Unity translates my voice instantly to any language in real-time.",
-    "Global communication is now seamless and natural for everyone."
+    "Global communication is now seamless and natural for everyone.",
   ];
 
   // Scroll to and blink/glow target logic when route parameters change
   useEffect(() => {
-    if (route.params?.scrollTo) {
-      const rawTarget = route.params.scrollTo;
-      let target = rawTarget;
-      if (rawTarget.startsWith('avatar')) {
-        target = 'avatar';
+    const rawTarget = route.params?.scrollTo;
+    if (rawTarget !== undefined && rawTarget !== null) {
+      let target = String(rawTarget);
+      if (typeof rawTarget === "string" && rawTarget.startsWith("avatar")) {
+        target = "avatar";
       }
-      
+
       const scrollTimer = setTimeout(() => {
         if (layoutOffsets.current[target] !== undefined) {
           scrollRef.current?.scrollTo({
             y: layoutOffsets.current[target] - 12, // Scroll slightly above the element
-            animated: true
+            animated: true,
           });
         }
-        
+
         // Trigger blinking yellow glow
         setGlowTarget(target);
-        
+
         const clearGlow = setTimeout(() => {
           setGlowTarget(null);
         }, 2500); // Glow remains visible for 2.5s
-        
+
         return () => clearTimeout(clearGlow);
       }, 400); // 400ms delay to ensure component layout coordinates are fully ready
-      
+
       return () => clearTimeout(scrollTimer);
     }
   }, [route.params]);
@@ -99,8 +225,10 @@ export default function ProfileScreen({ route, navigation }) {
       interval = setInterval(() => {
         const raw = Math.random();
         let level;
-        if (raw < 0.2) level = Math.floor(Math.random() * 4); // 0 to 3
-        else if (raw < 0.8) level = Math.floor(Math.random() * 8) + 4; // 4 to 11
+        if (raw < 0.2)
+          level = Math.floor(Math.random() * 4); // 0 to 3
+        else if (raw < 0.8)
+          level = Math.floor(Math.random() * 8) + 4; // 4 to 11
         else level = Math.floor(Math.random() * 5) + 12; // 12 to 16
         setMicLevel(level);
       }, 100);
@@ -165,10 +293,10 @@ export default function ProfileScreen({ route, navigation }) {
 
   // Auto-saving configuration
   function handleAutoSave(newSettings) {
-    setSaveStatus('saving');
+    setSaveStatus("saving");
     updateSettings(newSettings);
     setTimeout(() => {
-      setSaveStatus('saved');
+      setSaveStatus("saved");
     }, 800);
   }
 
@@ -179,6 +307,44 @@ export default function ProfileScreen({ route, navigation }) {
 
   const selectAvatar = (url) => {
     handleAutoSave({ avatar: url });
+  };
+
+  const openGallery = async () => {
+    setIsImageSourceModalVisible(false);
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      handleAutoSave({ avatar: result.assets[0].uri });
+    }
+  };
+
+  const takePhoto = async () => {
+    setIsImageSourceModalVisible(false);
+
+    // Request camera permissions first
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission Denied",
+        "Sorry, we need camera permissions to make this work!",
+      );
+      return;
+    }
+
+    let result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      handleAutoSave({ avatar: result.assets[0].uri });
+    }
   };
 
   const selectNativeLang = (code) => {
@@ -194,7 +360,10 @@ export default function ProfileScreen({ route, navigation }) {
     } else {
       list.push(code);
     }
-    handleAutoSave({ secondaryLangs: list, secondaryLangsSelected: list.length > 0 });
+    handleAutoSave({
+      secondaryLangs: list,
+      secondaryLangsSelected: list.length > 0,
+    });
   };
 
   const handleTogglePref = (key) => {
@@ -255,18 +424,18 @@ export default function ProfileScreen({ route, navigation }) {
 
   const isDark = currentUser.prefDarkTheme;
   const colors = {
-    bg: isDark ? '#0A0612' : '#F8FAFC',
-    cardBg: isDark ? '#120C24' : '#FFFFFF',
-    border: isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.05)',
-    text: isDark ? '#F3F4F6' : '#0F172A',
-    textMuted: isDark ? '#9CA3AF' : '#475569',
-    textDimmed: isDark ? '#6B7280' : '#64748B',
-    primary: isDark ? '#8B5CF6' : '#4F46E5',
-    primaryGlow: isDark ? 'rgba(139, 92, 246, 0.1)' : 'rgba(79, 70, 229, 0.08)',
-    accent: isDark ? '#06B6D4' : '#0284C7',
-    success: isDark ? '#10B981' : '#16A34A',
-    danger: isDark ? '#EF4444' : '#E11D48',
-    warning: isDark ? '#F59E0B' : '#D97706'
+    bg: isDark ? "#0A0612" : "#F8FAFC",
+    cardBg: isDark ? "#120C24" : "#FFFFFF",
+    border: isDark ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)",
+    text: isDark ? "#F3F4F6" : "#0F172A",
+    textMuted: isDark ? "#9CA3AF" : "#475569",
+    textDimmed: isDark ? "#6B7280" : "#64748B",
+    primary: isDark ? "#8B5CF6" : "#4F46E5",
+    primaryGlow: isDark ? "rgba(139, 92, 246, 0.1)" : "rgba(79, 70, 229, 0.08)",
+    accent: isDark ? "#06B6D4" : "#0284C7",
+    success: isDark ? "#10B981" : "#16A34A",
+    danger: isDark ? "#EF4444" : "#E11D48",
+    warning: isDark ? "#F59E0B" : "#D97706",
   };
 
   // horizontal boxed progress level meter
@@ -275,7 +444,9 @@ export default function ProfileScreen({ route, navigation }) {
     const boxes = [];
     for (let i = 1; i <= totalBoxes; i++) {
       const isLit = isTestingMic && i <= micLevel;
-      let boxColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)';
+      let boxColor = isDark
+        ? "rgba(255, 255, 255, 0.08)"
+        : "rgba(0, 0, 0, 0.05)";
       if (isLit) {
         if (i <= 10) {
           boxColor = colors.success; // green
@@ -288,18 +459,11 @@ export default function ProfileScreen({ route, navigation }) {
       boxes.push(
         <View
           key={i}
-          style={[
-            styles.micLevelBox,
-            { backgroundColor: boxColor }
-          ]}
-        />
+          style={[styles.micLevelBox, { backgroundColor: boxColor }]}
+        />,
       );
     }
-    return (
-      <View style={styles.micLevelMeterContainer}>
-        {boxes}
-      </View>
-    );
+    return <View style={styles.micLevelMeterContainer}>{boxes}</View>;
   };
 
   return (
@@ -308,57 +472,141 @@ export default function ProfileScreen({ route, navigation }) {
       <SafeAreaView
         style={[
           styles.headerSafeArea,
-          { backgroundColor: colors.cardBg, borderBottomWidth: 1, borderBottomColor: colors.border }
+          {
+            backgroundColor: colors.cardBg,
+            borderBottomWidth: 1,
+            borderBottomColor: colors.border,
+          },
         ]}
-        edges={['top', 'left', 'right']}
+        edges={["top", "left", "right"]}
       >
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.navigate('Home')} style={styles.closeBtn}>
-            <Text style={[styles.closeBtnText, { color: colors.text }]}>&times;</Text>
+          <TouchableOpacity
+            onPress={() => navigation.navigate("Home")}
+            style={styles.closeBtn}
+          >
+            <Text style={[styles.closeBtnText, { color: colors.text }]}>
+              &times;
+            </Text>
           </TouchableOpacity>
 
-          <Text style={[styles.title, { color: colors.text }]}>Profile Settings</Text>
+          <Text style={[styles.title, { color: colors.text }]}>
+            Profile Settings
+          </Text>
 
           {/* Autosave pill notification */}
           <View
             style={[
               styles.saveIndicator,
-              saveStatus === 'saving'
-                ? { backgroundColor: 'rgba(245, 158, 11, 0.1)', borderColor: 'rgba(245, 158, 11, 0.25)' }
-                : { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.25)' }
+              saveStatus === "saving"
+                ? {
+                    backgroundColor: "rgba(245, 158, 11, 0.1)",
+                    borderColor: "rgba(245, 158, 11, 0.25)",
+                  }
+                : {
+                    backgroundColor: "rgba(16, 185, 129, 0.1)",
+                    borderColor: "rgba(16, 185, 129, 0.25)",
+                  },
             ]}
           >
-            <View style={[styles.saveDot, { backgroundColor: saveStatus === 'saving' ? colors.warning : colors.success }]} />
-            <Text style={[styles.saveText, { color: saveStatus === 'saving' ? colors.warning : colors.success }]}>
-              {saveStatus === 'saving' ? 'Saving...' : 'Saved'}
+            <View
+              style={[
+                styles.saveDot,
+                {
+                  backgroundColor:
+                    saveStatus === "saving" ? colors.warning : colors.success,
+                },
+              ]}
+            />
+            <Text
+              style={[
+                styles.saveText,
+                {
+                  color:
+                    saveStatus === "saving" ? colors.warning : colors.success,
+                },
+              ]}
+            >
+              {saveStatus === "saving" ? "Saving..." : "Saved"}
             </Text>
           </View>
         </View>
       </SafeAreaView>
 
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Avatar presets selector */}
         <View
-          onLayout={(e) => { layoutOffsets.current.avatar = e.nativeEvent.layout.y; }}
+          onLayout={(e) => {
+            layoutOffsets.current.avatar = e.nativeEvent.layout.y;
+          }}
           style={[
             styles.avatarSection,
-            glowTarget === 'avatar' && styles.glowSection,
-            { borderWidth: 2, borderColor: glowTarget === 'avatar' ? '#F59E0B' : 'transparent', borderRadius: 20, padding: 8 }
+            glowTarget === "avatar" && styles.glowSection,
+            {
+              borderWidth: 2,
+              borderColor: glowTarget === "avatar" ? "#F59E0B" : "transparent",
+              borderRadius: 20,
+              padding: 8,
+            },
           ]}
         >
-          <View style={[styles.avatarPreviewContainer, { backgroundColor: colors.primary }]}>
-            <Image source={{ uri: currentUser.avatar }} style={[styles.avatarPreview, { borderColor: colors.cardBg }]} />
-          </View>
+          <TouchableOpacity
+            style={[
+              styles.avatarPreviewContainer,
+              { backgroundColor: colors.primary },
+            ]}
+            onPress={() => setIsImageSourceModalVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Image
+              source={{ uri: currentUser.avatar }}
+              style={[styles.avatarPreview, { borderColor: colors.cardBg }]}
+            />
+            {/* Pen Icon for Edit */}
+            <View
+              style={[
+                styles.editIconBadge,
+                { backgroundColor: colors.primary, borderColor: colors.cardBg },
+              ]}
+            >
+              <Svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="white"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <Path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <Path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </Svg>
+            </View>
+          </TouchableOpacity>
           <View style={styles.presetsWrapper}>
             {AVATAR_PRESETS.map((preset, idx) => {
               const isSelected = currentUser.avatar === preset;
               return (
-                <TouchableOpacity key={idx} onPress={() => selectAvatar(preset)} activeOpacity={0.7}>
+                <TouchableOpacity
+                  key={idx}
+                  onPress={() => selectAvatar(preset)}
+                  activeOpacity={0.7}
+                >
                   <Image
                     source={{ uri: preset }}
                     style={[
                       styles.presetItem,
-                      isSelected ? { borderColor: colors.primary, transform: [{ scale: 1.08 }] } : { borderColor: 'transparent' }
+                      isSelected
+                        ? {
+                            borderColor: colors.primary,
+                            transform: [{ scale: 1.08 }],
+                          }
+                        : { borderColor: "transparent" },
                     ]}
                   />
                 </TouchableOpacity>
@@ -369,16 +617,33 @@ export default function ProfileScreen({ route, navigation }) {
 
         {/* Display name field */}
         <View
-          onLayout={(e) => { layoutOffsets.current.username = e.nativeEvent.layout.y; }}
+          onLayout={(e) => {
+            layoutOffsets.current.username = e.nativeEvent.layout.y;
+          }}
           style={[
             styles.formGroup,
-            glowTarget === 'username' && styles.glowSection,
-            { borderWidth: 2, borderColor: glowTarget === 'username' ? '#F59E0B' : 'transparent', borderRadius: 16, padding: 8 }
+            glowTarget === "username" && styles.glowSection,
+            {
+              borderWidth: 2,
+              borderColor:
+                glowTarget === "username" ? "#F59E0B" : "transparent",
+              borderRadius: 16,
+              padding: 8,
+            },
           ]}
         >
-          <Text style={[styles.label, { color: colors.textMuted }]}>Display Name</Text>
+          <Text style={[styles.label, { color: colors.textMuted }]}>
+            Display Name
+          </Text>
           <TextInput
-            style={[styles.inputField, { backgroundColor: colors.cardBg, color: colors.text, borderColor: colors.border }]}
+            style={[
+              styles.inputField,
+              {
+                backgroundColor: colors.cardBg,
+                color: colors.text,
+                borderColor: colors.border,
+              },
+            ]}
             placeholder="Enter display name"
             placeholderTextColor={colors.textDimmed}
             value={name}
@@ -388,14 +653,24 @@ export default function ProfileScreen({ route, navigation }) {
 
         {/* Native language picker (Show 4 + Show All) */}
         <View
-          onLayout={(e) => { layoutOffsets.current.nativeLang = e.nativeEvent.layout.y; }}
+          onLayout={(e) => {
+            layoutOffsets.current.nativeLang = e.nativeEvent.layout.y;
+          }}
           style={[
             styles.formGroup,
-            glowTarget === 'nativeLang' && styles.glowSection,
-            { borderWidth: 2, borderColor: glowTarget === 'nativeLang' ? '#F59E0B' : 'transparent', borderRadius: 16, padding: 8 }
+            glowTarget === "nativeLang" && styles.glowSection,
+            {
+              borderWidth: 2,
+              borderColor:
+                glowTarget === "nativeLang" ? "#F59E0B" : "transparent",
+              borderRadius: 16,
+              padding: 8,
+            },
           ]}
         >
-          <Text style={[styles.label, { color: colors.textMuted }]}>Native Language</Text>
+          <Text style={[styles.label, { color: colors.textMuted }]}>
+            Native Language
+          </Text>
           <View style={styles.langPills}>
             {getNativePills().map((code) => {
               const lang = LANGS[code];
@@ -407,24 +682,49 @@ export default function ProfileScreen({ route, navigation }) {
                   style={[
                     styles.pillItem,
                     isSelected
-                      ? { backgroundColor: colors.primaryGlow, borderColor: colors.primary }
-                      : { backgroundColor: colors.cardBg, borderColor: colors.border }
+                      ? {
+                          backgroundColor: colors.primaryGlow,
+                          borderColor: colors.primary,
+                        }
+                      : {
+                          backgroundColor: colors.cardBg,
+                          borderColor: colors.border,
+                        },
                   ]}
                   onPress={() => selectNativeLang(code)}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.pillText, isSelected ? { color: colors.primary, fontWeight: '600' } : { color: colors.textMuted }]}>
+                  <Text
+                    style={[
+                      styles.pillText,
+                      isSelected
+                        ? { color: colors.primary, fontWeight: "600" }
+                        : { color: colors.textMuted },
+                    ]}
+                  >
                     {lang.flag} {lang.name}
                   </Text>
                 </TouchableOpacity>
               );
             })}
             <TouchableOpacity
-              style={[styles.pillItem, { backgroundColor: colors.cardBg, borderColor: colors.primary, borderStyle: 'dashed' }]}
+              style={[
+                styles.pillItem,
+                {
+                  backgroundColor: colors.cardBg,
+                  borderColor: colors.primary,
+                  borderStyle: "dashed",
+                },
+              ]}
               onPress={() => setIsNativeLangModalVisible(true)}
               activeOpacity={0.7}
             >
-              <Text style={[styles.pillText, { color: colors.primary, fontWeight: '600' }]}>
+              <Text
+                style={[
+                  styles.pillText,
+                  { color: colors.primary, fontWeight: "600" },
+                ]}
+              >
                 + Show All
               </Text>
             </TouchableOpacity>
@@ -433,37 +733,74 @@ export default function ProfileScreen({ route, navigation }) {
 
         {/* Train Voice AI Section (Placed below Native Language) */}
         <View
-          onLayout={(e) => { layoutOffsets.current.voice = e.nativeEvent.layout.y; }}
+          onLayout={(e) => {
+            layoutOffsets.current.voice = e.nativeEvent.layout.y;
+          }}
           style={[
             styles.formGroup,
-            glowTarget === 'voice' && styles.glowSection,
-            { borderWidth: 2, borderColor: glowTarget === 'voice' ? '#F59E0B' : 'transparent', borderRadius: 16, padding: 8 }
+            glowTarget === "voice" && styles.glowSection,
+            {
+              borderWidth: 2,
+              borderColor: glowTarget === "voice" ? "#F59E0B" : "transparent",
+              borderRadius: 16,
+              padding: 8,
+            },
           ]}
         >
-          <Text style={[styles.label, { color: colors.textMuted }]}>Voice AI Profile</Text>
-          <View style={[styles.voiceAICard, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
+          <Text style={[styles.label, { color: colors.textMuted }]}>
+            Voice AI Profile
+          </Text>
+          <View
+            style={[
+              styles.voiceAICard,
+              { backgroundColor: colors.cardBg, borderColor: colors.border },
+            ]}
+          >
             <View style={styles.voiceAIRow}>
               <TouchableOpacity
                 style={[
                   styles.voiceAIBtn,
                   currentUser.voiceAITrained
-                    ? { backgroundColor: colors.success + '20', borderColor: colors.success, borderWidth: 1 }
-                    : { backgroundColor: colors.primary }
+                    ? {
+                        backgroundColor: colors.success + "20",
+                        borderColor: colors.success,
+                        borderWidth: 1,
+                      }
+                    : { backgroundColor: colors.primary },
                 ]}
                 onPress={startVoiceTraining}
                 activeOpacity={0.8}
               >
                 {currentUser.voiceAITrained && (
-                  <Text style={[styles.voiceAITicketText, { color: colors.success, fontSize: 16 }]}>✓ </Text>
+                  <Text
+                    style={[
+                      styles.voiceAITicketText,
+                      { color: colors.success, fontSize: 16 },
+                    ]}
+                  >
+                    ✓{" "}
+                  </Text>
                 )}
-                <Text style={[styles.voiceAIBtnText, currentUser.voiceAITrained ? { color: colors.success } : { color: 'white' }]}>
-                  {currentUser.voiceAITrained ? 'Retrain Voice AI' : 'Train Your Voice AI'}
+                <Text
+                  style={[
+                    styles.voiceAIBtnText,
+                    currentUser.voiceAITrained
+                      ? { color: colors.success }
+                      : { color: "white" },
+                  ]}
+                >
+                  {currentUser.voiceAITrained
+                    ? "Retrain Voice AI"
+                    : "Train Your Voice AI"}
                 </Text>
               </TouchableOpacity>
 
               {currentUser.voiceAITrained && (
                 <TouchableOpacity
-                  style={[styles.voiceAIBtn, { backgroundColor: colors.accent }]}
+                  style={[
+                    styles.voiceAIBtn,
+                    { backgroundColor: colors.accent },
+                  ]}
                   onPress={() => setIsTestingModalVisible(true)}
                   activeOpacity={0.8}
                 >
@@ -473,22 +810,32 @@ export default function ProfileScreen({ route, navigation }) {
             </View>
             <Text style={[styles.voiceAIDesc, { color: colors.textMuted }]}>
               {currentUser.voiceAITrained
-                ? 'Your speech model is active! Translate spoken audio using your own cloned voice.'
-                : 'Clone your voice to speak translations in your own vocal print instead of robotic TTS.'}
+                ? "Your speech model is active! Translate spoken audio using your own cloned voice."
+                : "Clone your voice to speak translations in your own vocal print instead of robotic TTS."}
             </Text>
           </View>
         </View>
 
         {/* Secondary target languages selection (Show 4 + Show All) */}
         <View
-          onLayout={(e) => { layoutOffsets.current.secondaryLang = e.nativeEvent.layout.y; }}
+          onLayout={(e) => {
+            layoutOffsets.current.secondaryLang = e.nativeEvent.layout.y;
+          }}
           style={[
             styles.formGroup,
-            glowTarget === 'secondaryLang' && styles.glowSection,
-            { borderWidth: 2, borderColor: glowTarget === 'secondaryLang' ? '#F59E0B' : 'transparent', borderRadius: 16, padding: 8 }
+            glowTarget === "secondaryLang" && styles.glowSection,
+            {
+              borderWidth: 2,
+              borderColor:
+                glowTarget === "secondaryLang" ? "#F59E0B" : "transparent",
+              borderRadius: 16,
+              padding: 8,
+            },
           ]}
         >
-          <Text style={[styles.label, { color: colors.textMuted }]}>Secondary Languages (To Translate)</Text>
+          <Text style={[styles.label, { color: colors.textMuted }]}>
+            Secondary Languages (To Translate)
+          </Text>
           <View style={styles.langPills}>
             {getSecondaryPills().map((code) => {
               const lang = LANGS[code];
@@ -500,24 +847,50 @@ export default function ProfileScreen({ route, navigation }) {
                   style={[
                     styles.pillItem,
                     isChecked
-                      ? { backgroundColor: colors.primaryGlow, borderColor: colors.primary }
-                      : { backgroundColor: colors.cardBg, borderColor: colors.border }
+                      ? {
+                          backgroundColor: colors.primaryGlow,
+                          borderColor: colors.primary,
+                        }
+                      : {
+                          backgroundColor: colors.cardBg,
+                          borderColor: colors.border,
+                        },
                   ]}
                   onPress={() => toggleSecondaryLang(code)}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.pillText, isChecked ? { color: colors.primary, fontWeight: '600' } : { color: colors.textMuted }]}>
-                    {isChecked ? '✓ ' : ''}{lang.flag} {lang.name}
+                  <Text
+                    style={[
+                      styles.pillText,
+                      isChecked
+                        ? { color: colors.primary, fontWeight: "600" }
+                        : { color: colors.textMuted },
+                    ]}
+                  >
+                    {isChecked ? "✓ " : ""}
+                    {lang.flag} {lang.name}
                   </Text>
                 </TouchableOpacity>
               );
             })}
             <TouchableOpacity
-              style={[styles.pillItem, { backgroundColor: colors.cardBg, borderColor: colors.primary, borderStyle: 'dashed' }]}
+              style={[
+                styles.pillItem,
+                {
+                  backgroundColor: colors.cardBg,
+                  borderColor: colors.primary,
+                  borderStyle: "dashed",
+                },
+              ]}
               onPress={() => setIsSecondaryLangModalVisible(true)}
               activeOpacity={0.7}
             >
-              <Text style={[styles.pillText, { color: colors.primary, fontWeight: '600' }]}>
+              <Text
+                style={[
+                  styles.pillText,
+                  { color: colors.primary, fontWeight: "600" },
+                ]}
+              >
                 + Show All
               </Text>
             </TouchableOpacity>
@@ -526,21 +899,28 @@ export default function ProfileScreen({ route, navigation }) {
 
         {/* Test Microphone with Horizontal Level Meter */}
         <View style={styles.formGroup}>
-          <Text style={[styles.label, { color: colors.textMuted }]}>Microphone Test</Text>
-          <View style={[styles.micTestCard, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
+          <Text style={[styles.label, { color: colors.textMuted }]}>
+            Microphone Test
+          </Text>
+          <View
+            style={[
+              styles.micTestCard,
+              { backgroundColor: colors.cardBg, borderColor: colors.border },
+            ]}
+          >
             <View style={styles.micTestControls}>
               <TouchableOpacity
                 style={[
                   styles.testMicBtn,
                   isTestingMic
                     ? { backgroundColor: colors.danger }
-                    : { backgroundColor: colors.primary }
+                    : { backgroundColor: colors.primary },
                 ]}
                 onPress={toggleMicTest}
                 activeOpacity={0.75}
               >
                 <Text style={styles.testMicText}>
-                  {isTestingMic ? 'Stop Test' : 'Test Microphone'}
+                  {isTestingMic ? "Stop Test" : "Test Microphone"}
                 </Text>
               </TouchableOpacity>
 
@@ -548,58 +928,372 @@ export default function ProfileScreen({ route, navigation }) {
               {renderMicLevelMeter()}
             </View>
             <Text style={[styles.micTestDesc, { color: colors.textMuted }]}>
-              {isTestingMic ? 'Speak normally to monitor level indicator activity.' : 'Tap to ensure device microphone receives audio input correctly.'}
+              {isTestingMic
+                ? "Speak normally to monitor level indicator activity."
+                : "Tap to ensure device microphone receives audio input correctly."}
             </Text>
           </View>
         </View>
 
         {/* Preferences / Toggles list */}
         <View style={styles.formGroup}>
-          <Text style={[styles.label, { color: colors.textMuted }]}>Preferences</Text>
-          <View style={[styles.toggleList, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
-            <View style={[styles.toggleItem, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.toggleLabel, { color: colors.text }]}>Dark Theme Mode</Text>
+          <Text style={[styles.label, { color: colors.textMuted }]}>
+            Preferences
+          </Text>
+          <View
+            style={[
+              styles.toggleList,
+              { backgroundColor: colors.cardBg, borderColor: colors.border },
+            ]}
+          >
+            <View
+              style={[styles.toggleItem, { borderBottomColor: colors.border }]}
+            >
+              <Text style={[styles.toggleLabel, { color: colors.text }]}>
+                Dark Theme Mode
+              </Text>
               <Switch
                 value={currentUser.prefDarkTheme}
-                onValueChange={() => handleTogglePref('prefDarkTheme')}
-                trackColor={{ false: 'rgba(0,0,0,0.1)', true: colors.primary }}
+                onValueChange={() => handleTogglePref("prefDarkTheme")}
+                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
               />
             </View>
 
-            <View style={[styles.toggleItem, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.toggleLabel, { color: colors.text }]}>Auto-translate Incoming Voice</Text>
+            <View
+              style={[styles.toggleItem, { borderBottomColor: colors.border }]}
+            >
+              <Text style={[styles.toggleLabel, { color: colors.text }]}>
+                Auto-translate Incoming Voice
+              </Text>
               <Switch
                 value={currentUser.prefAutoTrans}
-                onValueChange={() => handleTogglePref('prefAutoTrans')}
-                trackColor={{ false: 'rgba(0,0,0,0.1)', true: colors.primary }}
+                onValueChange={() => handleTogglePref("prefAutoTrans")}
+                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
               />
             </View>
 
-            <View style={[styles.toggleItem, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.toggleLabel, { color: colors.text }]}>Haptic Feedback on Mic Activation</Text>
+            <View
+              style={[styles.toggleItem, { borderBottomColor: colors.border }]}
+            >
+              <Text style={[styles.toggleLabel, { color: colors.text }]}>
+                Haptic Feedback on Mic Activation
+              </Text>
               <Switch
                 value={currentUser.prefHaptics}
-                onValueChange={() => handleTogglePref('prefHaptics')}
-                trackColor={{ false: 'rgba(0,0,0,0.1)', true: colors.primary }}
+                onValueChange={() => handleTogglePref("prefHaptics")}
+                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
               />
             </View>
 
-            <View style={[styles.toggleItem, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.toggleLabel, { color: colors.text }]}>Voice Activation Detection (VAD)</Text>
+            <View
+              style={[styles.toggleItem, { borderBottomColor: colors.border }]}
+            >
+              <Text style={[styles.toggleLabel, { color: colors.text }]}>
+                Voice Activation Detection (VAD)
+              </Text>
               <Switch
                 value={currentUser.prefVad}
-                onValueChange={() => handleTogglePref('prefVad')}
-                trackColor={{ false: 'rgba(0,0,0,0.1)', true: colors.primary }}
+                onValueChange={() => handleTogglePref("prefVad")}
+                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
               />
             </View>
 
             <View style={styles.toggleItem}>
-              <Text style={[styles.toggleLabel, { color: colors.text }]}>Enable Chat Text Transcripts</Text>
+              <Text style={[styles.toggleLabel, { color: colors.text }]}>
+                Enable Chat Text Transcripts
+              </Text>
               <Switch
                 value={currentUser.prefShowTranscripts}
-                onValueChange={() => handleTogglePref('prefShowTranscripts')}
-                trackColor={{ false: 'rgba(0,0,0,0.1)', true: colors.primary }}
+                onValueChange={() => handleTogglePref("prefShowTranscripts")}
+                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
               />
+            </View>
+          </View>
+        </View>
+
+        {/* Storage & Data Section */}
+        <View style={styles.formGroup}>
+          <Text style={[styles.label, { color: colors.textMuted }]}>
+            Storage & Data
+          </Text>
+          <View
+            style={[
+              styles.toggleList,
+              {
+                backgroundColor: colors.cardBg,
+                borderColor: colors.border,
+                padding: 16,
+                borderRadius: 16,
+                gap: 12,
+              },
+            ]}
+          >
+            {/* Storage Stats */}
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+                paddingBottom: 12,
+              }}
+            >
+              <View>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontWeight: "600",
+                    color: colors.text,
+                  }}
+                >
+                  Images Cache
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: colors.textMuted,
+                    marginTop: 2,
+                  }}
+                >
+                  Shared post media
+                </Text>
+              </View>
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "700",
+                  color: colors.accent,
+                }}
+              >
+                {storageStats.imagesSize} MB
+              </Text>
+            </View>
+
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+                paddingBottom: 12,
+              }}
+            >
+              <View>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontWeight: "600",
+                    color: colors.text,
+                  }}
+                >
+                  Avatars Cache
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: colors.textMuted,
+                    marginTop: 2,
+                  }}
+                >
+                  Contact profile images
+                </Text>
+              </View>
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "700",
+                  color: colors.accent,
+                }}
+              >
+                {storageStats.avatarsSize} MB
+              </Text>
+            </View>
+
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                paddingBottom: 8,
+              }}
+            >
+              <Text
+                style={{ fontSize: 16, fontWeight: "700", color: colors.text }}
+              >
+                Total Space Used
+              </Text>
+              <Text
+                style={{
+                  fontSize: 17,
+                  fontWeight: "800",
+                  color: colors.primary,
+                }}
+              >
+                {storageStats.totalSize} MB
+              </Text>
+            </View>
+
+            {/* Actions Grid */}
+            <View style={{ gap: 10, marginTop: 8 }}>
+              <TouchableOpacity
+                style={{
+                  height: 48,
+                  borderRadius: 12,
+                  backgroundColor: colors.primaryGlow,
+                  justifyContent: "center",
+                  alignItems: "center",
+                  flexDirection: "row",
+                  gap: 8,
+                  borderWidth: 1,
+                  borderColor: colors.primary,
+                }}
+                onPress={handleSmartCleanup}
+                disabled={isCleaning}
+                activeOpacity={0.8}
+              >
+                {isCleaning ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <>
+                    <Svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={colors.primary}
+                      strokeWidth="2.5"
+                    >
+                      <Path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" />
+                      <Path d="m9 12 2 2 4-4" />
+                    </Svg>
+                    <Text
+                      style={{
+                        color: colors.primary,
+                        fontWeight: "600",
+                        fontSize: 15,
+                      }}
+                    >
+                      Run Smart Cleanup
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  height: 48,
+                  borderRadius: 12,
+                  backgroundColor: colors.primary,
+                  justifyContent: "center",
+                  alignItems: "center",
+                  flexDirection: "row",
+                  gap: 8,
+                }}
+                onPress={handleCloudBackup}
+                disabled={isBackingUp}
+                activeOpacity={0.85}
+              >
+                {isBackingUp ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <>
+                    <Svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="white"
+                      strokeWidth="2.5"
+                    >
+                      <Path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <Polyline points="17 8 12 3 7 8" />
+                      <Line x1="12" y1="3" x2="12" y2="15" />
+                    </Svg>
+                    <Text
+                      style={{
+                        color: "white",
+                        fontWeight: "600",
+                        fontSize: 15,
+                      }}
+                    >
+                      Backup Data to Cloud
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  height: 48,
+                  borderRadius: 12,
+                  backgroundColor: "rgba(239, 68, 68, 0.08)",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  flexDirection: "row",
+                  gap: 8,
+                  borderWidth: 1,
+                  borderColor: colors.danger,
+                }}
+                onPress={handleClearAll}
+                activeOpacity={0.8}
+              >
+                <Svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={colors.danger}
+                  strokeWidth="2.5"
+                >
+                  <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                </Svg>
+                <Text
+                  style={{
+                    color: colors.danger,
+                    fontWeight: "600",
+                    fontSize: 15,
+                  }}
+                >
+                  Clear Database & Media
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  height: 48,
+                  borderRadius: 12,
+                  backgroundColor: "rgba(239, 68, 68, 0.08)",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  flexDirection: "row",
+                  gap: 8,
+                  borderWidth: 1,
+                  borderColor: colors.danger,
+                }}
+                onPress={handleLogout}
+                activeOpacity={0.8}
+              >
+                <Svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={colors.danger}
+                  strokeWidth="2.5"
+                >
+                  <Path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <Polyline points="16 17 21 12 16 7" />
+                  <Line x1="21" y1="12" x2="9" y2="12" />
+                </Svg>
+                <Text
+                  style={{
+                    color: colors.danger,
+                    fontWeight: "600",
+                    fontSize: 15,
+                  }}
+                >
+                  Log Out
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -611,6 +1305,146 @@ export default function ProfileScreen({ route, navigation }) {
 
       {/* ================= MODALS ================= */}
 
+      {/* Modal: Image Source Selection (WhatsApp Style Bottom Sheet) */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={isImageSourceModalVisible}
+        onRequestClose={() => setIsImageSourceModalVisible(false)}
+      >
+        <View style={[styles.modalOverlay, { justifyContent: "flex-end" }]}>
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: colors.cardBg,
+                borderBottomLeftRadius: 0,
+                borderBottomRightRadius: 0,
+                paddingBottom: 40,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.modalTitle,
+                { color: colors.text, marginBottom: 24 },
+              ]}
+            >
+              Profile photo
+            </Text>
+
+            <View
+              style={{
+                flexDirection: "row",
+                gap: 30,
+                justifyContent: "flex-start",
+                paddingHorizontal: 10,
+              }}
+            >
+              <TouchableOpacity
+                style={{ alignItems: "center", gap: 8 }}
+                onPress={takePhoto}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: 28,
+                    backgroundColor: "rgba(79, 70, 229, 0.1)",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    borderWidth: 1,
+                    borderColor: "rgba(79, 70, 229, 0.2)",
+                  }}
+                >
+                  <Svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.primary}
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <Path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                    <Circle cx="12" cy="13" r="4" />
+                  </Svg>
+                </View>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: 13,
+                    fontWeight: "500",
+                  }}
+                >
+                  Camera
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{ alignItems: "center", gap: 8 }}
+                onPress={openGallery}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: 28,
+                    backgroundColor: "rgba(79, 70, 229, 0.1)",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    borderWidth: 1,
+                    borderColor: "rgba(79, 70, 229, 0.2)",
+                  }}
+                >
+                  <Svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.primary}
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <Rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <Circle cx="8.5" cy="8.5" r="1.5" />
+                    <Polyline points="21 15 16 10 5 21" />
+                  </Svg>
+                </View>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: 13,
+                    fontWeight: "500",
+                  }}
+                >
+                  Gallery
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={{ position: "absolute", top: 16, right: 16, padding: 8 }}
+              onPress={() => setIsImageSourceModalVisible(false)}
+            >
+              <Text
+                style={{
+                  color: colors.textMuted,
+                  fontSize: 24,
+                  fontWeight: "300",
+                }}
+              >
+                &times;
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Modal 1: Native Language Selection (Popup of 20) */}
       <Modal
         animationType="fade"
@@ -619,17 +1453,26 @@ export default function ProfileScreen({ route, navigation }) {
         onRequestClose={() => setIsNativeLangModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.cardBg }]}>
+          <View
+            style={[styles.modalContent, { backgroundColor: colors.cardBg }]}
+          >
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Select Native Language</Text>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Select Native Language
+              </Text>
               <TouchableOpacity
                 onPress={() => setIsNativeLangModalVisible(false)}
                 style={styles.modalCloseBtn}
               >
-                <Text style={[styles.modalCloseText, { color: colors.text }]}>&times;</Text>
+                <Text style={[styles.modalCloseText, { color: colors.text }]}>
+                  &times;
+                </Text>
               </TouchableOpacity>
             </View>
-            <ScrollView contentContainerStyle={styles.modalScroll} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              contentContainerStyle={styles.modalScroll}
+              showsVerticalScrollIndicator={false}
+            >
               <View style={styles.modalGrid}>
                 {Object.keys(LANGS).map((code) => {
                   const lang = LANGS[code];
@@ -640,12 +1483,25 @@ export default function ProfileScreen({ route, navigation }) {
                       style={[
                         styles.modalGridItem,
                         { borderColor: colors.border },
-                        isSelected && { backgroundColor: colors.primaryGlow, borderColor: colors.primary }
+                        isSelected && {
+                          backgroundColor: colors.primaryGlow,
+                          borderColor: colors.primary,
+                        },
                       ]}
                       onPress={() => selectNativeLang(code)}
                     >
                       <Text style={styles.modalGridItemFlag}>{lang.flag}</Text>
-                      <Text style={[styles.modalGridItemText, { color: colors.text }, isSelected && { fontWeight: '700', color: colors.primary }]} numberOfLines={1}>
+                      <Text
+                        style={[
+                          styles.modalGridItemText,
+                          { color: colors.text },
+                          isSelected && {
+                            fontWeight: "700",
+                            color: colors.primary,
+                          },
+                        ]}
+                        numberOfLines={1}
+                      >
                         {lang.name}
                       </Text>
                     </TouchableOpacity>
@@ -665,17 +1521,26 @@ export default function ProfileScreen({ route, navigation }) {
         onRequestClose={() => setIsSecondaryLangModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.cardBg }]}>
+          <View
+            style={[styles.modalContent, { backgroundColor: colors.cardBg }]}
+          >
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Target Languages</Text>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Target Languages
+              </Text>
               <TouchableOpacity
                 onPress={() => setIsSecondaryLangModalVisible(false)}
                 style={styles.modalCloseBtn}
               >
-                <Text style={[styles.modalCloseText, { color: colors.text }]}>&times;</Text>
+                <Text style={[styles.modalCloseText, { color: colors.text }]}>
+                  &times;
+                </Text>
               </TouchableOpacity>
             </View>
-            <ScrollView contentContainerStyle={styles.modalScroll} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              contentContainerStyle={styles.modalScroll}
+              showsVerticalScrollIndicator={false}
+            >
               <View style={styles.modalGrid}>
                 {Object.keys(LANGS).map((code) => {
                   const lang = LANGS[code];
@@ -686,19 +1551,39 @@ export default function ProfileScreen({ route, navigation }) {
                       style={[
                         styles.modalGridItem,
                         { borderColor: colors.border },
-                        isChecked && { backgroundColor: colors.primaryGlow, borderColor: colors.primary }
+                        isChecked && {
+                          backgroundColor: colors.primaryGlow,
+                          borderColor: colors.primary,
+                        },
                       ]}
                       onPress={() => toggleSecondaryLang(code)}
                     >
                       <View style={styles.checkboxContainer}>
-                        <Text style={styles.modalGridItemFlag}>{lang.flag}</Text>
+                        <Text style={styles.modalGridItemFlag}>
+                          {lang.flag}
+                        </Text>
                         {isChecked && (
-                          <View style={[styles.checkboxBadge, { backgroundColor: colors.primary }]}>
+                          <View
+                            style={[
+                              styles.checkboxBadge,
+                              { backgroundColor: colors.primary },
+                            ]}
+                          >
                             <Text style={styles.checkboxBadgeText}>✓</Text>
                           </View>
                         )}
                       </View>
-                      <Text style={[styles.modalGridItemText, { color: colors.text }, isChecked && { fontWeight: '700', color: colors.primary }]} numberOfLines={1}>
+                      <Text
+                        style={[
+                          styles.modalGridItemText,
+                          { color: colors.text },
+                          isChecked && {
+                            fontWeight: "700",
+                            color: colors.primary,
+                          },
+                        ]}
+                        numberOfLines={1}
+                      >
                         {lang.name}
                       </Text>
                     </TouchableOpacity>
@@ -724,25 +1609,40 @@ export default function ProfileScreen({ route, navigation }) {
         onRequestClose={() => setIsTrainingModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.cardBg, maxHeight: '85%' }]}>
+          <View
+            style={[
+              styles.modalContent,
+              { backgroundColor: colors.cardBg, maxHeight: "85%" },
+            ]}
+          >
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Voice AI Training</Text>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Voice AI Training
+              </Text>
               <TouchableOpacity
                 onPress={() => setIsTrainingModalVisible(false)}
                 style={styles.modalCloseBtn}
               >
-                <Text style={[styles.modalCloseText, { color: colors.text }]}>&times;</Text>
+                <Text style={[styles.modalCloseText, { color: colors.text }]}>
+                  &times;
+                </Text>
               </TouchableOpacity>
             </View>
 
-            {trainingProgress < 100 || trainingStep < trainingSentences.length - 1 ? (
+            {trainingProgress < 100 ||
+            trainingStep < trainingSentences.length - 1 ? (
               <View style={styles.trainingBody}>
                 <Text style={[styles.trainingSub, { color: colors.textMuted }]}>
                   Sentence {trainingStep + 1} of {trainingSentences.length}
                 </Text>
-                
+
                 {/* Sentence Reading Card */}
-                <View style={[styles.sentenceCard, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+                <View
+                  style={[
+                    styles.sentenceCard,
+                    { backgroundColor: colors.bg, borderColor: colors.border },
+                  ]}
+                >
                   <Text style={[styles.sentenceText, { color: colors.text }]}>
                     {`"${trainingSentences[trainingStep]}"`}
                   </Text>
@@ -751,11 +1651,39 @@ export default function ProfileScreen({ route, navigation }) {
                 {/* Progress Bar */}
                 <View style={styles.trainingProgressWrapper}>
                   <View style={styles.progressHeader}>
-                    <Text style={[styles.progressLabel, { color: colors.textMuted }]}>Recording Speech</Text>
-                    <Text style={[styles.progressPct, { color: colors.primary }]}>{trainingProgress}%</Text>
+                    <Text
+                      style={[
+                        styles.progressLabel,
+                        { color: colors.textMuted },
+                      ]}
+                    >
+                      Recording Speech
+                    </Text>
+                    <Text
+                      style={[styles.progressPct, { color: colors.primary }]}
+                    >
+                      {trainingProgress}%
+                    </Text>
                   </View>
-                  <View style={[styles.progressBarBg, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
-                    <View style={[styles.progressBarFill, { backgroundColor: colors.primary, width: `${trainingProgress}%` }]} />
+                  <View
+                    style={[
+                      styles.progressBarBg,
+                      {
+                        backgroundColor: isDark
+                          ? "rgba(255,255,255,0.08)"
+                          : "rgba(0,0,0,0.06)",
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.progressBarFill,
+                        {
+                          backgroundColor: colors.primary,
+                          width: `${trainingProgress}%`,
+                        },
+                      ]}
+                    />
                   </View>
                 </View>
 
@@ -765,7 +1693,10 @@ export default function ProfileScreen({ route, navigation }) {
                     style={[
                       styles.recordHoldBtn,
                       { backgroundColor: colors.primary },
-                      isRecording && { backgroundColor: colors.danger, transform: [{ scale: 1.05 }] }
+                      isRecording && {
+                        backgroundColor: colors.danger,
+                        transform: [{ scale: 1.05 }],
+                      },
                     ]}
                     onPressIn={startRecording}
                     onPressOut={stopRecording}
@@ -784,23 +1715,41 @@ export default function ProfileScreen({ route, navigation }) {
                       <Line x1="12" x2="12" y1="19" y2="22" />
                     </Svg>
                   </TouchableOpacity>
-                  <Text style={[styles.recordHint, { color: colors.textDimmed }]}>
-                    {isRecording ? 'Release to pause' : 'Press and hold to read aloud'}
+                  <Text
+                    style={[styles.recordHint, { color: colors.textDimmed }]}
+                  >
+                    {isRecording
+                      ? "Release to pause"
+                      : "Press and hold to read aloud"}
                   </Text>
                 </View>
               </View>
             ) : (
               // Success Screen when complete
               <View style={styles.successBody}>
-                <View style={[styles.successIconOuter, { backgroundColor: colors.success + '20' }]}>
-                  <Text style={[styles.successIconText, { color: colors.success }]}>✓</Text>
+                <View
+                  style={[
+                    styles.successIconOuter,
+                    { backgroundColor: colors.success + "20" },
+                  ]}
+                >
+                  <Text
+                    style={[styles.successIconText, { color: colors.success }]}
+                  >
+                    ✓
+                  </Text>
                 </View>
-                <Text style={[styles.successTitle, { color: colors.text }]}>Voice Training Complete!</Text>
+                <Text style={[styles.successTitle, { color: colors.text }]}>
+                  Voice Training Complete!
+                </Text>
                 <Text style={[styles.successDesc, { color: colors.textMuted }]}>
                   Your voice clone is fully trained and ready to translate.
                 </Text>
                 <TouchableOpacity
-                  style={[styles.successDoneBtn, { backgroundColor: colors.success }]}
+                  style={[
+                    styles.successDoneBtn,
+                    { backgroundColor: colors.success },
+                  ]}
                   onPress={() => setIsTrainingModalVisible(false)}
                 >
                   <Text style={styles.successDoneText}>Finish</Text>
@@ -819,29 +1768,72 @@ export default function ProfileScreen({ route, navigation }) {
         onRequestClose={() => setIsTestingModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.cardBg, maxHeight: '85%' }]}>
+          <View
+            style={[
+              styles.modalContent,
+              { backgroundColor: colors.cardBg, maxHeight: "85%" },
+            ]}
+          >
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Test Voice Clone</Text>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Test Voice Clone
+              </Text>
               <TouchableOpacity
                 onPress={() => setIsTestingModalVisible(false)}
                 style={styles.modalCloseBtn}
               >
-                <Text style={[styles.modalCloseText, { color: colors.text }]}>&times;</Text>
+                <Text style={[styles.modalCloseText, { color: colors.text }]}>
+                  &times;
+                </Text>
               </TouchableOpacity>
             </View>
 
             <Text style={[styles.testIntro, { color: colors.textMuted }]}>
-              Hear how your voice sounds in other languages! Tap play next to any target translation.
+              Hear how your voice sounds in other languages! Tap play next to
+              any target translation.
             </Text>
 
-            <ScrollView contentContainerStyle={styles.testList} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              contentContainerStyle={styles.testList}
+              showsVerticalScrollIndicator={false}
+            >
               {[
-                { code: 'zh', name: 'Chinese', flag: '🇨🇳', phrase: '你好，很高兴今天能和你说话！' },
-                { code: 'ar', name: 'Arabic', flag: '🇸🇦', phrase: 'مرحباً، من الرائع التحدث إليك اليوم!' },
-                { code: 'es', name: 'Spanish', flag: '🇪🇸', phrase: 'Hola, es genial hablar contigo hoy!' },
-                { code: 'fr', name: 'French', flag: '🇫🇷', phrase: 'Bonjour, c\'est génial de vous parler aujourd\'hui !' },
-                { code: 'ja', name: 'Japanese', flag: '🇯🇵', phrase: 'こんにちは、今日はお話しできて光栄です！' },
-                { code: 'sw', name: 'Swahili', flag: '🇰🇪', phrase: 'Habari, ni vyema kuzungumza nawe leo!' }
+                {
+                  code: "zh",
+                  name: "Chinese",
+                  flag: "🇨🇳",
+                  phrase: "你好，很高兴今天能和你说话！",
+                },
+                {
+                  code: "ar",
+                  name: "Arabic",
+                  flag: "🇸🇦",
+                  phrase: "مرحباً، من الرائع التحدث إليك اليوم!",
+                },
+                {
+                  code: "es",
+                  name: "Spanish",
+                  flag: "🇪🇸",
+                  phrase: "Hola, es genial hablar contigo hoy!",
+                },
+                {
+                  code: "fr",
+                  name: "French",
+                  flag: "🇫🇷",
+                  phrase: "Bonjour, c'est génial de vous parler aujourd'hui !",
+                },
+                {
+                  code: "ja",
+                  name: "Japanese",
+                  flag: "🇯🇵",
+                  phrase: "こんにちは、今日はお話しできて光栄です！",
+                },
+                {
+                  code: "sw",
+                  name: "Swahili",
+                  flag: "🇰🇪",
+                  phrase: "Habari, ni vyema kuzungumza nawe leo!",
+                },
               ].map((item) => {
                 const isPlaying = playingLang === item.code;
                 return (
@@ -849,31 +1841,52 @@ export default function ProfileScreen({ route, navigation }) {
                     key={item.code}
                     style={[
                       styles.testItemCard,
-                      { backgroundColor: colors.bg, borderColor: colors.border },
-                      isPlaying && { borderColor: colors.primary }
+                      {
+                        backgroundColor: colors.bg,
+                        borderColor: colors.border,
+                      },
+                      isPlaying && { borderColor: colors.primary },
                     ]}
                   >
                     <View style={styles.testItemHeader}>
                       <View style={styles.testItemLang}>
                         <Text style={styles.testItemFlag}>{item.flag}</Text>
-                        <Text style={[styles.testItemName, { color: colors.text }]}>{item.name}</Text>
+                        <Text
+                          style={[styles.testItemName, { color: colors.text }]}
+                        >
+                          {item.name}
+                        </Text>
                       </View>
                       <TouchableOpacity
                         style={[
                           styles.testPlayBtn,
-                          { backgroundColor: isPlaying ? colors.danger : colors.primary }
+                          {
+                            backgroundColor: isPlaying
+                              ? colors.danger
+                              : colors.primary,
+                          },
                         ]}
                         onPress={() => handlePlayVoice(item.code)}
                         disabled={playingLang !== null && !isPlaying}
                       >
                         {isPlaying ? (
                           // Stop / Pause icon
-                          <Svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+                          <Svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="white"
+                          >
                             <Path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
                           </Svg>
                         ) : (
                           // Play icon
-                          <Svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+                          <Svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="white"
+                          >
                             <Path d="M8 5v14l11-7z" />
                           </Svg>
                         )}
@@ -882,21 +1895,32 @@ export default function ProfileScreen({ route, navigation }) {
 
                     {/* Speech Text and Waveform visualizer */}
                     <View style={styles.testItemContent}>
-                      <Text style={[styles.testItemPhrase, { color: colors.textDimmed }]}>
+                      <Text
+                        style={[
+                          styles.testItemPhrase,
+                          { color: colors.textDimmed },
+                        ]}
+                      >
                         {item.phrase}
                       </Text>
-                      
+
                       {isPlaying && (
                         <View style={styles.visualizerRow}>
                           {[...Array(12)].map((_, i) => {
                             // Generate heights for animated pulse feel
-                            const randomHeight = Math.floor(Math.sin((playProgress + i * 2) * 0.5) * 10) + 16;
+                            const randomHeight =
+                              Math.floor(
+                                Math.sin((playProgress + i * 2) * 0.5) * 10,
+                              ) + 16;
                             return (
                               <View
                                 key={i}
                                 style={[
                                   styles.visualizerBar,
-                                  { backgroundColor: colors.accent, height: randomHeight }
+                                  {
+                                    backgroundColor: colors.accent,
+                                    height: randomHeight,
+                                  },
                                 ]}
                               />
                             );
@@ -917,480 +1941,491 @@ export default function ProfileScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1
+    flex: 1,
   },
   headerSafeArea: {
-    width: '100%'
+    width: "100%",
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 12
+    paddingVertical: 12,
   },
   closeBtn: {
-    padding: 4
+    padding: 4,
   },
   closeBtnText: {
     fontSize: 28,
-    lineHeight: 28
+    lineHeight: 28,
   },
   title: {
     fontSize: 18,
-    fontWeight: '700'
+    fontWeight: "700",
   },
   saveIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 20,
-    borderWidth: 1
+    borderWidth: 1,
   },
   saveDot: {
     width: 6,
     height: 6,
-    borderRadius: 3
+    borderRadius: 3,
   },
   saveText: {
     fontSize: 11,
-    fontWeight: '600'
+    fontWeight: "600",
   },
   scrollContent: {
     paddingHorizontal: 24,
     paddingTop: 16,
-    paddingBottom: 48
+    paddingBottom: 48,
   },
   avatarSection: {
-    alignItems: 'center',
-    marginBottom: 24
+    alignItems: "center",
+    marginBottom: 24,
   },
   avatarPreviewContainer: {
     width: 90,
     height: 90,
     borderRadius: 45,
     padding: 3,
-    marginBottom: 16
+    marginBottom: 16,
   },
   avatarPreview: {
     flex: 1,
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
     borderRadius: 42,
-    borderWidth: 3
+    borderWidth: 3,
+  },
+  editIconBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    justifyContent: "center",
+    alignItems: "center",
   },
   presetsWrapper: {
-    flexDirection: 'row',
-    gap: 12
+    flexDirection: "row",
+    gap: 12,
   },
   presetItem: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    borderWidth: 2
+    borderWidth: 2,
   },
   formGroup: {
     marginBottom: 24,
-    gap: 8
+    gap: 8,
   },
   label: {
     fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 1
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
   inputField: {
-    width: '100%',
+    width: "100%",
     height: 48,
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 16,
-    fontSize: 15
+    fontSize: 15,
   },
   langPills: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
   },
   pillItem: {
     borderWidth: 1,
     borderRadius: 30,
     paddingHorizontal: 14,
-    paddingVertical: 8
+    paddingVertical: 8,
   },
   pillText: {
     fontSize: 13,
-    fontWeight: '500'
+    fontWeight: "500",
   },
   voiceAICard: {
     padding: 16,
     borderRadius: 16,
     borderWidth: 1,
-    gap: 12
+    gap: 12,
   },
   voiceAIRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
   },
   voiceAIBtn: {
     flex: 1,
     paddingVertical: 12,
     borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row'
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
   },
   voiceAIBtnText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: 'white'
+    fontWeight: "600",
+    color: "white",
   },
   voiceAITicketText: {
-    fontWeight: '700'
+    fontWeight: "700",
   },
   voiceAIDesc: {
     fontSize: 12,
-    lineHeight: 16
+    lineHeight: 16,
   },
   micTestCard: {
     padding: 16,
     borderRadius: 16,
     borderWidth: 1,
-    gap: 12
+    gap: 12,
   },
   micTestControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
   },
   testMicBtn: {
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center'
+    justifyContent: "center",
+    alignItems: "center",
   },
   testMicText: {
-    color: 'white',
+    color: "white",
     fontSize: 13,
-    fontWeight: '600'
+    fontWeight: "600",
   },
   micLevelMeterContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     flex: 1,
-    justifyContent: 'flex-start',
-    paddingLeft: 8
+    justifyContent: "flex-start",
+    paddingLeft: 8,
   },
   micLevelBox: {
     width: 7,
     height: 16,
     borderRadius: 1.5,
-    marginRight: 3
+    marginRight: 3,
   },
   micTestDesc: {
     fontSize: 12,
-    lineHeight: 16
+    lineHeight: 16,
   },
   toggleList: {
     borderWidth: 1,
     borderRadius: 16,
     paddingHorizontal: 16,
-    overflow: 'hidden'
+    overflow: "hidden",
   },
   toggleItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: 14,
-    borderBottomWidth: 1
+    borderBottomWidth: 1,
   },
   toggleLabel: {
     fontSize: 14,
-    fontWeight: '500'
+    fontWeight: "500",
   },
   footerText: {
-    textAlign: 'center',
+    textAlign: "center",
     fontSize: 12,
-    fontWeight: '500',
-    marginTop: 8
+    fontWeight: "500",
+    marginTop: 8,
   },
 
   // Modals Styling
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(10, 6, 18, 0.65)',
-    justifyContent: 'center',
-    alignItems: 'center'
+    backgroundColor: "rgba(10, 6, 18, 0.65)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   modalContent: {
-    width: '90%',
-    maxHeight: '80%',
+    width: "90%",
+    maxHeight: "80%",
     borderRadius: 24,
     padding: 24,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.35,
     shadowRadius: 20,
     elevation: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)'
+    borderColor: "rgba(255,255,255,0.06)",
   },
   modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '700'
+    fontWeight: "700",
   },
   modalCloseBtn: {
-    padding: 4
+    padding: 4,
   },
   modalCloseText: {
     fontSize: 28,
-    lineHeight: 28
+    lineHeight: 28,
   },
   modalScroll: {
-    paddingBottom: 12
+    paddingBottom: 12,
   },
   modalGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
-    justifyContent: 'space-between'
+    justifyContent: "space-between",
   },
   modalGridItem: {
-    width: '48%',
+    width: "48%",
     borderWidth: 1,
     borderRadius: 14,
     paddingVertical: 12,
     paddingHorizontal: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
-    marginBottom: 6
+    marginBottom: 6,
   },
   modalGridItemFlag: {
-    fontSize: 22
+    fontSize: 22,
   },
   modalGridItemText: {
     fontSize: 13,
-    fontWeight: '500',
-    flex: 1
+    fontWeight: "500",
+    flex: 1,
   },
   checkboxContainer: {
-    position: 'relative'
+    position: "relative",
   },
   checkboxBadge: {
-    position: 'absolute',
+    position: "absolute",
     bottom: -4,
     right: -4,
     width: 14,
     height: 14,
     borderRadius: 7,
-    justifyContent: 'center',
-    alignItems: 'center'
+    justifyContent: "center",
+    alignItems: "center",
   },
   checkboxBadgeText: {
-    color: 'white',
+    color: "white",
     fontSize: 9,
-    fontWeight: '700'
+    fontWeight: "700",
   },
   modalDoneBtn: {
-    width: '100%',
+    width: "100%",
     paddingVertical: 14,
     borderRadius: 14,
-    alignItems: 'center',
-    marginTop: 16
+    alignItems: "center",
+    marginTop: 16,
   },
   modalDoneBtnText: {
-    color: 'white',
+    color: "white",
     fontSize: 14,
-    fontWeight: '600'
+    fontWeight: "600",
   },
 
   // Voice Training Modal styles
   trainingBody: {
     gap: 18,
-    alignItems: 'center'
+    alignItems: "center",
   },
   trainingSub: {
     fontSize: 13,
-    fontWeight: '600'
+    fontWeight: "600",
   },
   sentenceCard: {
-    width: '100%',
+    width: "100%",
     padding: 20,
     borderRadius: 16,
     borderWidth: 1,
     minHeight: 100,
-    justifyContent: 'center',
-    alignItems: 'center'
+    justifyContent: "center",
+    alignItems: "center",
   },
   sentenceText: {
     fontSize: 16,
-    fontWeight: '500',
-    textAlign: 'center',
-    lineHeight: 24
+    fontWeight: "500",
+    textAlign: "center",
+    lineHeight: 24,
   },
   trainingProgressWrapper: {
-    width: '100%',
-    gap: 6
+    width: "100%",
+    gap: 6,
   },
   progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between'
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   progressLabel: {
     fontSize: 12,
-    fontWeight: '500'
+    fontWeight: "500",
   },
   progressPct: {
     fontSize: 13,
-    fontWeight: '700'
+    fontWeight: "700",
   },
   progressBarBg: {
-    width: '100%',
+    width: "100%",
     height: 10,
     borderRadius: 5,
-    overflow: 'hidden'
+    overflow: "hidden",
   },
   progressBarFill: {
-    height: '100%',
-    borderRadius: 5
+    height: "100%",
+    borderRadius: 5,
   },
   recordActionContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     gap: 10,
-    marginTop: 10
+    marginTop: 10,
   },
   recordHoldBtn: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
-    elevation: 4
+    elevation: 4,
   },
   recordHint: {
     fontSize: 12,
-    fontWeight: '500'
+    fontWeight: "500",
   },
   successBody: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingVertical: 12,
-    gap: 16
+    gap: 16,
   },
   successIconOuter: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center'
+    justifyContent: "center",
+    alignItems: "center",
   },
   successIconText: {
     fontSize: 32,
-    fontWeight: '700'
+    fontWeight: "700",
   },
   successTitle: {
     fontSize: 18,
-    fontWeight: '700'
+    fontWeight: "700",
   },
   successDesc: {
     fontSize: 13,
-    textAlign: 'center',
-    lineHeight: 20
+    textAlign: "center",
+    lineHeight: 20,
   },
   successDoneBtn: {
-    width: '100%',
+    width: "100%",
     paddingVertical: 14,
     borderRadius: 14,
-    alignItems: 'center',
-    marginTop: 8
+    alignItems: "center",
+    marginTop: 8,
   },
   successDoneText: {
-    color: 'white',
+    color: "white",
     fontSize: 14,
-    fontWeight: '600'
+    fontWeight: "600",
   },
 
   // Test Clone Modal styles
   testIntro: {
     fontSize: 13,
     lineHeight: 18,
-    marginBottom: 16
+    marginBottom: 16,
   },
   testList: {
     gap: 12,
-    paddingBottom: 16
+    paddingBottom: 16,
   },
   testItemCard: {
     borderWidth: 1,
     borderRadius: 18,
     padding: 16,
-    gap: 10
+    gap: 10,
   },
   testItemHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center'
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   testItemLang: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   testItemFlag: {
-    fontSize: 22
+    fontSize: 22,
   },
   testItemName: {
     fontSize: 14,
-    fontWeight: '600'
+    fontWeight: "600",
   },
   testPlayBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center'
+    justifyContent: "center",
+    alignItems: "center",
   },
   testItemContent: {
-    gap: 8
+    gap: 8,
   },
   testItemPhrase: {
     fontSize: 13,
     lineHeight: 18,
-    fontStyle: 'italic'
+    fontStyle: "italic",
   },
   visualizerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 3,
     height: 28,
-    marginTop: 6
+    marginTop: 6,
   },
   visualizerBar: {
     width: 3,
     borderRadius: 1.5,
-    minHeight: 4
+    minHeight: 4,
   },
   glowSection: {
-    backgroundColor: 'rgba(245, 158, 11, 0.08)',
-    shadowColor: '#F59E0B',
+    backgroundColor: "rgba(245, 158, 11, 0.08)",
+    shadowColor: "#F59E0B",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,
     shadowRadius: 10,
-    elevation: 3
-  }
+    elevation: 3,
+  },
 });

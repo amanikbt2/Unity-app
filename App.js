@@ -25,12 +25,14 @@ const AppContent = () => {
     );
   }
 
+  const initialRoute = currentUser?.isRealUser ? "Home" : "Auth";
+
   return (
     <SafeAreaProvider>
       <StatusBar style={currentUser.prefDarkTheme ? "light" : "dark"} />
       <NavigationContainer>
         <Stack.Navigator
-          initialRouteName="Home"
+          initialRouteName={initialRoute}
           screenOptions={{
             headerShown: false,
             animation: "slide_from_right",
