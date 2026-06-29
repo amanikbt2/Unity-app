@@ -12,11 +12,13 @@ import {
   Modal,
   Dimensions,
   Alert,
+  Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Path, Line, Circle, Rect, Polyline } from "react-native-svg";
 import { AppContext } from "../context/AppContext";
+import UserProfilePopup from "../components/UserProfilePopup";
 import {
   getStorageStats,
   runSmartStorageCleanup,
@@ -25,8 +27,42 @@ import {
 } from "../services/StorageService";
 import { clearDatabase } from "../services/DatabaseService";
 import * as ImagePicker from "expo-image-picker";
+import {
+  AudioModule,
+  AudioQuality,
+  IOSOutputFormat,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from "expo-audio";
 
 const { width, height } = Dimensions.get("window");
+
+const MIC_TEST_AUDIO_OPTIONS = {
+  android: {
+    extension: ".m4a",
+    outputFormat: "mpeg4",
+    audioEncoder: "aac",
+    sampleRate: 16000,
+    numberOfChannels: 1,
+    bitRate: 64000,
+  },
+  ios: {
+    extension: ".m4a",
+    outputFormat: IOSOutputFormat.MPEG4AAC,
+    audioQuality: AudioQuality.MEDIUM,
+    sampleRate: 16000,
+    numberOfChannels: 1,
+    bitRate: 64000,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: {
+    mimeType: "audio/webm",
+    bitsPerSecond: 64000,
+  },
+  isMeteringEnabled: true,
+};
 
 const AVATAR_PRESETS = [
   "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
@@ -36,10 +72,17 @@ const AVATAR_PRESETS = [
 ];
 
 export default function ProfileScreen({ route, navigation }) {
-  const { currentUser, updateSettings, logoutUser, LANGS } =
-    useContext(AppContext);
+  const {
+    currentUser,
+    updateSettings,
+    logoutUser,
+    deleteAccountAndResetApp,
+    getLangDetails,
+    LANGS,
+  } = useContext(AppContext);
   const [saveStatus, setSaveStatus] = useState("saved"); // 'saved', 'saving', 'idle'
   const [name, setName] = useState(currentUser.name);
+  const [phone, setPhone] = useState(currentUser.phone || "");
 
   // References and Glow states
   const scrollRef = useRef(null);
@@ -52,6 +95,8 @@ export default function ProfileScreen({ route, navigation }) {
   const [isNativeLangModalVisible, setIsNativeLangModalVisible] =
     useState(false);
   const [isSecondaryLangModalVisible, setIsSecondaryLangModalVisible] =
+    useState(false);
+  const [isUnityAILangModalVisible, setIsUnityAILangModalVisible] =
     useState(false);
   const [isTrainingModalVisible, setIsTrainingModalVisible] = useState(false);
   const [isTestingModalVisible, setIsTestingModalVisible] = useState(false);
@@ -67,7 +112,7 @@ export default function ProfileScreen({ route, navigation }) {
 
   // Microphone level test state
   const [isTestingMic, setIsTestingMic] = useState(false);
-  const [micLevel, setMicLevel] = useState(0);
+  const [micTestStatus, setMicTestStatus] = useState("idle");
 
   // Storage & Data management state
   const [storageStats, setStorageStats] = useState({
@@ -77,6 +122,12 @@ export default function ProfileScreen({ route, navigation }) {
   });
   const [isCleaning, setIsCleaning] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+  const [deleteCode, setDeleteCode] = useState("");
+  const [deleteCodeInput, setDeleteCodeInput] = useState("");
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [profilePopupVisible, setProfilePopupVisible] = useState(false);
+  const [profilePopupData, setProfilePopupData] = useState(null);
 
   const loadStats = async () => {
     try {
@@ -145,6 +196,16 @@ export default function ProfileScreen({ route, navigation }) {
     }
   };
 
+  const openProfilePopup = () => {
+    setProfilePopupData({
+      name: currentUser.name,
+      avatar: currentUser.avatar,
+      nativeLang: currentUser.nativeLang,
+      uid: currentUser.uid,
+    });
+    setProfilePopupVisible(true);
+  };
+
   const handleLogout = async () => {
     Alert.alert("Log Out", "Are you sure you want to log out?", [
       { text: "Cancel", style: "cancel" },
@@ -160,6 +221,79 @@ export default function ProfileScreen({ route, navigation }) {
         },
       },
     ]);
+  };
+
+  const generateDeletionCode = () =>
+    Math.floor(100000 + Math.random() * 900000).toString();
+
+  const openDeletionEmail = async (code) => {
+    const subject = encodeURIComponent(
+      "Unity account deletion confirmation code",
+    );
+    const body = encodeURIComponent(
+      `Your Unity deletion confirmation code is: ${code}\n\nIf you did not request this, you can ignore this email.`,
+    );
+    const mailtoUrl = `mailto:${currentUser.email}?subject=${subject}&body=${body}`;
+
+    const canOpen = await Linking.canOpenURL(mailtoUrl);
+    if (canOpen) {
+      await Linking.openURL(mailtoUrl);
+      return true;
+    }
+
+    Alert.alert(
+      "Email App Not Available",
+      "We could not open an email app on this device. The confirmation code was generated, but you will need to send it from your email client manually.",
+    );
+    return false;
+  };
+
+  const handleStartDeleteAccount = () => {
+    if (!currentUser.isRealUser || !currentUser.email) {
+      Alert.alert(
+        "Email Required",
+        "Please sign in with a real email account before deleting it.",
+      );
+      return;
+    }
+
+    const nextCode = generateDeletionCode();
+    setDeleteCode(nextCode);
+    setDeleteCodeInput("");
+    setIsDeleteModalVisible(true);
+    openDeletionEmail(nextCode).catch((error) => {
+      console.error("Failed to open deletion email", error);
+    });
+  };
+
+  const handleConfirmDeleteAccount = async () => {
+    if (deleteCodeInput.trim() !== deleteCode) {
+      Alert.alert(
+        "Code Mismatch",
+        "The confirmation code does not match the code sent to your email.",
+      );
+      return;
+    }
+
+    setIsDeletingAccount(true);
+    try {
+      await deleteAccountAndResetApp();
+      setIsDeleteModalVisible(false);
+      setDeleteCode("");
+      setDeleteCodeInput("");
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Auth" }],
+      });
+    } catch (error) {
+      console.error("Failed to delete account", error);
+      Alert.alert(
+        "Delete Failed",
+        "We could not remove the account data right now. Please try again.",
+      );
+    } finally {
+      setIsDeletingAccount(false);
+    }
   };
 
   const handleClearAll = () => {
@@ -192,8 +326,17 @@ export default function ProfileScreen({ route, navigation }) {
     const rawTarget = route.params?.scrollTo;
     if (rawTarget !== undefined && rawTarget !== null) {
       let target = String(rawTarget);
+      let highlightTarget = target;
       if (typeof rawTarget === "string" && rawTarget.startsWith("avatar")) {
         target = "avatar";
+        highlightTarget = rawTarget;
+        const slotMatch = rawTarget.match(/avatar(\d)/);
+        if (slotMatch && slotMatch[1]) {
+          const slotIndex = parseInt(slotMatch[1], 10) - 1;
+          if (slotIndex >= 0 && slotIndex <= 3) {
+            handleAutoSave({ activeAvatarSlot: slotIndex });
+          }
+        }
       }
 
       const scrollTimer = setTimeout(() => {
@@ -205,7 +348,7 @@ export default function ProfileScreen({ route, navigation }) {
         }
 
         // Trigger blinking yellow glow
-        setGlowTarget(target);
+        setGlowTarget(highlightTarget);
 
         const clearGlow = setTimeout(() => {
           setGlowTarget(null);
@@ -218,27 +361,17 @@ export default function ProfileScreen({ route, navigation }) {
     }
   }, [route.params]);
 
-  // Fluctuating volume meter logic (horizontal boxed progress bar)
+  const micTestTimeoutRef = useRef(null);
+  const micTestRecorder = useAudioRecorder(MIC_TEST_AUDIO_OPTIONS);
+  const micRecorderState = useAudioRecorderState(micTestRecorder, 80);
+
   useEffect(() => {
-    let interval;
-    if (isTestingMic) {
-      interval = setInterval(() => {
-        const raw = Math.random();
-        let level;
-        if (raw < 0.2)
-          level = Math.floor(Math.random() * 4); // 0 to 3
-        else if (raw < 0.8)
-          level = Math.floor(Math.random() * 8) + 4; // 4 to 11
-        else level = Math.floor(Math.random() * 5) + 12; // 12 to 16
-        setMicLevel(level);
-      }, 100);
-    } else {
-      setTimeout(() => setMicLevel(0), 0);
-    }
     return () => {
-      if (interval) clearInterval(interval);
+      if (micTestTimeoutRef.current) {
+        clearTimeout(micTestTimeoutRef.current);
+      }
     };
-  }, [isTestingMic]);
+  }, []);
 
   // Simulated recording/training progress increments
   useEffect(() => {
@@ -300,13 +433,50 @@ export default function ProfileScreen({ route, navigation }) {
     }, 800);
   }
 
+  const hasSavedAvatarSlots = Array.isArray(currentUser.avatarSlots);
+  const avatarSlots = AVATAR_PRESETS.map((fallbackAvatar, index) => {
+    if (hasSavedAvatarSlots) {
+      return currentUser.avatarSlots?.[index] || fallbackAvatar;
+    }
+
+    return index === 0 ? currentUser.avatar || fallbackAvatar : fallbackAvatar;
+  });
+  const matchedAvatarSlot = avatarSlots.findIndex(
+    (slotAvatar) => slotAvatar === currentUser.avatar,
+  );
+  const activeAvatarSlot =
+    Number.isInteger(currentUser.activeAvatarSlot) &&
+    currentUser.activeAvatarSlot >= 0 &&
+    currentUser.activeAvatarSlot < avatarSlots.length
+      ? currentUser.activeAvatarSlot
+      : Math.max(0, matchedAvatarSlot);
+
   const handleNameChange = (val) => {
     setName(val);
     handleAutoSave({ name: val });
   };
 
-  const selectAvatar = (url) => {
-    handleAutoSave({ avatar: url });
+  const handlePhoneChange = (val) => {
+    setPhone(val);
+    handleAutoSave({ phone: val });
+  };
+
+  const selectAvatar = (url, index) => {
+    handleAutoSave({
+      avatar: url,
+      avatarSlots,
+      activeAvatarSlot: index,
+    });
+  };
+
+  const saveAvatarToActiveSlot = (uri) => {
+    const nextAvatarSlots = [...avatarSlots];
+    nextAvatarSlots[activeAvatarSlot] = uri;
+    handleAutoSave({
+      avatar: uri,
+      avatarSlots: nextAvatarSlots,
+      activeAvatarSlot,
+    });
   };
 
   const openGallery = async () => {
@@ -319,7 +489,7 @@ export default function ProfileScreen({ route, navigation }) {
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      handleAutoSave({ avatar: result.assets[0].uri });
+      saveAvatarToActiveSlot(result.assets[0].uri);
     }
   };
 
@@ -343,13 +513,21 @@ export default function ProfileScreen({ route, navigation }) {
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      handleAutoSave({ avatar: result.assets[0].uri });
+      saveAvatarToActiveSlot(result.assets[0].uri);
     }
   };
 
   const selectNativeLang = (code) => {
-    handleAutoSave({ nativeLang: code, nativeLangSelected: true });
+    if (currentUser.secondaryLangs.includes(code)) {
+      toggleSecondaryLang(code); // Remove from secondary if it's there
+    }
+    updateSettings({ nativeLang: code, nativeLangSelected: true });
     setIsNativeLangModalVisible(false);
+  };
+
+  const selectUnityAILang = (code) => {
+    updateSettings({ unityAILang: code });
+    setIsUnityAILangModalVisible(false);
   };
 
   const toggleSecondaryLang = (code) => {
@@ -370,16 +548,79 @@ export default function ProfileScreen({ route, navigation }) {
     handleAutoSave({ [key]: !currentUser[key] });
   };
 
-  const toggleMicTest = () => {
-    if (isTestingMic) {
-      setIsTestingMic(false);
-    } else {
-      setIsTestingMic(true);
-      handleAutoSave({ micTested: true });
-      setTimeout(() => {
-        setIsTestingMic(false);
-      }, 8000); // Test for 8s then automatically stop
+  const stopMicTest = async () => {
+    if (micTestTimeoutRef.current) {
+      clearTimeout(micTestTimeoutRef.current);
+      micTestTimeoutRef.current = null;
     }
+
+    try {
+      if (micTestRecorder.isRecording) {
+        await micTestRecorder.stop();
+      }
+    } catch (error) {
+      console.warn("Failed to stop microphone test", error);
+    } finally {
+      await AudioModule.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      }).catch((error) => console.warn("Failed to reset audio mode", error));
+      setIsTestingMic(false);
+      setMicTestStatus("idle");
+    }
+  };
+
+  const startMicTest = async () => {
+    setMicTestStatus("checking");
+
+    try {
+      const permission = await AudioModule.getRecordingPermissionsAsync();
+      if (permission.status !== "granted") {
+        const request = await AudioModule.requestRecordingPermissionsAsync();
+        if (request.status !== "granted") {
+          setMicTestStatus("idle");
+          Alert.alert(
+            "Microphone Permission Needed",
+            "Allow microphone access to run a real input test.",
+          );
+          return;
+        }
+      }
+
+      await AudioModule.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      await micTestRecorder.prepareToRecordAsync();
+      micTestRecorder.record();
+      setIsTestingMic(true);
+      setMicTestStatus("listening");
+      handleAutoSave({ micTested: true });
+      micTestTimeoutRef.current = setTimeout(() => {
+        stopMicTest();
+      }, 8000);
+    } catch (error) {
+      console.warn("Microphone test failed", error);
+      setMicTestStatus("idle");
+      setIsTestingMic(false);
+      await AudioModule.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      }).catch(() => {});
+      Alert.alert(
+        "Microphone Test Failed",
+        "Could not start a real microphone test on this device.",
+      );
+    }
+  };
+
+  const toggleMicTest = () => {
+    if (isTestingMic || micTestStatus === "checking") {
+      stopMicTest();
+      return;
+    }
+
+    startMicTest();
   };
 
   const getNativePills = () => {
@@ -438,32 +679,66 @@ export default function ProfileScreen({ route, navigation }) {
     warning: isDark ? "#F59E0B" : "#D97706",
   };
 
-  // horizontal boxed progress level meter
   const renderMicLevelMeter = () => {
-    const totalBoxes = 16;
-    const boxes = [];
-    for (let i = 1; i <= totalBoxes; i++) {
-      const isLit = isTestingMic && i <= micLevel;
-      let boxColor = isDark
-        ? "rgba(255, 255, 255, 0.08)"
-        : "rgba(0, 0, 0, 0.05)";
-      if (isLit) {
-        if (i <= 10) {
-          boxColor = colors.success; // green
-        } else if (i <= 14) {
-          boxColor = colors.warning; // orange
-        } else {
-          boxColor = colors.danger; // red
-        }
-      }
-      boxes.push(
-        <View
-          key={i}
-          style={[styles.micLevelBox, { backgroundColor: boxColor }]}
-        />,
+    const totalBars = 24;
+    const bars = [];
+    const metering = micRecorderState.metering;
+    const hasMetering =
+      isTestingMic && metering !== undefined && Number.isFinite(metering);
+    const gatedDb = hasMetering ? Math.max(-56, Math.min(-4, metering)) : -56;
+    const normalized = Math.max(0, Math.min(1, (gatedDb + 56) / 52));
+    const liveLevel =
+      hasMetering && normalized >= 0.04 ? Math.pow(normalized, 0.72) : 0;
+    const peakLevel = liveLevel;
+
+    for (let i = 0; i < totalBars; i++) {
+      const threshold = (i + 1) / totalBars;
+      const energy = isTestingMic
+        ? Math.max(0, Math.min(1, (liveLevel - threshold + 0.22) / 0.22))
+        : 0;
+      const peakEnergy = isTestingMic
+        ? Math.max(0, Math.min(1, (peakLevel - threshold + 0.08) / 0.08))
+        : 0;
+      const maxHeight = 18 + (i % 5) * 3;
+      const idleHeight = 5 + (i % 4);
+      const height = Math.round(idleHeight + energy * maxHeight);
+      const isHot = i >= 19;
+      const isWarm = i >= 15;
+      const activeColor = isHot
+        ? colors.danger
+        : isWarm
+          ? colors.warning
+          : colors.success;
+      const idleColor = isDark
+        ? "rgba(255, 255, 255, 0.1)"
+        : "rgba(15, 23, 42, 0.1)";
+
+      bars.push(
+        <View key={i} style={styles.micLevelTrack}>
+          <View
+            style={[
+              styles.micPeakDot,
+              {
+                opacity: peakEnergy > 0 ? 0.35 + peakEnergy * 0.55 : 0,
+                backgroundColor: activeColor,
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.micLevelBox,
+              {
+                height,
+                opacity: isTestingMic ? 0.45 + energy * 0.55 : 0.35,
+                backgroundColor: energy > 0 ? activeColor : idleColor,
+              },
+            ]}
+          />
+        </View>,
       );
     }
-    return <View style={styles.micLevelMeterContainer}>{boxes}</View>;
+
+    return <View style={styles.micLevelMeterContainer}>{bars}</View>;
   };
 
   return (
@@ -559,7 +834,7 @@ export default function ProfileScreen({ route, navigation }) {
               styles.avatarPreviewContainer,
               { backgroundColor: colors.primary },
             ]}
-            onPress={() => setIsImageSourceModalVisible(true)}
+            onPress={openProfilePopup}
             activeOpacity={0.8}
           >
             <Image
@@ -567,7 +842,9 @@ export default function ProfileScreen({ route, navigation }) {
               style={[styles.avatarPreview, { borderColor: colors.cardBg }]}
             />
             {/* Pen Icon for Edit */}
-            <View
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => setIsImageSourceModalVisible(true)}
               style={[
                 styles.editIconBadge,
                 { backgroundColor: colors.primary, borderColor: colors.cardBg },
@@ -586,19 +863,31 @@ export default function ProfileScreen({ route, navigation }) {
                 <Path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                 <Path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
               </Svg>
-            </View>
+            </TouchableOpacity>
           </TouchableOpacity>
           <View style={styles.presetsWrapper}>
-            {AVATAR_PRESETS.map((preset, idx) => {
-              const isSelected = currentUser.avatar === preset;
+            {avatarSlots.map((avatarUri, idx) => {
+              const isSelected = idx === activeAvatarSlot;
               return (
                 <TouchableOpacity
-                  key={idx}
-                  onPress={() => selectAvatar(preset)}
+                  key={`${idx}-${avatarUri}`}
+                  onPress={() => selectAvatar(avatarUri, idx)}
                   activeOpacity={0.7}
+                  style={[
+                    styles.presetTouchTarget,
+                    glowTarget === `avatar${idx + 1}` && styles.glowSection,
+                    {
+                      borderWidth: 2,
+                      borderColor:
+                        glowTarget === `avatar${idx + 1}`
+                          ? "#F59E0B"
+                          : "transparent",
+                      borderRadius: 26,
+                    },
+                  ]}
                 >
                   <Image
-                    source={{ uri: preset }}
+                    source={{ uri: avatarUri }}
                     style={[
                       styles.presetItem,
                       isSelected
@@ -648,6 +937,43 @@ export default function ProfileScreen({ route, navigation }) {
             placeholderTextColor={colors.textDimmed}
             value={name}
             onChangeText={handleNameChange}
+          />
+        </View>
+
+        {/* Phone number field */}
+        <View
+          onLayout={(e) => {
+            layoutOffsets.current.phone = e.nativeEvent.layout.y;
+          }}
+          style={[
+            styles.formGroup,
+            glowTarget === "phone" && styles.glowSection,
+            {
+              borderWidth: 2,
+              borderColor:
+                glowTarget === "phone" ? "#F59E0B" : "transparent",
+              borderRadius: 16,
+              padding: 8,
+            },
+          ]}
+        >
+          <Text style={[styles.label, { color: colors.textMuted }]}>
+            Phone Number
+          </Text>
+          <TextInput
+            style={[
+              styles.inputField,
+              {
+                backgroundColor: colors.cardBg,
+                color: colors.text,
+                borderColor: colors.border,
+              },
+            ]}
+            placeholder="+1 234 567 8900"
+            placeholderTextColor={colors.textDimmed}
+            keyboardType="phone-pad"
+            value={phone}
+            onChangeText={handlePhoneChange}
           />
         </View>
 
@@ -897,6 +1223,42 @@ export default function ProfileScreen({ route, navigation }) {
           </View>
         </View>
 
+        {/* AI Companion settings */}
+        <View style={styles.formGroup}>
+          <Text style={[styles.label, { color: colors.textMuted }]}>
+            AI Companion Language
+          </Text>
+          <Text style={{ color: colors.textDimmed, fontSize: 13, marginBottom: 8, marginTop: -4 }}>
+            AI translates best in selected language
+          </Text>
+          <View style={styles.langPills}>
+            <TouchableOpacity
+              style={[
+                styles.pillItem,
+                {
+                  backgroundColor: colors.primaryGlow,
+                  borderColor: colors.primary,
+                },
+              ]}
+              onPress={() => setIsUnityAILangModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  styles.pillText,
+                  { color: colors.primary, fontWeight: "600" },
+                ]}
+              >
+                {LANGS[currentUser.unityAILang]?.flag || "🌍"}{" "}
+                {LANGS[currentUser.unityAILang]?.name ||
+                  currentUser.unityAILang ||
+                  "Select Language"}{" "}
+                (Change)
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* Test Microphone with Horizontal Level Meter */}
         <View style={styles.formGroup}>
           <Text style={[styles.label, { color: colors.textMuted }]}>
@@ -920,7 +1282,11 @@ export default function ProfileScreen({ route, navigation }) {
                 activeOpacity={0.75}
               >
                 <Text style={styles.testMicText}>
-                  {isTestingMic ? "Stop Test" : "Test Microphone"}
+                  {isTestingMic
+                    ? "Stop Test"
+                    : micTestStatus === "checking"
+                      ? "Checking..."
+                      : "Test Microphone"}
                 </Text>
               </TouchableOpacity>
 
@@ -929,8 +1295,10 @@ export default function ProfileScreen({ route, navigation }) {
             </View>
             <Text style={[styles.micTestDesc, { color: colors.textMuted }]}>
               {isTestingMic
-                ? "Speak normally to monitor level indicator activity."
-                : "Tap to ensure device microphone receives audio input correctly."}
+                ? "Speak now. The meter is following live microphone input."
+                : micTestStatus === "checking"
+                  ? "Requesting microphone access..."
+                  : "Tap to run a real device microphone input test."}
             </Text>
           </View>
         </View>
@@ -1261,6 +1629,41 @@ export default function ProfileScreen({ route, navigation }) {
                 style={{
                   height: 48,
                   borderRadius: 12,
+                  backgroundColor: "rgba(127, 29, 29, 0.14)",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  flexDirection: "row",
+                  gap: 8,
+                  borderWidth: 1,
+                  borderColor: "rgba(239, 68, 68, 0.75)",
+                }}
+                onPress={handleStartDeleteAccount}
+                activeOpacity={0.8}
+              >
+                <Svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={colors.danger}
+                  strokeWidth="2.5"
+                >
+                  <Path d="M3 6h18M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6" />
+                </Svg>
+                <Text
+                  style={{
+                    color: colors.danger,
+                    fontWeight: "700",
+                    fontSize: 15,
+                  }}
+                >
+                  Delete Account
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  height: 48,
+                  borderRadius: 12,
                   backgroundColor: "rgba(239, 68, 68, 0.08)",
                   justifyContent: "center",
                   alignItems: "center",
@@ -1303,7 +1706,150 @@ export default function ProfileScreen({ route, navigation }) {
         </Text>
       </ScrollView>
 
+      <UserProfilePopup
+        visible={profilePopupVisible}
+        profile={profilePopupData}
+        onClose={() => setProfilePopupVisible(false)}
+        colors={colors}
+        getLangDetails={getLangDetails}
+      />
+
       {/* ================= MODALS ================= */}
+
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={isDeleteModalVisible}
+        onRequestClose={() => {
+          setIsDeleteModalVisible(false);
+          setDeleteCode("");
+          setDeleteCodeInput("");
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[styles.modalContent, { backgroundColor: colors.cardBg }]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Delete Account
+              </Text>
+              <TouchableOpacity
+                style={styles.modalCloseBtn}
+                onPress={() => {
+                  setIsDeleteModalVisible(false);
+                  setDeleteCode("");
+                  setDeleteCodeInput("");
+                }}
+              >
+                <Text
+                  style={[styles.modalCloseText, { color: colors.textMuted }]}
+                >
+                  &times;
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View
+              style={{
+                backgroundColor: "rgba(239, 68, 68, 0.08)",
+                borderColor: "rgba(239, 68, 68, 0.18)",
+                borderWidth: 1,
+                borderRadius: 16,
+                padding: 14,
+                marginBottom: 14,
+                gap: 8,
+              }}
+            >
+              <Text
+                style={{
+                  color: colors.danger,
+                  fontWeight: "700",
+                  fontSize: 15,
+                }}
+              >
+                This permanently wipes the app on this phone.
+              </Text>
+              <Text
+                style={{
+                  color: colors.textMuted,
+                  fontSize: 13,
+                  lineHeight: 19,
+                }}
+              >
+                We send a confirmation code to {currentUser.email} before
+                removing your profile, chats, contacts, media cache, and stored
+                settings.
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={{
+                height: 46,
+                borderRadius: 12,
+                backgroundColor: colors.primary,
+                justifyContent: "center",
+                alignItems: "center",
+                marginBottom: 12,
+              }}
+              onPress={() => {
+                const nextCode = generateDeletionCode();
+                setDeleteCode(nextCode);
+                setDeleteCodeInput("");
+                openDeletionEmail(nextCode).catch((error) => {
+                  console.error("Failed to open deletion email", error);
+                });
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={{ color: "white", fontWeight: "700" }}>
+                Send confirmation email
+              </Text>
+            </TouchableOpacity>
+
+            <TextInput
+              value={deleteCodeInput}
+              onChangeText={setDeleteCodeInput}
+              placeholder="Enter the 6-digit code"
+              placeholderTextColor={colors.textDimmed}
+              keyboardType="number-pad"
+              style={[
+                styles.inputField,
+                {
+                  backgroundColor: colors.bg,
+                  color: colors.text,
+                  borderColor: colors.border,
+                },
+              ]}
+              maxLength={6}
+            />
+
+            <TouchableOpacity
+              style={{
+                height: 46,
+                borderRadius: 12,
+                backgroundColor: "rgba(239, 68, 68, 0.08)",
+                justifyContent: "center",
+                alignItems: "center",
+                marginTop: 12,
+                borderWidth: 1,
+                borderColor: colors.danger,
+              }}
+              onPress={handleConfirmDeleteAccount}
+              disabled={isDeletingAccount || deleteCode.length === 0}
+              activeOpacity={0.85}
+            >
+              {isDeletingAccount ? (
+                <ActivityIndicator color={colors.danger} />
+              ) : (
+                <Text style={{ color: colors.danger, fontWeight: "700" }}>
+                  Confirm and wipe this phone
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Modal: Image Source Selection (WhatsApp Style Bottom Sheet) */}
       <Modal
@@ -1935,6 +2481,91 @@ export default function ProfileScreen({ route, navigation }) {
           </View>
         </View>
       </Modal>
+
+      {/* Unity AI Lang Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={isUnityAILangModalVisible}
+        onRequestClose={() => setIsUnityAILangModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              { backgroundColor: colors.cardBg, maxHeight: "75%" },
+            ]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                AI Companion Language
+              </Text>
+              <TouchableOpacity
+                onPress={() => setIsUnityAILangModalVisible(false)}
+                style={styles.modalCloseBtn}
+              >
+                <Text style={[styles.modalCloseText, { color: colors.text }]}>
+                  &times;
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              contentContainerStyle={styles.modalScroll}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.modalGrid}>
+                {Object.keys(LANGS).map((code) => {
+                  const lang = LANGS[code];
+                  const isChecked = currentUser.unityAILang === code;
+                  return (
+                    <TouchableOpacity
+                      key={code}
+                      style={[
+                        styles.modalGridItem,
+                        { borderColor: colors.border },
+                        isChecked && {
+                          backgroundColor: colors.primaryGlow,
+                          borderColor: colors.primary,
+                        },
+                      ]}
+                      onPress={() => selectUnityAILang(code)}
+                    >
+                      <View style={styles.checkboxContainer}>
+                        <Text style={styles.modalGridItemFlag}>
+                          {lang.flag}
+                        </Text>
+                        {isChecked && (
+                          <View
+                            style={[
+                              styles.checkboxBadge,
+                              { backgroundColor: colors.primary },
+                            ]}
+                          >
+                            <Text style={styles.checkboxBadgeText}>✓</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text
+                        style={[
+                          styles.modalGridItemText,
+                          { color: colors.text },
+                          isChecked && {
+                            fontWeight: "700",
+                            color: colors.primary,
+                          },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {lang.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -2019,6 +2650,9 @@ const styles = StyleSheet.create({
   presetsWrapper: {
     flexDirection: "row",
     gap: 12,
+  },
+  presetTouchTarget: {
+    padding: 2,
   },
   presetItem: {
     width: 44,
@@ -2116,16 +2750,28 @@ const styles = StyleSheet.create({
   },
   micLevelMeterContainer: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
     flex: 1,
-    justifyContent: "flex-start",
+    height: 42,
+    justifyContent: "space-between",
     paddingLeft: 8,
   },
+  micLevelTrack: {
+    width: 5,
+    height: 42,
+    justifyContent: "flex-end",
+    alignItems: "center",
+  },
+  micPeakDot: {
+    width: 5,
+    height: 2,
+    borderRadius: 1,
+    marginBottom: 2,
+  },
   micLevelBox: {
-    width: 7,
-    height: 16,
-    borderRadius: 1.5,
-    marginRight: 3,
+    width: 5,
+    minHeight: 4,
+    borderRadius: 2.5,
   },
   micTestDesc: {
     fontSize: 12,

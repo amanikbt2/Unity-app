@@ -1,7 +1,7 @@
 import { Platform } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getContacts, getDatabase } from "./DatabaseService";
+import { getContacts, getDatabase, clearDatabase } from "./DatabaseService";
 
 // Base directories
 const BASE_DIR = `${FileSystem.documentDirectory}Unity/`;
@@ -259,6 +259,35 @@ export async function clearLocalMediaCache() {
 }
 
 /**
+ * Removes every bit of app data and returns the app to a fresh state.
+ */
+export async function clearAllAppData() {
+  try {
+    await clearDatabase();
+    await clearLocalMediaCache();
+
+    const allKeys = await AsyncStorage.getAllKeys();
+    if (allKeys.length > 0) {
+      await AsyncStorage.multiRemove(allKeys);
+    }
+
+    if (Platform.OS !== "web") {
+      const backupInfo = await FileSystem.getInfoAsync(SETTINGS_BACKUP_PATH);
+      if (backupInfo.exists) {
+        await FileSystem.deleteAsync(SETTINGS_BACKUP_PATH, {
+          idempotent: true,
+        });
+      }
+    }
+
+    console.log("[StorageService] App data cleared successfully.");
+    return true;
+  } catch (error) {
+    console.error("[StorageService] clearAllAppData error:", error);
+    return false;
+  }
+}
+/**
  * Triggers weekly cloud backup of contacts, chats, explore profiles, and posts.
  */
 export async function triggerCloudBackup(force = false) {
@@ -289,7 +318,7 @@ export async function triggerCloudBackup(force = false) {
       backupTime: Date.now(),
     };
 
-    const response = await fetch("https://unity-3xc2.onrender.com/api/backup", {
+    const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com"}/api/backup`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -312,3 +341,4 @@ export async function triggerCloudBackup(force = false) {
     return false;
   }
 }
+

@@ -1,13 +1,96 @@
-import * as SQLite from 'expo-sqlite';
+import * as SQLite from "expo-sqlite";
 
 let dbInstance = null;
+
+const POSTS_SCHEMA_COLUMNS = {
+  author_email: "TEXT",
+  author_avatar: "TEXT",
+  author_flag: "TEXT",
+  author_native_lang: "TEXT",
+  image_url: "TEXT",
+  media_type: "TEXT",
+  background_key: "TEXT",
+  description: "TEXT",
+  comments: "TEXT DEFAULT '[]'",
+};
+
+function parseJsonArray(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizePostRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    authorName: row.author_name || row.authorName || "",
+    authorEmail: row.author_email || row.authorEmail || "",
+    authorAvatar:
+      row.author_avatar || row.authorAvatar || row.avatar_local_path || "",
+    authorFlag: row.author_flag || row.authorFlag || row.flag || "",
+    authorNativeLang: row.author_native_lang || row.authorNativeLang || "",
+    content: row.content || "",
+    flag: row.flag || row.author_flag || "🌍",
+    time: row.time || "",
+    image: row.image_url || row.image_local_path || "",
+    imageUrl: row.image_url || "",
+    image_local_path: row.image_local_path || "",
+    mediaType:
+      row.media_type ||
+      row.mediaType ||
+      (row.image_url || row.image_local_path ? "image" : "text"),
+    backgroundKey: row.background_key || row.backgroundKey || "",
+    description: row.description || "",
+    avatar: row.author_avatar || row.avatar_local_path || "",
+    avatar_local_path: row.avatar_local_path || "",
+    likes: Number(row.likes || 0),
+    liked: Boolean(row.liked),
+    comments: parseJsonArray(row.comments),
+    timestamp: Number(row.timestamp || Date.now()),
+  };
+}
+
+function normalizeContactRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name || "",
+    phone: row.phone || "",
+    email: row.email || "",
+    flag: row.flag || "🌍",
+    status: row.status || "",
+    is_synced: Boolean(row.is_synced),
+    avatar: row.avatar || "",
+    langName: row.lang_name || row.langName || "",
+    isUnityUser: Boolean(row.is_unity_user),
+  };
+}
+
+function normalizeExploreRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name || "",
+    flag: row.flag || "🌍",
+    langName: row.lang_name || row.langName || "",
+    bio: row.bio || "",
+    avatar: row.avatar_local_path || row.avatar || "",
+    avatar_local_path: row.avatar_local_path || "",
+  };
+}
 
 /**
  * Initializes and retrieves the local SQLite database instance.
  */
 export async function getDatabase() {
   if (!dbInstance) {
-    dbInstance = await SQLite.openDatabaseAsync('unity_offline.db');
+    dbInstance = await SQLite.openDatabaseAsync("unity_offline.db");
   }
   return dbInstance;
 }
@@ -18,7 +101,7 @@ export async function getDatabase() {
 export async function initDatabase() {
   try {
     const db = await getDatabase();
-    
+
     // Create contacts table
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS contacts (
@@ -29,9 +112,20 @@ export async function initDatabase() {
         flag TEXT,
         status TEXT,
         is_synced INTEGER DEFAULT 0,
-        avatar TEXT
+        avatar TEXT,
+        is_unity_user INTEGER DEFAULT 0
       );
     `);
+
+    const contactColumns = await db.getAllAsync("PRAGMA table_info(contacts);");
+    const existingContactColumns = new Set(
+      contactColumns.map((column) => column.name),
+    );
+    if (!existingContactColumns.has("is_unity_user")) {
+      await db.execAsync(
+        "ALTER TABLE contacts ADD COLUMN is_unity_user INTEGER DEFAULT 0;",
+      );
+    }
 
     // Create chats table (stores only text translations, not raw voice files)
     await db.execAsync(`
@@ -52,16 +146,39 @@ export async function initDatabase() {
       CREATE TABLE IF NOT EXISTS posts (
         id TEXT PRIMARY KEY,
         author_name TEXT,
+        author_email TEXT,
+        author_avatar TEXT,
+        author_flag TEXT,
+        author_native_lang TEXT,
         content TEXT,
         flag TEXT,
         time TEXT,
         image_local_path TEXT,
+        image_url TEXT,
+        media_type TEXT,
+        background_key TEXT,
+        description TEXT,
         avatar_local_path TEXT,
         likes INTEGER,
         liked INTEGER,
+        comments TEXT DEFAULT '[]',
         timestamp INTEGER
       );
     `);
+
+    const postColumns = await db.getAllAsync("PRAGMA table_info(posts);");
+    const existingPostColumns = new Set(
+      postColumns.map((column) => column.name),
+    );
+    for (const [columnName, columnType] of Object.entries(
+      POSTS_SCHEMA_COLUMNS,
+    )) {
+      if (!existingPostColumns.has(columnName)) {
+        await db.execAsync(
+          `ALTER TABLE posts ADD COLUMN ${columnName} ${columnType};`,
+        );
+      }
+    }
 
     // Create explore_profiles table
     await db.execAsync(`
@@ -75,10 +192,10 @@ export async function initDatabase() {
       );
     `);
 
-    console.log('[Database] Database tables initialized successfully.');
+    console.log("[Database] Database tables initialized successfully.");
     return true;
   } catch (error) {
-    console.error('[Database] Initialization error:', error);
+    console.error("[Database] Initialization error:", error);
     return false;
   }
 }
@@ -90,9 +207,12 @@ export async function initDatabase() {
 export async function getContacts() {
   try {
     const db = await getDatabase();
-    return await db.getAllAsync('SELECT * FROM contacts ORDER BY name ASC;');
+    const rows = await db.getAllAsync(
+      "SELECT * FROM contacts ORDER BY name ASC;",
+    );
+    return rows.map(normalizeContactRow).filter(Boolean);
   } catch (error) {
-    console.error('[Database] getContacts error:', error);
+    console.error("[Database] getContacts error:", error);
     return [];
   }
 }
@@ -102,24 +222,58 @@ export async function saveContacts(contactsArray) {
     const db = await getDatabase();
     for (const contact of contactsArray) {
       await db.runAsync(
-        `INSERT OR REPLACE INTO contacts (id, name, phone, email, flag, status, is_synced, avatar) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+        `INSERT OR REPLACE INTO contacts (id, name, phone, email, flag, status, is_synced, avatar, is_unity_user) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
         [
           contact.id,
           contact.name,
-          contact.phone || '',
-          contact.email || '',
-          contact.flag || '🌍',
-          contact.status || '',
+          contact.phone || "",
+          contact.email || "",
+          contact.flag || "🌍",
+          contact.status || "",
           contact.is_synced ? 1 : 0,
-          contact.avatar || ''
-        ]
+          contact.avatar || "",
+          contact.isUnityUser ? 1 : 0,
+        ],
       );
     }
     return true;
   } catch (error) {
-    console.error('[Database] saveContacts error:', error);
+    console.error("[Database] saveContacts error:", error);
     return false;
+  }
+}
+
+/**
+ * Checks if there are any unsynced contacts in the database.
+ * Returns true if unsynced contacts exist, false otherwise.
+ */
+export async function hasUnsyncedContacts() {
+  try {
+    const db = await getDatabase();
+    const result = await db.getFirstAsync(
+      "SELECT COUNT(*) as count FROM contacts WHERE is_synced = 0;",
+    );
+    return result && result.count > 0;
+  } catch (error) {
+    console.error("[Database] hasUnsyncedContacts error:", error);
+    return false;
+  }
+}
+
+/**
+ * Gets the count of unsynced contacts in the database.
+ */
+export async function getUnsyncedContactsCount() {
+  try {
+    const db = await getDatabase();
+    const result = await db.getFirstAsync(
+      "SELECT COUNT(*) as count FROM contacts WHERE is_synced = 0;",
+    );
+    return result ? result.count : 0;
+  } catch (error) {
+    console.error("[Database] getUnsyncedContactsCount error:", error);
+    return 0;
   }
 }
 
@@ -131,11 +285,11 @@ export async function getChats(partnerId) {
   try {
     const db = await getDatabase();
     return await db.getAllAsync(
-      'SELECT * FROM chats WHERE partner_id = ? ORDER BY timestamp ASC;',
-      [partnerId]
+      "SELECT * FROM chats WHERE partner_id = ? ORDER BY timestamp ASC;",
+      [partnerId],
     );
   } catch (error) {
-    console.error('[Database] getChats error:', error);
+    console.error("[Database] getChats error:", error);
     return [];
   }
 }
@@ -150,16 +304,16 @@ export async function saveChat(chatBubble) {
         chatBubble.id,
         chatBubble.partner_id,
         chatBubble.text,
-        chatBubble.trans_text || '',
+        chatBubble.trans_text || "",
         chatBubble.sender, // 'user' or 'partner'
-        chatBubble.orig_lang || '',
-        chatBubble.trans_lang || '',
-        chatBubble.timestamp || Date.now()
-      ]
+        chatBubble.orig_lang || "",
+        chatBubble.trans_lang || "",
+        chatBubble.timestamp || Date.now(),
+      ],
     );
     return true;
   } catch (error) {
-    console.error('[Database] saveChat error:', error);
+    console.error("[Database] saveChat error:", error);
     return false;
   }
 }
@@ -171,9 +325,12 @@ export async function saveChat(chatBubble) {
 export async function getPosts() {
   try {
     const db = await getDatabase();
-    return await db.getAllAsync('SELECT * FROM posts ORDER BY timestamp DESC;');
+    const rows = await db.getAllAsync(
+      "SELECT * FROM posts ORDER BY timestamp DESC;",
+    );
+    return rows.map(normalizePostRow).filter(Boolean);
   } catch (error) {
-    console.error('[Database] getPosts error:', error);
+    console.error("[Database] getPosts error:", error);
     return [];
   }
 }
@@ -183,25 +340,37 @@ export async function savePosts(postsArray) {
     const db = await getDatabase();
     for (const post of postsArray) {
       await db.runAsync(
-        `INSERT OR REPLACE INTO posts (id, author_name, content, flag, time, image_local_path, avatar_local_path, likes, liked, timestamp) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        `INSERT OR REPLACE INTO posts (id, author_name, author_email, author_avatar, author_flag, author_native_lang, content, flag, time, image_local_path, image_url, media_type, background_key, description, avatar_local_path, likes, liked, comments, timestamp) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
         [
           post.id,
-          post.authorName,
-          post.content,
-          post.flag || '🇺🇸',
-          post.time || '',
-          post.image_local_path || '',
-          post.avatar_local_path || '',
+          post.authorName || "",
+          post.authorEmail || "",
+          post.authorAvatar || "",
+          post.authorFlag || post.flag || "??",
+          post.authorNativeLang || "",
+          post.content || "",
+          post.flag || "??",
+          post.time || "",
+          post.image_local_path || "",
+          post.imageUrl || post.image || "",
+          post.mediaType ||
+            (post.imageUrl || post.image || post.image_local_path
+              ? "image"
+              : "text"),
+          post.backgroundKey || "",
+          post.description || "",
+          post.avatar_local_path || "",
           post.likes || 0,
           post.liked ? 1 : 0,
-          post.timestamp || Date.now()
-        ]
+          JSON.stringify(post.comments || []),
+          post.timestamp || Date.now(),
+        ],
       );
     }
     return true;
   } catch (error) {
-    console.error('[Database] savePosts error:', error);
+    console.error("[Database] savePosts error:", error);
     return false;
   }
 }
@@ -213,9 +382,12 @@ export async function savePosts(postsArray) {
 export async function getExploreProfiles() {
   try {
     const db = await getDatabase();
-    return await db.getAllAsync('SELECT * FROM explore_profiles ORDER BY name ASC;');
+    const rows = await db.getAllAsync(
+      "SELECT * FROM explore_profiles ORDER BY name ASC;",
+    );
+    return rows.map(normalizeExploreRow).filter(Boolean);
   } catch (error) {
-    console.error('[Database] getExploreProfiles error:', error);
+    console.error("[Database] getExploreProfiles error:", error);
     return [];
   }
 }
@@ -230,16 +402,16 @@ export async function saveExploreProfiles(profilesArray) {
         [
           profile.id,
           profile.name,
-          profile.flag || '🌍',
-          profile.langName || '',
-          profile.bio || '',
-          profile.avatar_local_path || ''
-        ]
+          profile.flag || "🌍",
+          profile.langName || "",
+          profile.bio || "",
+          profile.avatar_local_path || "",
+        ],
       );
     }
     return true;
   } catch (error) {
-    console.error('[Database] saveExploreProfiles error:', error);
+    console.error("[Database] saveExploreProfiles error:", error);
     return false;
   }
 }
@@ -251,14 +423,14 @@ export async function saveExploreProfiles(profilesArray) {
 export async function clearDatabase() {
   try {
     const db = await getDatabase();
-    await db.execAsync('DELETE FROM chats;');
-    await db.execAsync('DELETE FROM contacts;');
-    await db.execAsync('DELETE FROM posts;');
-    await db.execAsync('DELETE FROM explore_profiles;');
-    console.log('[Database] Database tables cleared.');
+    await db.execAsync("DELETE FROM chats;");
+    await db.execAsync("DELETE FROM contacts;");
+    await db.execAsync("DELETE FROM posts;");
+    await db.execAsync("DELETE FROM explore_profiles;");
+    console.log("[Database] Database tables cleared.");
     return true;
   } catch (error) {
-    console.error('[Database] clearDatabase error:', error);
+    console.error("[Database] clearDatabase error:", error);
     return false;
   }
 }

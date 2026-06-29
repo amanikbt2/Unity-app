@@ -14,15 +14,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, {
-  Circle,
-  Path,
-  Defs,
-  LinearGradient as SvgGradient,
-  Stop,
-} from "react-native-svg";
-import { GoogleSignin, statusCodes } from "@react-native-google-signin/google-signin";
+import Svg, { Path } from "react-native-svg";
+import {
+  GoogleSignin,
+  statusCodes,
+} from "@react-native-google-signin/google-signin";
 import { AppContext } from "../context/AppContext";
+import UserProfilePopup from "../components/UserProfilePopup";
 
 // Enable layout animation on Android
 if (
@@ -33,15 +31,31 @@ if (
 }
 
 export default function AuthScreen({ navigation }) {
-  const { updateSettings, savedAccounts, loginAsSavedProfile } = useContext(AppContext);
+  const {
+    updateSettings,
+    savedAccounts,
+    loginAsSavedProfile,
+    getLangDetails,
+    getLangDetailsFromFlag,
+  } = useContext(AppContext);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [showEmailPanel, setShowEmailPanel] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [profilePopupVisible, setProfilePopupVisible] = useState(false);
+  const [profilePopupData, setProfilePopupData] = useState(null);
+
+  const goHome = () => {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: "Home" }],
+    });
+  };
 
   useEffect(() => {
     GoogleSignin.configure({
-      webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "YOUR_WEB_CLIENT_ID",
+      webClientId:
+        process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "YOUR_WEB_CLIENT_ID",
       offlineAccess: true,
     });
   }, []);
@@ -54,7 +68,6 @@ export default function AuthScreen({ navigation }) {
     ) {
       // Mock mode fallback for testing immediately
       setTimeout(() => {
-        setGoogleLoading(false);
         updateSettings({
           name: "Real User",
           email: "realuser@example.com",
@@ -62,24 +75,38 @@ export default function AuthScreen({ navigation }) {
             "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80",
           isRealUser: true,
         });
-        // App.js handles the routing to Home
+        setGoogleLoading(false);
+        goHome();
       }, 900);
       return;
     }
-    
+
     try {
-      await GoogleSignin.hasPlayServices();
-      const userInfo = await GoogleSignin.signIn();
-      // GoogleSignin.signIn() returns an object with `user` property
-      const user = userInfo.user;
-      
-      updateSettings({
+      await GoogleSignin.hasPlayServices({
+        showPlayServicesUpdateDialog: true,
+      });
+      const response = await GoogleSignin.signIn();
+
+      if (!response || response.type !== "success") {
+        setGoogleLoading(false);
+        return;
+      }
+
+      const user =
+        response.data?.user ?? response.data ?? response.user ?? null;
+      if (!user) {
+        throw new Error("Google sign-in returned no user data.");
+      }
+
+      await updateSettings({
         name: user.name || "Google User",
         email: user.email,
-        avatar: user.photo || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80",
+        avatar:
+          user.photo ||
+          "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80",
         isRealUser: true,
       });
-      
+      goHome();
     } catch (error) {
       if (error.code === statusCodes.SIGN_IN_CANCELLED) {
         console.log("User cancelled the login flow");
@@ -95,8 +122,9 @@ export default function AuthScreen({ navigation }) {
         );
       } else {
         console.error("Google Auth Error: ", error);
-        alert("Sign in failed: " + error.message);
+        alert("Sign in failed: " + (error?.message || String(error)));
       }
+    } finally {
       setGoogleLoading(false);
     }
   };
@@ -106,53 +134,22 @@ export default function AuthScreen({ navigation }) {
     setShowEmailPanel(!showEmailPanel);
   };
 
+  const openProfilePopup = (profile) => {
+    setProfilePopupData(profile);
+    setProfilePopupVisible(true);
+  };
+
   return (
     <LinearGradient colors={["#EEF2F6", "#F8FAFC"]} style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.topContainer}>
           {/* Logo container */}
           <View style={styles.logoWrapper}>
-            <Svg width="80" height="80" viewBox="0 0 80 80">
-              <Defs>
-                <SvgGradient
-                  id="logo-grad"
-                  x1="8"
-                  y1="8"
-                  x2="72"
-                  y2="72"
-                  gradientUnits="userSpaceOnUse"
-                >
-                  <Stop offset="0" stopColor="#8B5CF6" />
-                  <Stop offset="1" stopColor="#EC4899" />
-                </SvgGradient>
-                <SvgGradient
-                  id="logo-grad-2"
-                  x1="30"
-                  y1="30"
-                  x2="50"
-                  y2="50"
-                  gradientUnits="userSpaceOnUse"
-                >
-                  <Stop offset="0" stopColor="#F43F5E" />
-                  <Stop offset="1" stopColor="#06B6D4" />
-                </SvgGradient>
-              </Defs>
-              <Circle
-                cx="40"
-                cy="40"
-                r="32"
-                stroke="url(#logo-grad)"
-                strokeWidth="4"
-                strokeDasharray="12 6"
-              />
-              <Path
-                d="M30 40C30 34.4772 34.4772 30 40 30C45.5228 30 50 34.4772 50 40C50 45.5228 45.5228 50 40 50"
-                stroke="url(#logo-grad-2)"
-                strokeWidth="4"
-                strokeLinecap="round"
-              />
-              <Circle cx="40" cy="40" r="4" fill="#A855F7" />
-            </Svg>
+            <Image
+              source={require("../../assets/auth-bird-logo.png")}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
           </View>
 
           <Text style={styles.appTitle}>Unity</Text>
@@ -165,8 +162,8 @@ export default function AuthScreen({ navigation }) {
           {savedAccounts && savedAccounts.length > 0 && (
             <View style={styles.savedAccountsContainer}>
               <Text style={styles.savedAccountsTitle}>Tap to log in</Text>
-              <ScrollView 
-                horizontal 
+              <ScrollView
+                horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.savedAccountsScroll}
               >
@@ -178,16 +175,38 @@ export default function AuthScreen({ navigation }) {
                       setGoogleLoading(true);
                       await loginAsSavedProfile(account);
                       setGoogleLoading(false);
-                      // navigation handled by App.js state change
+                      goHome();
                     }}
                     activeOpacity={0.8}
                   >
-                    <Image 
-                      source={{ uri: account.avatar }} 
-                      style={styles.savedAccountAvatar} 
-                    />
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() =>
+                        openProfilePopup({
+                          name: account.name,
+                          avatar: account.avatar,
+                          langName:
+                            getLangDetails(account.nativeLang)?.name ||
+                            account.nativeLang,
+                          country:
+                            getLangDetails(account.nativeLang)?.country || "",
+                          uid: account.uid || account.email || account.name,
+                        })
+                      }
+                    >
+                      <View style={styles.savedAccountAvatarContainer}>
+                        <Image
+                          source={{ uri: account.avatar }}
+                          style={styles.savedAccountAvatar}
+                        />
+                        {account.status &&
+                          /online|available|ready to chat|connected|active/i.test(
+                            account.status,
+                          ) && <View style={styles.onlineBadge} />}
+                      </View>
+                    </TouchableOpacity>
                     <Text style={styles.savedAccountName} numberOfLines={1}>
-                      {account.name.split(' ')[0]}
+                      {(account.name || "Account").split(" ")[0]}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -238,7 +257,7 @@ export default function AuthScreen({ navigation }) {
           {/* Apple Login Button */}
           <TouchableOpacity
             style={styles.appleBtn}
-            onPress={() => navigation.navigate("Home")}
+            onPress={goHome}
             activeOpacity={0.8}
           >
             <View style={styles.btnContent}>
@@ -286,7 +305,7 @@ export default function AuthScreen({ navigation }) {
                 />
                 <TouchableOpacity
                   style={styles.emailSubmitBtn}
-                  onPress={() => navigation.navigate("Home")}
+                  onPress={goHome}
                   activeOpacity={0.8}
                 >
                   <LinearGradient
@@ -311,6 +330,23 @@ export default function AuthScreen({ navigation }) {
           </Text>
         </View>
       </SafeAreaView>
+
+      <UserProfilePopup
+        visible={profilePopupVisible}
+        profile={profilePopupData}
+        onClose={() => setProfilePopupVisible(false)}
+        colors={{
+          bg: "#F8FAFC",
+          cardBg: "#FFFFFF",
+          border: "rgba(0, 0, 0, 0.05)",
+          text: "#0F172A",
+          textMuted: "#475569",
+          textDimmed: "#64748B",
+          primary: "#4F46E5",
+        }}
+        getLangDetails={getLangDetails}
+        getLangDetailsFromFlag={getLangDetailsFromFlag}
+      />
     </LinearGradient>
   );
 }
@@ -330,11 +366,19 @@ const styles = StyleSheet.create({
     marginTop: 60,
   },
   logoWrapper: {
+    width: 92,
+    height: 92,
+    alignItems: "center",
+    justifyContent: "center",
     shadowColor: "#8B5CF6",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.25,
     shadowRadius: 15,
     elevation: 8,
+  },
+  logoImage: {
+    width: 92,
+    height: 92,
   },
   appTitle: {
     fontFamily: Platform.OS === "ios" ? "Outfit" : "sans-serif-medium",
@@ -428,6 +472,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     width: 72,
   },
+  savedAccountAvatarContainer: {
+    position: "relative",
+  },
   savedAccountAvatar: {
     width: 64,
     height: 64,
@@ -441,6 +488,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     textAlign: "center",
+  },
+  onlineBadge: {
+    position: "absolute",
+    bottom: 6,
+    right: 6,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#10B981",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
   },
   moreOptionsText: {
     fontSize: 14,

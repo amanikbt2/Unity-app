@@ -16,15 +16,26 @@ import {
   Platform,
   Pressable,
   Alert,
+  Linking,
 } from "react-native";
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Path, Polygon, Line, Circle, Rect, Polyline } from "react-native-svg";
+import Svg, {
+  Path,
+  Polygon,
+  Line,
+  Circle,
+  Rect,
+  Polyline,
+} from "react-native-svg";
 import * as Contacts from "expo-contacts";
+import * as ImagePicker from "expo-image-picker";
 import { AppContext } from "../context/AppContext";
+import { translateText } from "../services/TranslationService";
+import { createPost } from "../services/PostService";
 import {
   initDatabase,
   getContacts as getDbContacts,
@@ -33,14 +44,23 @@ import {
   savePosts as saveDbPosts,
   getExploreProfiles as getDbExplore,
   saveExploreProfiles as saveDbExplore,
+  hasUnsyncedContacts,
+  getUnsyncedContactsCount,
 } from "../services/DatabaseService";
 import {
   initDirectories,
   cacheRemoteImage,
   triggerCloudBackup,
 } from "../services/StorageService";
+import {
+  saveLastImportCheckTime,
+  getLastImportCheckTime,
+  saveFirstTimeImportStatus,
+  isFirstTimeImport,
+} from "../services/SecureStorage";
+import UserProfilePopup from "../components/UserProfilePopup";
 
-const { width } = Dimensions.get("window");
+const { width, height } = Dimensions.get("window");
 
 // Helper to convert flag emoji to lowercase 2-letter country code
 function getCountryCodeFromFlag(flagEmoji) {
@@ -77,7 +97,21 @@ function renderFlagOrEmoji(val) {
   return <Text style={styles.flagText}>{val}</Text>;
 }
 
+const STATUS_ONLINE_PATTERN = /online|available|ready to chat|connected|active/;
+const isOnlineStatus = (status) =>
+  typeof status === "string" &&
+  STATUS_ONLINE_PATTERN.test(status.trim().toLowerCase());
+
 const INITIAL_CONTACTS = [
+  {
+    id: "unity_ai",
+    name: "Unity AI",
+    avatar: (Image.resolveAssetSource && Image.resolveAssetSource(require("../../assets/icon.png"))?.uri) || "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=150&h=150&q=80",
+    flag: "🌍",
+    langName: "AI Companion",
+    status: "Ready to chat",
+    isUnityUser: true,
+  },
   {
     id: "c1",
     name: "Marcus Sterling",
@@ -86,6 +120,7 @@ const INITIAL_CONTACTS = [
     flag: "🇺🇸",
     langName: "English (US)",
     status: "Busy",
+    isUnityUser: true,
   },
   {
     id: "c2",
@@ -95,6 +130,7 @@ const INITIAL_CONTACTS = [
     flag: "🇯🇵",
     langName: "Japanese",
     status: "Available",
+    isUnityUser: true,
   },
 ];
 
@@ -129,8 +165,9 @@ const INITIAL_POSTS = [
     time: "2 hours ago",
     content:
       "Just arrived in Tokyo! The translation app has been a lifesaver for ordering food and finding my hotel. Highly recommend it! 🗼🇯🇵",
-    image:
+    images: [
       "https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&w=600&q=80",
+    ],
     likes: 24,
     liked: false,
     comments: [
@@ -157,7 +194,7 @@ const INITIAL_POSTS = [
     time: "4 hours ago",
     content:
       "Preparando la presentación para la cumbre europea de mañana. Gracias a Dios por la traducción de documentos en tiempo real de Unity, me ahorró horas de trabajo duro. 🇪🇺💼",
-    image: null,
+    images: [],
     likes: 12,
     liked: false,
     comments: [
@@ -170,20 +207,79 @@ const INITIAL_POSTS = [
   },
 ];
 
-const SERVER_URL = "https://unity-3xc2.onrender.com";
+const SERVER_URL =
+  process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
 
 const normalizePost = (post) => ({
   ...post,
   likes: typeof post?.likes === "number" ? post.likes : 0,
   liked: Boolean(post?.liked),
   comments: Array.isArray(post?.comments) ? post.comments : [],
+  images: Array.isArray(post?.images) ? post.images : (post?.image ? [post.image] : []),
+  images_local_paths: Array.isArray(post?.images_local_paths) ? post.images_local_paths : [],
 });
 
 const normalizePosts = (posts) =>
   Array.isArray(posts) ? posts.map(normalizePost) : [];
 
+const POST_BACKGROUND_PRESETS = [
+  { id: "aurora", label: "Aurora", colors: ["#0F172A", "#4F46E5", "#06B6D4"] },
+  { id: "sunset", label: "Sunset", colors: ["#7C2D12", "#EA580C", "#F59E0B"] },
+  { id: "mint", label: "Mint", colors: ["#042F2E", "#0F766E", "#34D399"] },
+  { id: "rose", label: "Rose", colors: ["#3F1D38", "#C026D3", "#F472B6"] },
+  { id: "ink", label: "Ink", colors: ["#111827", "#374151", "#6B7280"] },
+  {
+    id: "sunrise",
+    label: "Sunrise",
+    colors: ["#431407", "#DB2777", "#FB7185"],
+  },
+];
+
+const POST_TRANSLATION_TARGETS = {
+  en: { code: "en", name: "English", label: "English" },
+  sw: { code: "sw", name: "Swahili", label: "Kiswahili" },
+  ar: { code: "ar", name: "Arabic", label: "Arabic" },
+};
+
+const POST_DESCRIPTION_LIMIT = 180;
+
+const getPostTranslationTarget = (langCode) =>
+  POST_TRANSLATION_TARGETS[langCode] || POST_TRANSLATION_TARGETS.en;
+
+const getPostBackgroundPreset = (presetId) =>
+  POST_BACKGROUND_PRESETS.find((preset) => preset.id === presetId) ||
+  POST_BACKGROUND_PRESETS[0];
+
+const buildPostCopy = (text) => {
+  const cleanText = (text || "").trim();
+  if (cleanText.length <= POST_DESCRIPTION_LIMIT) {
+    return { content: cleanText, description: "" };
+  }
+
+  return {
+    content: cleanText.slice(0, POST_DESCRIPTION_LIMIT).trimEnd() + "...",
+    description: cleanText,
+  };
+};
+
+const getPostMediaTypeFromAsset = (assetType, uri) => {
+  const typeHint = (assetType || "").toLowerCase();
+  const uriHint = (uri || "").toLowerCase();
+  if (typeHint.includes("video") || /\.(mp4|mov|m4v|webm)$/i.test(uriHint)) {
+    return "video";
+  }
+  if (typeHint.includes("image")) {
+    return "image";
+  }
+  return "gradient";
+};
+
+const getPostDisplayText = (post) =>
+  (post?.description || post?.content || "").trim();
+
 export default function HomeScreen({ navigation }) {
-  const { currentUser, getLangDetails } = useContext(AppContext);
+  const { currentUser, getLangDetails, getLangDetailsFromFlag } =
+    useContext(AppContext);
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState("chats");
   const [onboardingVisible, setOnboardingVisible] = useState(true);
@@ -191,21 +287,29 @@ export default function HomeScreen({ navigation }) {
   const [contacts, setContacts] = useState(INITIAL_CONTACTS);
   const [isImporting, setIsImporting] = useState(false);
   const [imported, setImported] = useState(false);
+  const [showImportSuccess, setShowImportSuccess] = useState(true);
+  const [contactSearchText, setContactSearchText] = useState("");
   const [posts, setPosts] = useState(INITIAL_POSTS);
   const [exploreProfiles, setExploreProfiles] = useState(EXPLORE_PEOPLE);
   const [startConvModalVisible, setStartConvModalVisible] = useState(false);
   const [startConvSearch, setStartConvSearch] = useState("");
   const [startConvFilter, setStartConvFilter] = useState("contacts");
+  const [profilePopupVisible, setProfilePopupVisible] = useState(false);
+  const [profilePopupData, setProfilePopupData] = useState(null);
 
   // Post/Update creation states
   const [postModalVisible, setPostModalVisible] = useState(false);
   const [newPostText, setNewPostText] = useState("");
-  const [newPostImage, setNewPostImage] = useState(null);
-  const [newPostFlag, setNewPostFlag] = useState("🇺🇸");
+  const [newPostImages, setNewPostImages] = useState([]);
+  const [newPostMediaType, setNewPostMediaType] = useState("gradient");
+  const [newPostBackgroundKey, setNewPostBackgroundKey] = useState("aurora");
+  const [newPostFlag, setNewPostFlag] = useState("\u{1F30D}");
 
   // Bottom Sheet Comments state
   const [activeCommentsPostId, setActiveCommentsPostId] = useState(null);
   const [newCommentText, setNewCommentText] = useState("");
+  const [postTranslations, setPostTranslations] = useState({});
+  const [expandedPosts, setExpandedPosts] = useState({});
 
   // Post Options Bottom Sheet state
   const [optionsPost, setOptionsPost] = useState(null);
@@ -276,6 +380,118 @@ export default function HomeScreen({ navigation }) {
     };
   }, [gradientAnim, pulseAnim1, pulseAnim2, pulseAnim3]);
 
+  /**
+   * Smart Import Check:
+   * - Shows import on first access
+   * - After 7 days, silently checks for unsynced contacts and shows if found
+   */
+  useEffect(() => {
+    let isActive = true;
+    let checkInterval;
+
+    const checkAndShowImportPrompt = async () => {
+      try {
+        // Check if this is first time
+        const firstTime = await isFirstTimeImport();
+
+        if (firstTime) {
+          // First time: show import immediately
+          console.log(
+            "[HomeScreen] First time import detected, showing import UI",
+          );
+          if (isActive) {
+            setImported(false);
+            await saveFirstTimeImportStatus(false);
+            await saveLastImportCheckTime(Date.now());
+          }
+          return;
+        }
+
+        // Not first time: check if 7 days have passed
+        const lastCheckTime = await getLastImportCheckTime();
+        const now = Date.now();
+        const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+        if (lastCheckTime && now - lastCheckTime < SEVEN_DAYS_MS) {
+          // Less than 7 days have passed, don't show
+          console.log("[HomeScreen] Less than 7 days since last import check");
+          return;
+        }
+
+        // 7 days have passed or this is the first check since first import
+        // Silently check for unsynced contacts
+        console.log("[HomeScreen] Checking for unsynced contacts...");
+        const hasUnsynced = await hasUnsyncedContacts();
+
+        if (hasUnsynced) {
+          const count = await getUnsyncedContactsCount();
+          console.log(
+            `[HomeScreen] Found ${count} unsynced contacts, showing import UI`,
+          );
+          if (isActive) {
+            setImported(false);
+            await saveLastImportCheckTime(Date.now());
+          }
+        } else {
+          console.log("[HomeScreen] No unsynced contacts found");
+          if (isActive) {
+            await saveLastImportCheckTime(Date.now());
+          }
+        }
+      } catch (error) {
+        console.error("[HomeScreen] Error in checkAndShowImportPrompt:", error);
+      }
+    };
+
+    // Initial check on mount
+    checkAndShowImportPrompt();
+
+    // Set up periodic check every minute
+    checkInterval = setInterval(checkAndShowImportPrompt, 60000);
+
+    return () => {
+      isActive = false;
+      if (checkInterval) clearInterval(checkInterval);
+    };
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+    const targetLang = getPostTranslationTarget(currentUser.nativeLang || "en");
+
+    (async () => {
+      const nextTranslations = {};
+      await Promise.all(
+        normalizePosts(posts)
+          .slice(0, 12)
+          .map(async (post) => {
+            const sourceText = getPostDisplayText(post);
+            if (!sourceText) return;
+
+            try {
+              const translated = await translateText(
+                sourceText,
+                targetLang.code,
+              );
+              if (isActive && translated?.trim()) {
+                nextTranslations[post.id] = translated.trim();
+              }
+            } catch (error) {
+              console.warn("[HomeScreen] Post translation failed:", error);
+            }
+          }),
+      );
+
+      if (isActive) {
+        setPostTranslations(nextTranslations);
+      }
+    })();
+
+    return () => {
+      isActive = false;
+    };
+  }, [posts, currentUser.nativeLang]);
+
   // Background Pre-fetching function (TikTok style)
   const preFetchServerData = async () => {
     try {
@@ -291,15 +507,15 @@ export default function HomeScreen({ navigation }) {
         // Cache images in background
         const postsWithCachedMedia = await Promise.all(
           remotePosts.map(async (post) => {
-            const localImg = post.image
-              ? await cacheRemoteImage(post.image, "image")
-              : null;
+            const localImages = post.images?.length > 0
+              ? await Promise.all(post.images.map(img => cacheRemoteImage(img, "image")))
+              : [];
             const localAvatar = post.avatar
               ? await cacheRemoteImage(post.avatar, "avatar")
               : null;
             return {
               ...post,
-              image_local_path: localImg || "",
+              images_local_paths: localImages || [],
               avatar_local_path: localAvatar || "",
             };
           }),
@@ -395,42 +611,27 @@ export default function HomeScreen({ navigation }) {
   // Define onboarding tasks
   const allTasks = [
     {
-      id: "avatar1",
+      id: "avatar",
       isCompleted:
-        currentUser.avatar &&
-        currentUser.avatar.includes("photo-1534528741775-53994a69daeb"),
-      uncompletedLabel: "Add profile pic [1]",
-      completedLabel: "✓ Profile pic [1] Added",
-    },
-    {
-      id: "avatar2",
-      isCompleted:
-        currentUser.avatar &&
-        currentUser.avatar.includes("photo-1507003211169-0a1dd7228f2d"),
-      uncompletedLabel: "Add profile pic [2]",
-      completedLabel: "✓ Profile pic [2] Added",
-    },
-    {
-      id: "avatar3",
-      isCompleted:
-        currentUser.avatar &&
-        currentUser.avatar.includes("photo-1517841905240-472988babdf9"),
-      uncompletedLabel: "Add profile pic [3]",
-      completedLabel: "✓ Profile pic [3] Added",
-    },
-    {
-      id: "avatar4",
-      isCompleted:
-        currentUser.avatar &&
-        currentUser.avatar.includes("photo-1488426862026-3ee34a7d66df"),
-      uncompletedLabel: "Add profile pic [4]",
-      completedLabel: "✓ Profile pic [4] Added",
+        currentUser.avatarSlots &&
+        ((currentUser.avatarSlots[0] && !currentUser.avatarSlots[0].includes("photo-1534528741775")) ||
+         (currentUser.avatarSlots[1] && !currentUser.avatarSlots[1].includes("photo-1507003211169")) ||
+         (currentUser.avatarSlots[2] && !currentUser.avatarSlots[2].includes("photo-1517841905240")) ||
+         (currentUser.avatarSlots[3] && !currentUser.avatarSlots[3].includes("photo-1488426862026"))),
+      uncompletedLabel: "Add profile picture",
+      completedLabel: "✓ Profile picture added",
     },
     {
       id: "username",
       isCompleted: !!(currentUser.name && currentUser.name !== "Amani User"),
       uncompletedLabel: "Change username",
       completedLabel: "✓ Username Changed",
+    },
+    {
+      id: "phone",
+      isCompleted: !!(currentUser.phone && currentUser.phone.trim() !== ""),
+      uncompletedLabel: "Add phone number",
+      completedLabel: "✓ Phone Number Added",
     },
     {
       id: "nativeLang",
@@ -506,17 +707,52 @@ export default function HomeScreen({ navigation }) {
     setStartConvModalVisible(true);
   };
 
-  const handlePartnerClick = (name, avatar, flag, id) => {
+  const handlePartnerClick = (name, avatar, flag, id, status) => {
     navigation.navigate("Conversation", {
       partnerName: name,
       partnerAvatar: avatar,
       partnerFlag: flag,
       partnerId: id || name,
+      partnerStatus: status,
     });
   };
 
   const handleOpenSettings = (target) => {
+    setOnboardingVisible(false);
     navigation.navigate("Profile", { scrollTo: target });
+  };
+
+  const openProfilePopup = (profile = {}) => {
+    const flag = profile.flag || profile.authorFlag || "🌍";
+    const languageFromFlag = getLangDetailsFromFlag(flag) || {};
+    const languageFromNative = profile.nativeLang
+      ? getLangDetails(profile.nativeLang)
+      : null;
+
+    setProfilePopupData({
+      ...profile,
+      name: profile.name || profile.authorName || "Unity User",
+      avatar:
+        profile.avatar_local_path ||
+        profile.avatar ||
+        profile.authorAvatar ||
+        "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80",
+      flag,
+      langName:
+        profile.langName ||
+        languageFromNative?.name ||
+        languageFromFlag.name ||
+        "Translator Partner",
+      country: profile.country || languageFromFlag.country || "",
+      uid:
+        profile.uid ||
+        profile.id ||
+        profile.authorId ||
+        profile.email ||
+        profile.name ||
+        profile.authorName,
+    });
+    setProfilePopupVisible(true);
   };
 
   const handleImportContacts = async () => {
@@ -534,14 +770,31 @@ export default function HomeScreen({ navigation }) {
       }
 
       console.log("[Contacts] Fetching device contacts...");
-      const { data } = await Contacts.getContactsAsync({
-        fields: [
-          Contacts.Fields.Name,
-          Contacts.Fields.PhoneNumbers,
-          Contacts.Fields.Emails,
-          Contacts.Fields.Image,
-        ],
-      });
+      let data = [];
+      try {
+        const response = await Contacts.getContactsAsync({
+          fields: [
+            Contacts.Fields.Name,
+            Contacts.Fields.PhoneNumbers,
+            Contacts.Fields.Emails,
+            Contacts.Fields.Image,
+          ],
+        });
+        data = response.data;
+      } catch (imageFetchError) {
+        console.warn(
+          "[Contacts] Fetch failed with Image field, retrying without it:",
+          imageFetchError,
+        );
+        const fallbackResponse = await Contacts.getContactsAsync({
+          fields: [
+            Contacts.Fields.Name,
+            Contacts.Fields.PhoneNumbers,
+            Contacts.Fields.Emails,
+          ],
+        });
+        data = fallbackResponse.data;
+      }
 
       if (data && data.length > 0) {
         console.log(
@@ -549,14 +802,42 @@ export default function HomeScreen({ navigation }) {
         );
 
         // Format and map device contacts (taking top 50 for smart fast syncing)
+        const deviceContacts = data.slice(0, 50);
+        
+        // Extract phone numbers
+        const phoneNumbers = deviceContacts.map(item => 
+          item.phoneNumbers && item.phoneNumbers.length > 0 ? item.phoneNumbers[0].number : ""
+        ).filter(num => num !== "");
+
+        // Call backend to check which users exist
+        let unityUserMap = {};
+        try {
+          console.log("[Contacts] Checking backend for Unity accounts...");
+          const res = await fetch(`${API_URL}/api/check-contacts`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phoneNumbers })
+          });
+          const checkData = await res.json();
+          if (checkData && checkData.contacts) {
+            checkData.contacts.forEach(c => {
+              unityUserMap[c.phone] = c.hasUnityAccount;
+            });
+          }
+        } catch (backendErr) {
+          console.warn("[Contacts] Failed to check backend for users", backendErr);
+        }
+
         const formattedContacts = await Promise.all(
-          data.slice(0, 50).map(async (item, idx) => {
+          deviceContacts.map(async (item, idx) => {
             const phone =
               item.phoneNumbers && item.phoneNumbers.length > 0
                 ? item.phoneNumbers[0].number
                 : "";
             const email =
               item.emails && item.emails.length > 0 ? item.emails[0].email : "";
+            
+            const isUnityUser = unityUserMap[phone] || false;
 
             // Smart flag assignment based on phone number country prefix
             let flag = "🇺🇸"; // Default
@@ -600,9 +881,10 @@ export default function HomeScreen({ navigation }) {
               email: email,
               flag: flag,
               langName: lang,
-              status: "Available on Unity",
+              status: isUnityUser ? "Available on Unity" : "Not on Unity",
               is_synced: 1,
               avatar: localAvatar,
+              isUnityUser: isUnityUser,
             };
           }),
         );
@@ -614,6 +896,12 @@ export default function HomeScreen({ navigation }) {
         const updatedContacts = await getDbContacts();
         setContacts(updatedContacts);
         setImported(true);
+        setShowImportSuccess(true);
+        setTimeout(() => setShowImportSuccess(false), 30000);
+
+        // Save the import check timestamp for next 7-day cycle
+        await saveLastImportCheckTime(Date.now());
+
         Alert.alert(
           "Sync Complete",
           `Successfully synced ${formattedContacts.length} contacts from your phone!`,
@@ -663,32 +951,84 @@ export default function HomeScreen({ navigation }) {
     );
   };
 
-  const handleCreatePost = () => {
+  const handlePickPostImage = async () => {
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permission.status !== "granted") {
+        Alert.alert(
+          "Photo Permission Needed",
+          "Allow photo access to choose an image or video for your update.",
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        allowsEditing: false,
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
+        quality: 0.9,
+      });
+
+      if (!result.canceled && result.assets?.length > 0) {
+        const uris = result.assets.map(a => a.uri);
+        setNewPostImages(uris);
+        setNewPostMediaType(getPostMediaTypeFromAsset(result.assets[0].type, uris[0]));
+      }
+    } catch (error) {
+      console.error("Failed to pick post media", error);
+      Alert.alert("Media Error", "Could not open your library.");
+    }
+  };
+
+  const handlePickGradient = (presetId) => {
+    setNewPostImages([]);
+    setNewPostMediaType("gradient");
+    setNewPostBackgroundKey(presetId);
+  };
+
+  const handleCreatePost = async () => {
     if (!newPostText.trim()) return;
+
     const userFlag = currentUser.nativeLang
-      ? getLangDetails(currentUser.nativeLang).flag || "🌍"
-      : "🌍";
-    const newPost = {
-      id: `post_${Date.now()}`,
-      authorName:
-        currentUser.name && currentUser.name !== "Amani User"
-          ? currentUser.name
-          : "Amani User",
-      avatar:
-        currentUser.avatar ||
-        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
-      flag: newPostFlag || userFlag,
-      time: "Just now",
-      content: newPostText,
-      image: newPostImage,
-      likes: 0,
-      liked: false,
-      comments: [],
-    };
-    setPosts((prev) => [normalizePost(newPost), ...normalizePosts(prev)]);
-    setPostModalVisible(false);
-    setNewPostText("");
-    setNewPostImage(null);
+      ? getLangDetails(currentUser.nativeLang).flag || "\u{1F30D}"
+      : "\u{1F30D}";
+    const authorName =
+      currentUser.name && currentUser.name !== "Amani User"
+        ? currentUser.name
+        : "Amani User";
+    const postCopy = buildPostCopy(newPostText.trim());
+
+    try {
+      const createdPost = await createPost({
+        content: postCopy.content,
+        description: postCopy.description,
+        authorId: currentUser.email || authorName,
+        authorName,
+        authorAvatar:
+          currentUser.avatar ||
+          "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+        authorFlag: userFlag,
+        authorNativeLang: currentUser.nativeLang || "",
+        imageUris: newPostImages,
+        mediaType: newPostMediaType,
+        backgroundKey: newPostBackgroundKey,
+      });
+
+      setPosts((prev) => [normalizePost(createdPost), ...normalizePosts(prev)]);
+      setPostModalVisible(false);
+      setNewPostText("");
+      setNewPostImages([]);
+      setNewPostMediaType("gradient");
+      setNewPostBackgroundKey("aurora");
+    } catch (error) {
+      console.error("[HomeScreen] Failed to create post:", error);
+      Alert.alert(
+        "Post Failed",
+        error.message || "Unable to publish your post.",
+      );
+    }
   };
 
   const getAuthorAvatar = (authorName) => {
@@ -866,16 +1206,30 @@ export default function HomeScreen({ navigation }) {
   const myProfile = {
     id: "me",
     name: `(Me) ${currentUser.name && currentUser.name !== "Amani User" ? currentUser.name : "Amani User"}`,
-    avatar: currentUser.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
-    flag: currentUser.nativeLang ? (getLangDetails(currentUser.nativeLang)?.flag || "🌍") : "🌍",
-    langName: currentUser.nativeLang ? (getLangDetails(currentUser.nativeLang)?.name || "Universal") : "Universal",
+    avatar:
+      currentUser.avatar ||
+      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+    flag: currentUser.nativeLang
+      ? getLangDetails(currentUser.nativeLang)?.flag || "🌍"
+      : "🌍",
+    langName: currentUser.nativeLang
+      ? getLangDetails(currentUser.nativeLang)?.name || "Universal"
+      : "Universal",
     status: currentUser.bio || "Online",
     bio: currentUser.bio || "This is me!",
     isMe: true,
   };
 
-  const displayedContacts = [myProfile, ...normalizePosts(contacts).filter(c => c.id !== "me")];
-  const displayedExplore = [myProfile, ...normalizePosts(exploreProfiles).filter(e => e.id !== "me")];
+  const isOnlineContact = (item) => item?.isMe || isOnlineStatus(item?.status);
+
+  const displayedContacts = [
+    myProfile,
+    ...normalizePosts(contacts).filter((c) => c.id !== "me"),
+  ];
+  const displayedExplore = [
+    myProfile,
+    ...normalizePosts(exploreProfiles).filter((e) => e.id !== "me"),
+  ];
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
@@ -1063,19 +1417,102 @@ export default function HomeScreen({ navigation }) {
                 { backgroundColor: colors.cardBg, borderColor: colors.border },
               ]}
             >
-              {/* Partner Card 1 */}
-              <TouchableOpacity
+              {/* Unity AI Card */}
+              <View
                 style={[styles.convCard, { borderBottomColor: colors.border }]}
-                activeOpacity={0.7}
-                onPress={() =>
-                  handlePartnerClick(
-                    "Sophia Martinez",
-                    "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
-                    "🇪🇸",
-                  )
-                }
               >
-                <View style={styles.avatarContainer}>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  hitSlop={8}
+                  onPress={() => openProfilePopup(INITIAL_CONTACTS[0])}
+                  style={styles.avatarContainer}
+                >
+                  <Image
+                    source={{ uri: INITIAL_CONTACTS[0].avatar }}
+                    style={styles.avatar}
+                  />
+                  <View
+                    style={[styles.flagBadge, { backgroundColor: colors.bg }]}
+                  >
+                    {renderFlagOrEmoji(INITIAL_CONTACTS[0].flag)}
+                  </View>
+                  {isOnlineStatus(INITIAL_CONTACTS[0].status) && (
+                    <View
+                      style={[
+                        styles.onlineBadge,
+                        { borderColor: colors.cardBg },
+                      ]}
+                    />
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() =>
+                    handlePartnerClick(
+                      INITIAL_CONTACTS[0].name,
+                      INITIAL_CONTACTS[0].avatar,
+                      INITIAL_CONTACTS[0].flag,
+                      INITIAL_CONTACTS[0].id,
+                      INITIAL_CONTACTS[0].status
+                    )
+                  }
+                  style={styles.convBodyPress}
+                >
+                  <View style={styles.convDetails}>
+                    <View style={styles.convHeader}>
+                      <Text
+                        style={[styles.partnerName, { color: colors.text, fontWeight: "700" }]}
+                      >
+                        {INITIAL_CONTACTS[0].name}
+                      </Text>
+                      <Text
+                        style={[styles.convTime, { color: colors.textDimmed }]}
+                      >
+                        Always Online
+                      </Text>
+                    </View>
+                    <Text
+                      style={[styles.convPreview, { color: colors.primary }]}
+                    >
+                      AI is ready to chat!
+                    </Text>
+                  </View>
+                  <View style={styles.convArrow}>
+                    <Svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={colors.textDimmed}
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <Path d="M9 18l6-6-6-6" />
+                    </Svg>
+                  </View>
+                </TouchableOpacity>
+              </View>
+
+              {/* Partner Card 1 */}
+              <View
+                style={[styles.convCard, { borderBottomColor: colors.border }]}
+              >
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  hitSlop={8}
+                  onPress={() =>
+                    openProfilePopup({
+                      name: "Sophia Martinez",
+                      avatar:
+                        "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
+                      flag: "🇪🇸",
+                      langName: "Spanish",
+                      uid: "recent_sophia",
+                    })
+                  }
+                  style={styles.avatarContainer}
+                >
                   <Image
                     source={{
                       uri: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
@@ -1087,53 +1524,73 @@ export default function HomeScreen({ navigation }) {
                   >
                     {renderFlagOrEmoji("🇪🇸")}
                   </View>
-                </View>
-                <View style={styles.convDetails}>
-                  <View style={styles.convHeader}>
-                    <Text style={[styles.partnerName, { color: colors.text }]}>
-                      Sophia Martinez
-                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() =>
+                    handlePartnerClick(
+                      "Sophia Martinez",
+                      "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
+                      "🇪🇸",
+                    )
+                  }
+                  style={styles.convBodyPress}
+                >
+                  <View style={styles.convDetails}>
+                    <View style={styles.convHeader}>
+                      <Text
+                        style={[styles.partnerName, { color: colors.text }]}
+                      >
+                        Sophia Martinez
+                      </Text>
+                      <Text
+                        style={[styles.convTime, { color: colors.textDimmed }]}
+                      >
+                        2m ago
+                      </Text>
+                    </View>
                     <Text
-                      style={[styles.convTime, { color: colors.textDimmed }]}
+                      style={[styles.convPreview, { color: colors.textMuted }]}
                     >
-                      2m ago
+                      English ⇄ Spanish (Active)
                     </Text>
                   </View>
-                  <Text
-                    style={[styles.convPreview, { color: colors.textMuted }]}
-                  >
-                    English ⇄ Spanish (Active)
-                  </Text>
-                </View>
-                <View style={styles.convArrow}>
-                  <Svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke={colors.textDimmed}
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <Path d="M9 18l6-6-6-6" />
-                  </Svg>
-                </View>
-              </TouchableOpacity>
+                  <View style={styles.convArrow}>
+                    <Svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={colors.textDimmed}
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <Path d="M9 18l6-6-6-6" />
+                    </Svg>
+                  </View>
+                </TouchableOpacity>
+              </View>
 
               {/* Partner Card 2 */}
-              <TouchableOpacity
+              <View
                 style={[styles.convCard, { borderBottomColor: colors.border }]}
-                activeOpacity={0.7}
-                onPress={() =>
-                  handlePartnerClick(
-                    "Kenji Sato",
-                    "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
-                    "🇯🇵",
-                  )
-                }
               >
-                <View style={styles.avatarContainer}>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  hitSlop={8}
+                  onPress={() =>
+                    openProfilePopup({
+                      name: "Kenji Sato",
+                      avatar:
+                        "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
+                      flag: "🇯🇵",
+                      langName: "Japanese",
+                      uid: "recent_kenji",
+                    })
+                  }
+                  style={styles.avatarContainer}
+                >
                   <Image
                     source={{
                       uri: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
@@ -1145,53 +1602,71 @@ export default function HomeScreen({ navigation }) {
                   >
                     {renderFlagOrEmoji("🇯🇵")}
                   </View>
-                </View>
-                <View style={styles.convDetails}>
-                  <View style={styles.convHeader}>
-                    <Text style={[styles.partnerName, { color: colors.text }]}>
-                      Kenji Sato
-                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() =>
+                    handlePartnerClick(
+                      "Kenji Sato",
+                      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
+                      "🇯🇵",
+                    )
+                  }
+                  style={styles.convBodyPress}
+                >
+                  <View style={styles.convDetails}>
+                    <View style={styles.convHeader}>
+                      <Text
+                        style={[styles.partnerName, { color: colors.text }]}
+                      >
+                        Kenji Sato
+                      </Text>
+                      <Text
+                        style={[styles.convTime, { color: colors.textDimmed }]}
+                      >
+                        1h ago
+                      </Text>
+                    </View>
                     <Text
-                      style={[styles.convTime, { color: colors.textDimmed }]}
+                      style={[styles.convPreview, { color: colors.textMuted }]}
                     >
-                      1h ago
+                      English ⇄ Japanese
                     </Text>
                   </View>
-                  <Text
-                    style={[styles.convPreview, { color: colors.textMuted }]}
-                  >
-                    English ⇄ Japanese
-                  </Text>
-                </View>
-                <View style={styles.convArrow}>
-                  <Svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke={colors.textDimmed}
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <Path d="M9 18l6-6-6-6" />
-                  </Svg>
-                </View>
-              </TouchableOpacity>
+                  <View style={styles.convArrow}>
+                    <Svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={colors.textDimmed}
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <Path d="M9 18l6-6-6-6" />
+                    </Svg>
+                  </View>
+                </TouchableOpacity>
+              </View>
 
               {/* Partner Card 3 */}
-              <TouchableOpacity
-                style={[styles.convCard, { borderBottomWidth: 0 }]}
-                activeOpacity={0.7}
-                onPress={() =>
-                  handlePartnerClick(
-                    "Amara Okoro",
-                    "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=100&h=100&q=80",
-                    "🇰🇪",
-                  )
-                }
-              >
-                <View style={styles.avatarContainer}>
+              <View style={[styles.convCard, { borderBottomWidth: 0 }]}>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  hitSlop={8}
+                  onPress={() =>
+                    openProfilePopup({
+                      name: "Amara Okoro",
+                      avatar:
+                        "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=100&h=100&q=80",
+                      flag: "🇰🇪",
+                      langName: "Swahili",
+                      uid: "recent_amara",
+                    })
+                  }
+                  style={styles.avatarContainer}
+                >
                   <Image
                     source={{
                       uri: "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=100&h=100&q=80",
@@ -1203,39 +1678,53 @@ export default function HomeScreen({ navigation }) {
                   >
                     {renderFlagOrEmoji("🇰🇪")}
                   </View>
-                </View>
-                <View style={styles.convDetails}>
-                  <View style={styles.convHeader}>
-                    <Text style={[styles.partnerName, { color: colors.text }]}>
-                      Amara Okoro
-                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() =>
+                    handlePartnerClick(
+                      "Amara Okoro",
+                      "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=100&h=100&q=80",
+                      "🇰🇪",
+                    )
+                  }
+                  style={styles.convBodyPress}
+                >
+                  <View style={styles.convDetails}>
+                    <View style={styles.convHeader}>
+                      <Text
+                        style={[styles.partnerName, { color: colors.text }]}
+                      >
+                        Amara Okoro
+                      </Text>
+                      <Text
+                        style={[styles.convTime, { color: colors.textDimmed }]}
+                      >
+                        Yesterday
+                      </Text>
+                    </View>
                     <Text
-                      style={[styles.convTime, { color: colors.textDimmed }]}
+                      style={[styles.convPreview, { color: colors.textMuted }]}
                     >
-                      Yesterday
+                      English ⇄ Swahili
                     </Text>
                   </View>
-                  <Text
-                    style={[styles.convPreview, { color: colors.textMuted }]}
-                  >
-                    English ⇄ Swahili
-                  </Text>
-                </View>
-                <View style={styles.convArrow}>
-                  <Svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke={colors.textDimmed}
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <Path d="M9 18l6-6-6-6" />
-                  </Svg>
-                </View>
-              </TouchableOpacity>
+                  <View style={styles.convArrow}>
+                    <Svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={colors.textDimmed}
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <Path d="M9 18l6-6-6-6" />
+                    </Svg>
+                  </View>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         )}
@@ -1302,6 +1791,25 @@ export default function HomeScreen({ navigation }) {
 
             {contactsFilter === "my" && (
               <View>
+                <TextInput
+                  style={[
+                    styles.searchInput,
+                    {
+                      backgroundColor: colors.cardBg,
+                      color: colors.text,
+                      borderColor: colors.border,
+                      borderWidth: 1,
+                      marginBottom: 16,
+                      borderRadius: 12,
+                      paddingHorizontal: 16,
+                      height: 48,
+                    },
+                  ]}
+                  placeholder="Search by name or UTID"
+                  placeholderTextColor={colors.textMuted}
+                  onChangeText={setContactSearchText}
+                  value={contactSearchText}
+                />
                 {!imported ? (
                   <TouchableOpacity
                     style={[
@@ -1369,7 +1877,7 @@ export default function HomeScreen({ navigation }) {
                       </View>
                     </LinearGradient>
                   </TouchableOpacity>
-                ) : (
+                ) : showImportSuccess ? (
                   <View
                     style={[
                       styles.importSuccessCard,
@@ -1388,7 +1896,7 @@ export default function HomeScreen({ navigation }) {
                       ✓ Successfully synced {contacts.length} phone contacts!
                     </Text>
                   </View>
-                )}
+                ) : null}
 
                 <Text
                   style={[
@@ -1408,7 +1916,10 @@ export default function HomeScreen({ navigation }) {
                     },
                   ]}
                 >
-                  {displayedContacts.map((contact, index) => (
+                  {contacts.filter(c => {
+                    const q = contactSearchText.toLowerCase();
+                    return (c.name || "").toLowerCase().includes(q) || (c.id || "").toLowerCase().includes(q) || (c.uid || "").toLowerCase().includes(q);
+                  }).map((contact, index) => (
                     <TouchableOpacity
                       key={contact.id}
                       style={[
@@ -1418,20 +1929,36 @@ export default function HomeScreen({ navigation }) {
                           : { borderBottomColor: colors.border },
                       ]}
                       activeOpacity={0.7}
-                      onPress={() =>
+                      onPress={() => {
+                        if (contact.isUnityUser === false) {
+                          const message = "Hey! I'm using Unity to translate my chats in real-time. Download it here: https://unity.app";
+                          const phone = (contact.phone || "").replace(/\D/g, "");
+                          Linking.openURL(`whatsapp://send?text=${encodeURIComponent(message)}&phone=${phone}`).catch(() => {
+                             Alert.alert("WhatsApp not found", "Could not open WhatsApp. Please make sure it is installed.");
+                          });
+                          return;
+                        }
                         handlePartnerClick(
                           contact.name,
                           contact.avatar,
                           contact.flag,
                           contact.id,
-                        )
-                      }
+                        );
+                      }}
                     >
                       <View style={styles.avatarContainer}>
                         <Image
                           source={{ uri: contact.avatar }}
                           style={styles.avatar}
                         />
+                        {isOnlineContact(contact) && (
+                          <View
+                            style={[
+                              styles.onlineBadge,
+                              { borderColor: colors.cardBg },
+                            ]}
+                          />
+                        )}
                         <View
                           style={[
                             styles.flagBadge,
@@ -1467,18 +1994,24 @@ export default function HomeScreen({ navigation }) {
                         </Text>
                       </View>
                       <View style={styles.convArrow}>
-                        <Svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke={colors.textDimmed}
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <Path d="M9 18l6-6-6-6" />
-                        </Svg>
+                        {contact.isUnityUser === false ? (
+                          <View style={{ backgroundColor: colors.border, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 }}>
+                            <Text style={{ color: colors.text, fontSize: 12, fontWeight: "600" }}>Invite</Text>
+                          </View>
+                        ) : (
+                          <Svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke={colors.textDimmed}
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <Path d="M9 18l6-6-6-6" />
+                          </Svg>
+                        )}
                       </View>
                     </TouchableOpacity>
                   ))}
@@ -1676,21 +2209,146 @@ export default function HomeScreen({ navigation }) {
                   </View>
 
                   {/* Post Content */}
-                  <Text
-                    style={[styles.postContentText, { color: colors.text }]}
-                  >
-                    {post.content}
-                  </Text>
+                  {(() => {
+                    const fullPostText = (
+                      post.description ||
+                      post.content ||
+                      ""
+                    ).trim();
+                    const isExpanded = Boolean(expandedPosts[post.id]);
+                    const shouldTruncate =
+                      fullPostText.length > POST_DESCRIPTION_LIMIT;
+                    const previewText =
+                      shouldTruncate && !isExpanded
+                        ? `${fullPostText.slice(0, POST_DESCRIPTION_LIMIT).trimEnd()}...`
+                        : fullPostText;
+                    const translationText = postTranslations[post.id];
+                    const background = getPostBackgroundPreset(
+                      post.backgroundKey,
+                    );
+                    const showGradientCard =
+                      post.mediaType === "gradient" && (!post.images || post.images.length === 0);
 
-                  {/* Post Image */}
-                  {post.image && (
-                    <Image
-                      source={{ uri: post.image_local_path || post.image }}
-                      style={styles.postImage}
-                      resizeMode="cover"
-                    />
-                  )}
+                    if (showGradientCard) {
+                      return (
+                        <LinearGradient
+                          colors={background.colors}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.postGradientCard}
+                        >
+                          <Text style={styles.postGradientText}>
+                            {previewText}
+                          </Text>
+                          {shouldTruncate && (
+                            <TouchableOpacity
+                              onPress={() =>
+                                setExpandedPosts((prev) => ({
+                                  ...prev,
+                                  [post.id]: !prev[post.id],
+                                }))
+                              }
+                              style={styles.postSeeMoreBtn}
+                              activeOpacity={0.75}
+                            >
+                              <Text style={styles.postSeeMoreText}>
+                                {isExpanded ? "See less" : "See more"}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                          {translationText ? (
+                            <Text style={styles.postTranslationText}>
+                              {translationText}
+                            </Text>
+                          ) : null}
+                        </LinearGradient>
+                      );
+                    }
 
+                    return (
+                      <>
+                        {post.images && post.images.length > 0 ? (
+                          post.mediaType === "video" ? (
+                            <View style={styles.postVideoPlaceholder}>
+                              <LinearGradient
+                                colors={background.colors}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={styles.postVideoGradient}
+                              >
+                                <Text style={styles.postVideoBadge}>VIDEO</Text>
+                                <Text style={styles.postVideoText}>
+                                  Tap to play after upload support is enabled.
+                                </Text>
+                              </LinearGradient>
+                            </View>
+                          ) : (
+                            <View style={styles.postImageGrid}>
+                              {post.images.slice(0, 4).map((imgUri, index) => {
+                                const isLast = index === 3;
+                                const extraCount = post.images.length - 4;
+                                const localPath = post.images_local_paths?.[index] || imgUri;
+                                const numImages = Math.min(post.images.length, 4);
+                                
+                                // Simple grid logic
+                                let itemStyle = styles.gridItemSingle;
+                                if (numImages === 2) itemStyle = styles.gridItemHalf;
+                                else if (numImages === 3) itemStyle = index === 0 ? styles.gridItemFullTop : styles.gridItemHalfBottom;
+                                else if (numImages >= 4) itemStyle = styles.gridItemQuarter;
+
+                                return (
+                                  <View key={index} style={[styles.gridImageWrapper, itemStyle]}>
+                                    <Image
+                                      source={{ uri: localPath }}
+                                      style={styles.gridImage}
+                                      resizeMode="cover"
+                                    />
+                                    {isLast && extraCount > 0 && (
+                                      <View style={styles.gridOverlay}>
+                                        <Text style={styles.gridOverlayText}>+{extraCount}</Text>
+                                      </View>
+                                    )}
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          )
+                        ) : null}
+
+                        <Text
+                          style={[
+                            styles.postContentText,
+                            { color: colors.text },
+                          ]}
+                        >
+                          {previewText}
+                        </Text>
+
+                        {shouldTruncate && (
+                          <TouchableOpacity
+                            onPress={() =>
+                              setExpandedPosts((prev) => ({
+                                ...prev,
+                                [post.id]: !prev[post.id],
+                              }))
+                            }
+                            style={styles.postSeeMoreBtn}
+                            activeOpacity={0.75}
+                          >
+                            <Text style={styles.postSeeMoreText}>
+                              {isExpanded ? "See less" : "See more"}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+
+                        {translationText ? (
+                          <Text style={styles.postTranslationText}>
+                            {translationText}
+                          </Text>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                   {/* Post Stats */}
                   <View
                     style={[
@@ -1716,7 +2374,9 @@ export default function HomeScreen({ navigation }) {
                         ]}
                       >
                         {post.comments?.length ?? 0}{" "}
-                        {(post.comments?.length ?? 0) === 1 ? "Comment" : "Comments"}
+                        {(post.comments?.length ?? 0) === 1
+                          ? "Comment"
+                          : "Comments"}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -1873,8 +2533,17 @@ export default function HomeScreen({ navigation }) {
         )}
       </ScrollView>
 
+      <UserProfilePopup
+        visible={profilePopupVisible}
+        profile={profilePopupData}
+        onClose={() => setProfilePopupVisible(false)}
+        colors={colors}
+        getLangDetails={getLangDetails}
+        getLangDetailsFromFlag={getLangDetailsFromFlag}
+      />
+
       {/* Centered Premium Onboarding Popup Card (adapts to light/dark themes dynamically!) */}
-      {onboardingVisible && (
+      {onboardingVisible && onboardingPct < 100 && (
         <Modal
           visible={onboardingVisible}
           transparent
@@ -2261,11 +2930,19 @@ export default function HomeScreen({ navigation }) {
         visible={postModalVisible}
         onRequestClose={() => setPostModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalOverlay}
+        >
           <View
             style={[
               styles.createPostModalContent,
-              { backgroundColor: colors.cardBg, borderColor: colors.border },
+              {
+                backgroundColor: colors.cardBg,
+                borderColor: colors.border,
+                maxHeight: height - Math.max(insets.top, 24) - 12,
+                paddingBottom: Math.max(insets.bottom, 16) + 16,
+              },
             ]}
           >
             {/* Modal Header */}
@@ -2318,138 +2995,178 @@ export default function HomeScreen({ navigation }) {
               </TouchableOpacity>
             </View>
 
-            {/* Author Profile Row */}
-            <View style={styles.createPostUserRow}>
-              <Image
-                source={{
-                  uri:
-                    currentUser.avatar ||
-                    "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
-                }}
-                style={styles.createPostUserAvatar}
-              />
-              <View style={styles.createPostUserInfo}>
-                <Text
-                  style={[styles.createPostUserName, { color: colors.text }]}
-                >
-                  {currentUser.name || "Amani User"}
-                </Text>
-
-                {/* Scrollable Row of Flags to tag post */}
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.tagFlagsScroll}
-                >
-                  {[
-                    "🇺🇸",
-                    "🇪🇸",
-                    "🇫🇷",
-                    "🇰🇪",
-                    "🇯🇵",
-                    "🇩🇪",
-                    "🇨🇳",
-                    "🇸🇦",
-                    "🇮🇹",
-                    "🇧🇷",
-                    "🇷🇺",
-                    "🇰🇷",
-                    "🇮🇳",
-                    "🇹🇷",
-                  ].map((flag) => {
-                    const isSelected = newPostFlag === flag;
-                    return (
-                      <TouchableOpacity
-                        key={flag}
-                        style={[
-                          styles.tagFlagBtn,
-                          isSelected && {
-                            backgroundColor: colors.primaryGlow,
-                            borderColor: colors.primary,
-                          },
-                        ]}
-                        onPress={() => setNewPostFlag(flag)}
-                      >
-                        <Text style={styles.tagFlagText}>{flag}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            </View>
-
-            {/* Text Input area */}
-            <TextInput
-              style={[
-                styles.createPostInput,
-                { color: colors.text, borderColor: colors.border },
-              ]}
-              placeholder="What's on your mind? Share an update..."
-              placeholderTextColor={colors.textDimmed}
-              multiline
-              value={newPostText}
-              onChangeText={setNewPostText}
-              textAlignVertical="top"
-            />
-
-            {/* Selected image preview */}
-            {newPostImage && (
-              <View style={styles.createPostImgPreviewContainer}>
+            <ScrollView
+              style={styles.createPostBody}
+              contentContainerStyle={styles.createPostBodyContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Author Profile Row */}
+              <View style={styles.createPostUserRow}>
                 <Image
-                  source={{ uri: newPostImage }}
-                  style={styles.createPostImgPreview}
+                  source={{
+                    uri:
+                      currentUser.avatar ||
+                      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+                  }}
+                  style={styles.createPostUserAvatar}
                 />
+                <View style={styles.createPostUserInfo}>
+                  <Text
+                    style={[styles.createPostUserName, { color: colors.text }]}
+                  >
+                    {currentUser.name || "Amani User"}
+                  </Text>
+                  <View style={styles.postLanguageBadge}>
+                    <Text
+                      style={[
+                        styles.postLanguageBadgeText,
+                        { color: colors.primary },
+                      ]}
+                    >
+                      {getLangDetails(currentUser.nativeLang || "en").flag ||
+                        "??"}{" "}
+                      Posting as{" "}
+                      {getLangDetails(currentUser.nativeLang || "en").name}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Text Input area */}
+              <TextInput
+                style={[
+                  styles.createPostInput,
+                  { color: colors.text, borderColor: colors.border },
+                ]}
+                placeholder="What's on your mind? Share an update..."
+                placeholderTextColor={colors.textDimmed}
+                multiline
+                value={newPostText}
+                onChangeText={setNewPostText}
+                textAlignVertical="top"
+              />
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.postGradientPickerRow}
+              >
+                {POST_BACKGROUND_PRESETS.map((preset) => {
+                  const isSelected =
+                    newPostMediaType === "gradient" &&
+                    newPostBackgroundKey === preset.id;
+                  return (
+                    <TouchableOpacity
+                      key={preset.id}
+                      onPress={() => handlePickGradient(preset.id)}
+                      style={[
+                        styles.postGradientChip,
+                        isSelected && styles.postGradientChipSelected,
+                      ]}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={preset.colors}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.postGradientChipSwatch}
+                      />
+                      <Text
+                        style={[
+                          styles.postGradientChipLabel,
+                          { color: colors.text },
+                        ]}
+                      >
+                        {preset.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              <View style={styles.postMediaActionRow}>
                 <TouchableOpacity
                   style={[
-                    styles.deleteImgBtn,
-                    { backgroundColor: colors.danger },
+                    styles.pickPhotoBtn,
+                    { borderColor: colors.primary, backgroundColor: isDark ? "rgba(168,85,247,0.1)" : "rgba(168,85,247,0.05)" },
                   ]}
-                  onPress={() => setNewPostImage(null)}
+                  onPress={handlePickPostImage}
+                  activeOpacity={0.8}
                 >
-                  <Text style={styles.deleteImgBtnText}>&times;</Text>
+                  <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <Rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <Circle cx="8.5" cy="8.5" r="1.5" />
+                    <Polyline points="21 15 16 10 5 21" />
+                  </Svg>
+                  <Text
+                    style={[styles.pickPhotoBtnText, { color: colors.primary }]}
+                  >
+                    Add Photos or Video
+                  </Text>
                 </TouchableOpacity>
               </View>
-            )}
 
-            {/* Photo preset attachments list */}
-            <Text style={[styles.attachLabel, { color: colors.textMuted }]}>
-              Attach a Photo Preset
-            </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.presetImagesScroll}
-            >
-              {[
-                "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=300&q=80",
-                "https://images.unsplash.com/photo-1501854140801-50d01698950b?auto=format&fit=crop&w=300&q=80",
-                "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=300&q=80",
-                "https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?auto=format&fit=crop&w=300&q=80",
-                "https://images.unsplash.com/photo-1472214222541-d510753a4907?auto=format&fit=crop&w=300&q=80",
-              ].map((url, idx) => {
-                const isSelected = newPostImage === url;
-                return (
-                  <TouchableOpacity
-                    key={idx}
-                    style={[
-                      styles.presetImgBtn,
-                      isSelected && {
-                        borderColor: colors.primary,
-                        borderWidth: 2,
-                      },
-                    ]}
-                    onPress={() => setNewPostImage(url)}
+              {newPostImages.length > 0 && newPostMediaType === "image" && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
+                  {newPostImages.map((uri, index) => (
+                    <View key={index} style={[styles.createPostImgPreviewContainer, { marginRight: 10 }]}>
+                      <Image
+                        source={{ uri }}
+                        style={styles.createPostImgPreview}
+                      />
+                      <TouchableOpacity
+                        style={[
+                          styles.deleteImgBtn,
+                          { backgroundColor: colors.danger },
+                        ]}
+                        onPress={() => {
+                          setNewPostImages(prev => {
+                            const next = prev.filter((_, i) => i !== index);
+                            if (next.length === 0) setNewPostMediaType("gradient");
+                            return next;
+                          });
+                        }}
+                      >
+                        <Text style={styles.deleteImgBtnText}>&times;</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </ScrollView>
+              )}
+
+              {newPostImages.length > 0 && newPostMediaType === "video" && (
+                <View style={styles.createPostVideoPreview}>
+                  <LinearGradient
+                    colors={
+                      getPostBackgroundPreset(newPostBackgroundKey).colors
+                    }
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.createPostVideoGradient}
                   >
-                    <Image
-                      source={{ uri: url }}
-                      style={styles.presetImgThumb}
-                    />
-                  </TouchableOpacity>
-                );
-              })}
+                    <Text style={styles.postVideoBadge}>VIDEO</Text>
+                    <Text style={styles.createPostVideoText}>
+                      Video selected
+                    </Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.deleteImgBtn,
+                        { backgroundColor: colors.danger },
+                      ]}
+                      onPress={() => {
+                        setNewPostImages([]);
+                        setNewPostMediaType("gradient");
+                      }}
+                    >
+                      <Text style={styles.deleteImgBtnText}>&times;</Text>
+                    </TouchableOpacity>
+                  </LinearGradient>
+                </View>
+              )}
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Post Options Bottom Sheet Modal */}
@@ -2678,7 +3395,7 @@ export default function HomeScreen({ navigation }) {
               ]}
             >
               <Text style={[styles.bottomSheetTitle, { color: colors.text }]}>
-                Comments ({activePost ? activePost.comments?.length ?? 0 : 0})
+                Comments ({activePost ? (activePost.comments?.length ?? 0) : 0})
               </Text>
               <TouchableOpacity
                 onPress={() => setActiveCommentsPostId(null)}
@@ -3006,7 +3723,9 @@ export default function HomeScreen({ navigation }) {
             >
               {(() => {
                 const sourceList =
-                  startConvFilter === "contacts" ? displayedContacts : displayedExplore;
+                  startConvFilter === "contacts"
+                    ? displayedContacts
+                    : displayedExplore;
                 const filtered = sourceList.filter(
                   (item) =>
                     item.name
@@ -3093,6 +3812,14 @@ export default function HomeScreen({ navigation }) {
                       { borderBottomColor: colors.border },
                     ]}
                     onPress={() => {
+                      if (item.isUnityUser === false) {
+                        const message = "Hey! I'm using Unity to translate my chats in real-time. Download it here: https://unity.app";
+                        const phone = (item.phone || "").replace(/\D/g, "");
+                        Linking.openURL(`whatsapp://send?text=${encodeURIComponent(message)}&phone=${phone}`).catch(() => {
+                           Alert.alert("WhatsApp not found", "Could not open WhatsApp. Please make sure it is installed.");
+                        });
+                        return;
+                      }
                       setStartConvModalVisible(false);
                       handlePartnerClick(
                         item.name,
@@ -3108,6 +3835,14 @@ export default function HomeScreen({ navigation }) {
                         source={{ uri: item.avatar_local_path || item.avatar }}
                         style={styles.modalAvatar}
                       />
+                      {isOnlineContact(item) && (
+                        <View
+                          style={[
+                            styles.onlineBadge,
+                            { borderColor: colors.cardBg },
+                          ]}
+                        />
+                      )}
                       <View
                         style={[
                           styles.modalFlagBadge,
@@ -3169,16 +3904,16 @@ export default function HomeScreen({ navigation }) {
                     <View
                       style={[
                         styles.modalPartnerCta,
-                        { backgroundColor: colors.primaryGlow },
+                        { backgroundColor: item.isUnityUser === false ? colors.border : colors.primaryGlow },
                       ]}
                     >
                       <Text
                         style={[
                           styles.modalPartnerCtaText,
-                          { color: colors.primary },
+                          { color: item.isUnityUser === false ? colors.text : colors.primary },
                         ]}
                       >
-                        Chat
+                        {item.isUnityUser === false ? "Invite" : "Chat"}
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -3551,6 +4286,53 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
   },
+  postImageGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    rowGap: 4,
+    borderRadius: 12,
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+  gridImageWrapper: {
+    overflow: "hidden",
+  },
+  gridItemSingle: {
+    width: "100%",
+    height: 250,
+  },
+  gridItemHalf: {
+    width: "49.5%",
+    height: 250,
+  },
+  gridItemFullTop: {
+    width: "100%",
+    height: 200,
+  },
+  gridItemHalfBottom: {
+    width: "49.5%",
+    height: 150,
+  },
+  gridItemQuarter: {
+    width: "49.5%",
+    height: 125,
+  },
+  gridImage: {
+    width: "100%",
+    height: "100%",
+  },
+  gridOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  gridOverlayText: {
+    color: "#fff",
+    fontSize: 24,
+    fontWeight: "bold",
+  },
   postStatsRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -3608,6 +4390,11 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     justifyContent: "center",
+    alignItems: "center",
+  },
+  convBodyPress: {
+    flex: 1,
+    flexDirection: "row",
     alignItems: "center",
   },
   convDetails: {
@@ -3704,6 +4491,17 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 10,
     fontWeight: "800",
+  },
+  onlineBadge: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#10B981",
+    borderWidth: 2,
+    zIndex: 2,
   },
   onboardingOverlay: {
     position: "absolute",
@@ -4232,14 +5030,34 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   createPostModalContent: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    width: "100%",
+    height: "96%",
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     borderWidth: 1,
     borderBottomWidth: 0,
     paddingTop: 16,
     paddingHorizontal: 20,
-    paddingBottom: 40,
-    height: "85%",
+  },
+  postMediaActionRow: {
+    flexDirection: "row",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  pickPhotoBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderStyle: "dashed",
+  },
+  pickPhotoBtnText: {
+    fontSize: 16,
+    fontWeight: "700",
+    marginLeft: 8,
   },
   createPostHeader: {
     flexDirection: "row",
@@ -4273,10 +5091,17 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 14,
   },
+  createPostBody: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  createPostBodyContent: {
+    paddingBottom: 4,
+  },
   createPostUserRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 12,
   },
   createPostUserAvatar: {
     width: 44,
@@ -4308,20 +5133,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   createPostInput: {
-    flex: 1,
     fontSize: 16,
     lineHeight: 22,
     textAlignVertical: "top",
-    minHeight: 120,
+    minHeight: 104,
+    maxHeight: 156,
     paddingVertical: 8,
   },
   createPostImgPreviewContainer: {
     position: "relative",
     width: "100%",
-    height: 180,
+    height: 132,
     borderRadius: 12,
     overflow: "hidden",
-    marginVertical: 12,
+    marginVertical: 10,
   },
   createPostImgPreview: {
     width: "100%",
@@ -4343,17 +5168,36 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 20,
   },
+  attachHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginTop: 10,
+    marginBottom: 8,
+  },
   attachLabel: {
+    flexShrink: 1,
     fontSize: 12,
     fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 1,
-    marginTop: 16,
-    marginBottom: 8,
+  },
+  choosePhotoBtn: {
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  choosePhotoText: {
+    fontSize: 12,
+    fontWeight: "700",
   },
   presetImagesScroll: {
     flexDirection: "row",
-    marginBottom: 20,
+    maxHeight: 78,
   },
   presetImgBtn: {
     width: 72,

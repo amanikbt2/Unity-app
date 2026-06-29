@@ -1,11 +1,20 @@
 import React, { createContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearAllAppData } from '../services/StorageService';
 
 export const AppContext = createContext();
 
 const DEFAULT_USER = {
+  uid: 'UID-000000',
   name: 'Amani User',
   avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80',
+  avatarSlots: [
+    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80',
+    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80',
+    'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=150&h=150&q=80',
+    'https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=150&h=150&q=80',
+  ],
+  activeAvatarSlot: 0,
   nativeLang: 'en',
   secondaryLangs: ['es', 'ja'],
   micDevice: 'default',
@@ -16,7 +25,9 @@ const DEFAULT_USER = {
   prefShowTranscripts: false,
   micTested: false,
   isRealUser: false,
-  email: ''
+  email: '',
+  phone: '',
+  unityAILang: 'es'
 };
 
 const LANGS = {
@@ -65,6 +76,8 @@ const FLAG_MAP = {
   '🇮🇱': { name: 'Hebrew', country: 'Israel' }
 };
 
+const generateUid = () => 'UID-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+
 export const AppProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(DEFAULT_USER);
   const [savedAccounts, setSavedAccounts] = useState([]);
@@ -96,7 +109,7 @@ export const AppProvider = ({ children }) => {
 
   const updateSettings = async (newSettings) => {
     try {
-      const updated = { ...DEFAULT_USER, ...currentUser, ...newSettings };
+      const updated = { ...DEFAULT_USER, ...currentUser, ...newSettings, uid: currentUser.uid || DEFAULT_USER.uid || generateUid() };
       setCurrentUser(updated);
       await AsyncStorage.setItem('amani_profile_settings', JSON.stringify(updated));
       
@@ -118,7 +131,7 @@ export const AppProvider = ({ children }) => {
     try {
       // Keep the user in savedAccounts (already handled during updateSettings)
       // Just clear the current active session
-      setCurrentUser(DEFAULT_USER);
+      setCurrentUser({ ...DEFAULT_USER, uid: DEFAULT_USER.uid });
       await AsyncStorage.setItem('amani_profile_settings', JSON.stringify(DEFAULT_USER));
     } catch (e) {
       console.error('Error logging out user', e);
@@ -127,7 +140,7 @@ export const AppProvider = ({ children }) => {
 
   const loginAsSavedProfile = async (profile) => {
     try {
-      const mergedProfile = { ...DEFAULT_USER, ...profile };
+      const mergedProfile = { ...DEFAULT_USER, ...profile, uid: profile.uid || profile.id || profile.email || generateUid() };
       setCurrentUser(mergedProfile);
       await AsyncStorage.setItem('amani_profile_settings', JSON.stringify(mergedProfile));
       
@@ -140,6 +153,18 @@ export const AppProvider = ({ children }) => {
       });
     } catch (e) {
       console.error('Error fast-logging in', e);
+    }
+  };
+
+  const deleteAccountAndResetApp = async () => {
+    try {
+      await clearAllAppData();
+    } catch (e) {
+      console.error('Error clearing app data', e);
+    } finally {
+      setCurrentUser({ ...DEFAULT_USER, uid: DEFAULT_USER.uid });
+      setSavedAccounts([]);
+      setLoading(false);
     }
   };
 
@@ -158,6 +183,7 @@ export const AppProvider = ({ children }) => {
         updateSettings,
         logoutUser,
         loginAsSavedProfile,
+        deleteAccountAndResetApp,
         savedAccounts,
         getLangDetails,
         getLangDetailsFromFlag,
@@ -170,3 +196,9 @@ export const AppProvider = ({ children }) => {
     </AppContext.Provider>
   );
 };
+
+
+
+
+
+

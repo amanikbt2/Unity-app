@@ -32,8 +32,9 @@ import {
 } from "expo-audio";
 import * as Speech from "expo-speech";
 import * as FileSystem from "expo-file-system/legacy";
-import { translateText, translateVoice } from "../services/TranslationService";
+import { translateText, translateVoice, chatWithAI } from "../services/TranslationService";
 import { AppContext } from "../context/AppContext";
+import UserProfilePopup from "../components/UserProfilePopup";
 import { saveChat, getChats } from "../services/DatabaseService";
 
 const { width } = Dimensions.get("window");
@@ -102,9 +103,8 @@ const COMPRESSED_AUDIO_OPTIONS = {
   isMeteringEnabled: true,
 };
 
-
 export default function ConversationScreen({ route, navigation }) {
-  const { partnerName, partnerAvatar, partnerFlag, partnerId } =
+  const { partnerName, partnerAvatar, partnerFlag, partnerId, partnerStatus } =
     route.params || {
       partnerName: "Unity Translation AI",
       partnerAvatar:
@@ -112,6 +112,12 @@ export default function ConversationScreen({ route, navigation }) {
       partnerFlag: "🌍",
       partnerId: "Unity Translation AI",
     };
+
+  const isOnline = partnerId === "unity_ai" 
+    ? true
+    : partnerStatus 
+      ? /online|available|ready to chat|connected|active/.test(partnerStatus.trim().toLowerCase()) 
+      : false;
 
   const { currentUser, getLangDetails, getLangDetailsFromFlag, LANGS } =
     useContext(AppContext);
@@ -124,6 +130,8 @@ export default function ConversationScreen({ route, navigation }) {
     "Waiting for speech...",
   );
   const [subtitleUser, setSubtitleUser] = useState("Hold mic to start talking");
+  const [profilePopupVisible, setProfilePopupVisible] = useState(false);
+  const [profilePopupData, setProfilePopupData] = useState(null);
 
   // Shared Animation Values for the Orb
   const orbScale = useSharedValue(1);
@@ -163,6 +171,11 @@ export default function ConversationScreen({ route, navigation }) {
       }
     }
     return "en";
+  };
+
+  const openProfilePopup = (profile) => {
+    setProfilePopupData(profile);
+    setProfilePopupVisible(true);
   };
 
   const chatScrollViewRef = useRef();
@@ -486,7 +499,9 @@ export default function ConversationScreen({ route, navigation }) {
 
   const handleVoiceMessage = async (audioUri) => {
     const partnerLang = getLangCodeFromFlag(partnerFlag);
-    const partnerLangName = getLangDetails(partnerLang).name;
+    const partnerLangName = partnerId === "unity_ai" 
+      ? getLangDetails(currentUser.unityAILang)?.name || "AI"
+      : getLangDetails(partnerLang).name;
     const userLangName = getLangDetails(currentUser.nativeLang).name;
 
     try {
@@ -506,7 +521,7 @@ export default function ConversationScreen({ route, navigation }) {
         text: transcription,
         origLang: `${userLangName} (Original)`,
         transText: translation,
-        transLang: `${partnerLangName} (Translated)`,
+        transLang: `${partnerLangName} ${partnerId === "unity_ai" ? "(AI)" : "(Translated)"}`,
       };
       setChatBubbles((prev) => [...prev, userMsg]);
 
@@ -530,15 +545,22 @@ export default function ConversationScreen({ route, navigation }) {
         (err) => console.warn("Failed to delete transient audio file:", err),
       );
 
-      // Simulate the partner responding back after 3.5 seconds
+      // Simulate partner responding with voice (or AI)
       setTimeout(async () => {
         try {
-          let partnerResponseBase =
-            "I understood you clearly! That worked perfectly.";
-          const partnerSpokenText = await translateText(
-            partnerResponseBase,
-            partnerLang,
-          );
+          let partnerResponseBase = "I heard your voice message! Loud and clear.";
+          let partnerSpokenText = "";
+
+          if (partnerId === "unity_ai") {
+            const aiReply = await chatWithAI(translation, [], currentUser.unityAILang || "en");
+            partnerSpokenText = aiReply;
+            partnerResponseBase = await translateText(aiReply, currentUser.nativeLang);
+          } else {
+            partnerSpokenText = await translateText(
+              partnerResponseBase,
+              partnerLang,
+            );
+          }
 
           const partnerMsgId = "msg_" + (Date.now() + 1);
           const partnerMsg = {
@@ -596,7 +618,9 @@ export default function ConversationScreen({ route, navigation }) {
     setSubtitleReceived("Translating...");
 
     const partnerLang = getLangCodeFromFlag(partnerFlag);
-    const partnerLangName = getLangDetails(partnerLang).name;
+    const partnerLangName = partnerId === "unity_ai" 
+      ? getLangDetails(currentUser.unityAILang)?.name || "AI"
+      : getLangDetails(partnerLang).name;
     const userLangName = getLangDetails(currentUser.nativeLang).name;
 
     // Create temporary bubble while translating
@@ -604,11 +628,11 @@ export default function ConversationScreen({ route, navigation }) {
     const userMsg = {
       id: userMsgId,
       sender: "user",
-      avatar: "🇺🇸",
+      avatar: "🇺🇸", // or get user flag from context
       text: text,
       origLang: `${userLangName} (Original)`,
       transText: "...",
-      transLang: `${partnerLangName} (Translated)`,
+      transLang: `${partnerLangName} ${partnerId === "unity_ai" ? "(AI)" : "(Translated)"}`,
     };
     setChatBubbles((prev) => [...prev, userMsg]);
 
@@ -639,10 +663,18 @@ export default function ConversationScreen({ route, navigation }) {
       setTimeout(async () => {
         try {
           let partnerResponseBase = "Got your text! Thanks for checking in.";
-          const partnerSpokenText = await translateText(
-            partnerResponseBase,
-            partnerLang,
-          );
+          let partnerSpokenText = "";
+
+          if (partnerId === "unity_ai") {
+            const aiReply = await chatWithAI(translation, [], currentUser.unityAILang || "en");
+            partnerSpokenText = aiReply;
+            partnerResponseBase = await translateText(aiReply, currentUser.nativeLang);
+          } else {
+            partnerSpokenText = await translateText(
+              partnerResponseBase,
+              partnerLang,
+            );
+          }
 
           const partnerMsgId = "msg_" + (Date.now() + 1);
           const partnerMsg = {
@@ -708,14 +740,38 @@ export default function ConversationScreen({ route, navigation }) {
           isUser ? styles.bubbleUserWrapper : styles.bubblePartnerWrapper,
         ]}
       >
-        <View
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() =>
+            openProfilePopup(
+              isUser
+                ? {
+                    name: currentUser.name,
+                    avatar: currentUser.avatar,
+                    nativeLang: currentUser.nativeLang,
+                    uid: currentUser.uid,
+                  }
+                : {
+                    name: partnerName,
+                    avatar: partnerAvatar,
+                    flag: bubble.avatar || partnerFlag,
+                    langName: getLangDetailsFromFlag(
+                      bubble.avatar || partnerFlag,
+                    ).name,
+                    country: getLangDetailsFromFlag(
+                      bubble.avatar || partnerFlag,
+                    ).country,
+                    uid: partnerId,
+                  },
+            )
+          }
           style={[
             styles.bubbleAvatarWrapper,
             { backgroundColor: colors.border },
           ]}
         >
           {renderFlagOrEmoji(flagEmoji)}
-        </View>
+        </TouchableOpacity>
 
         <View
           style={[
@@ -870,9 +926,38 @@ export default function ConversationScreen({ route, navigation }) {
             </Text>
           </View>
 
-          <Image source={{ uri: partnerAvatar }} style={styles.headerAvatar} />
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() =>
+              openProfilePopup({
+                name: partnerName,
+                avatar: partnerAvatar,
+                flag: partnerFlag,
+                langName: getLangDetailsFromFlag(partnerFlag).name,
+                country: getLangDetailsFromFlag(partnerFlag).country,
+                uid: partnerId,
+              })
+            }
+          >
+            <View style={styles.headerAvatarContainer}>
+              <Image
+                source={{ uri: partnerAvatar }}
+                style={styles.headerAvatar}
+              />
+              {isOnline && <View style={styles.onlineBadge} />}
+            </View>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
+
+      <UserProfilePopup
+        visible={profilePopupVisible}
+        profile={profilePopupData}
+        onClose={() => setProfilePopupVisible(false)}
+        colors={colors}
+        getLangDetails={getLangDetails}
+        getLangDetailsFromFlag={getLangDetailsFromFlag}
+      />
 
       {/* Dynamic toggle visibility view selection */}
       {!isKeyboardMode && !currentUser.prefShowTranscripts ? (
@@ -886,14 +971,14 @@ export default function ConversationScreen({ route, navigation }) {
             ]}
           >
             <Text
-              style={[styles.subtitleLineReceived, { color: colors.primary }]}
+              style={[styles.subtitleLineReceived, { color: !isOnline ? colors.danger : colors.primary }]}
             >
-              {subtitleReceived}
+              {!isOnline ? "The user is currently offline" : subtitleReceived}
             </Text>
             <Text
               style={[styles.subtitleLineUser, { color: colors.textDimmed }]}
             >
-              {subtitleUser}
+              {!isOnline ? "Voice calling is disabled" : subtitleUser}
             </Text>
           </View>
 
@@ -964,7 +1049,7 @@ export default function ConversationScreen({ route, navigation }) {
                 },
               ]}
             >
-              English ⇄ Spanish translation active
+              {getLangDetails(currentUser.nativeLang)?.name || "English"} ⇄ {partnerId === "unity_ai" ? getLangDetails(currentUser.unityAILang)?.name || "AI" : getLangDetails(getLangCodeFromFlag(partnerFlag))?.name || "Spanish"} translation active
             </Text>
           </View>
 
@@ -1029,15 +1114,18 @@ export default function ConversationScreen({ route, navigation }) {
               <TouchableOpacity
                 style={[
                   styles.controlCircle,
-                  isRecording
+                  !isOnline
+                    ? { backgroundColor: colors.border }
+                    : isRecording
                     ? { backgroundColor: colors.danger }
                     : {
                         backgroundColor: colors.primary,
                       },
                 ]}
-                onPressIn={startRecording}
-                onPressOut={stopRecording}
+                onPressIn={isOnline ? startRecording : undefined}
+                onPressOut={isOnline ? stopRecording : undefined}
                 activeOpacity={0.7}
+                disabled={!isOnline}
               >
                 <Svg
                   width="24"
@@ -1055,7 +1143,10 @@ export default function ConversationScreen({ route, navigation }) {
               <Text
                 style={[styles.micStatusLabel, { color: colors.textMuted }]}
               >
-                {isRecording ? "Recording..." : "Hold mic to speak"}
+                {isOnline 
+                  ? (isRecording ? "Recording..." : "Hold mic to speak")
+                  : "The user is currently offline"
+                }
               </Text>
             </View>
           )}
@@ -1135,12 +1226,26 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
+  headerAvatarContainer: {
+    position: "relative",
+  },
   headerAvatar: {
     width: 36,
     height: 36,
     borderRadius: 18,
     borderWidth: 1.5,
     borderColor: "rgba(0,0,0,0.05)",
+  },
+  onlineBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#10B981",
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
   },
   voiceOverlay: {
     flex: 1,

@@ -1,6 +1,15 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const BASE_URL = "https://unity-3xc2.onrender.com";
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+
+async function readErrorMessage(response) {
+  try {
+    const data = await response.json();
+    return data.details || data.error || `Server returned HTTP ${response.status}`;
+  } catch {
+    return `Server returned HTTP ${response.status}`;
+  }
+}
 
 /**
  * Translates a text message using the secure server translation gateway.
@@ -8,11 +17,10 @@ const BASE_URL = "https://unity-3xc2.onrender.com";
  */
 export async function translateText(text, targetLang) {
   if (!text || !text.trim()) return "";
-  
+
   const cacheKey = `trans_cache_${targetLang}_${text.trim().toLowerCase()}`;
-  
+
   try {
-    // Check local cache first
     const cached = await AsyncStorage.getItem(cacheKey);
     if (cached) {
       console.log("[Translation Cache] Hit for:", text);
@@ -35,23 +43,22 @@ export async function translateText(text, targetLang) {
     });
 
     if (!response.ok) {
-      throw new Error(`Server returned HTTP ${response.status}`);
+      throw new Error(await readErrorMessage(response));
     }
 
     const data = await response.json();
     const result = data.translatedText || "";
-    
+
     if (result) {
-      // Save to cache asynchronously
       AsyncStorage.setItem(cacheKey, result).catch((err) =>
-        console.warn("Cache write error:", err)
+        console.warn("Cache write error:", err),
       );
     }
 
     return result;
   } catch (error) {
     console.error("Text translation service error:", error);
-    return `[Translation Failed] ${text}`;
+    return `[Translation Failed: ${error.message}] ${text}`;
   }
 }
 
@@ -63,8 +70,7 @@ export async function translateVoice(audioUri, targetLang) {
 
   try {
     const formData = new FormData();
-    
-    // In React Native, local file URIs are attached using a custom object format
+
     formData.append("audio", {
       uri: audioUri,
       name: "recording.m4a",
@@ -76,13 +82,12 @@ export async function translateVoice(audioUri, targetLang) {
       method: "POST",
       body: formData,
       headers: {
-        "Accept": "application/json",
-        // Note: Do NOT manually set Content-Type for FormData; the fetch client will set it with the boundary.
+        Accept: "application/json",
       },
     });
 
     if (!response.ok) {
-      throw new Error(`Server returned HTTP ${response.status}`);
+      throw new Error(await readErrorMessage(response));
     }
 
     const data = await response.json();
@@ -93,5 +98,36 @@ export async function translateVoice(audioUri, targetLang) {
   } catch (error) {
     console.error("Voice translation service error:", error);
     throw error;
+  }
+}
+
+/**
+ * Sends a message to the Unity AI companion.
+ */
+export async function chatWithAI(message, history, language) {
+  if (!message || !message.trim()) return "";
+
+  try {
+    const response = await fetch(`${BASE_URL}/api/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message,
+        history: history || [],
+        language: language || "en",
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+
+    const data = await response.json();
+    return data.reply || "";
+  } catch (error) {
+    console.error("AI chat service error:", error);
+    return `[AI Error: ${error.message}]`;
   }
 }
