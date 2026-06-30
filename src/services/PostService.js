@@ -1,4 +1,9 @@
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+import { Platform } from 'react-native';
+import { getPendingPosts, deletePendingPost } from './DatabaseService';
+import * as Notifications from 'expo-notifications';
+import { scheduleLocalNotification } from './NotificationService';
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
 function getFileNameFromUri(uri) {
   if (!uri || typeof uri !== 'string') return 'upload.jpg';
@@ -67,7 +72,15 @@ export async function createPost({
 
   if (imageUris && Array.isArray(imageUris)) {
     for (const uri of imageUris) {
-      if (uri.startsWith('file://')) {
+      if (Platform.OS === 'web') {
+        try {
+          const res = await fetch(uri);
+          const blob = await res.blob();
+          formData.append('images', blob, getFileNameFromUri(uri));
+        } catch (e) {
+          console.error("Failed to append web image blob", e);
+        }
+      } else if (uri.startsWith('file://')) {
         formData.append('images', {
           uri: uri,
           name: getFileNameFromUri(uri),
@@ -106,4 +119,24 @@ export async function deletePost(postId, userKey) {
     method: 'DELETE',
     body: JSON.stringify({ userKey }),
   });
+}
+
+export async function syncPendingPosts() {
+  const pending = await getPendingPosts();
+  if (pending.length === 0) return;
+
+  for (const item of pending) {
+    try {
+      await createPost(item.payload);
+      await deletePendingPost(item.id);
+      
+      scheduleLocalNotification(
+        "Upload Complete",
+        "Your post was successfully uploaded.",
+        { seconds: 1 }
+      );
+    } catch (e) {
+      console.error("Failed to sync pending post", item.id, e);
+    }
+  }
 }

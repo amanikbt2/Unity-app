@@ -1,18 +1,19 @@
 import React, { createContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clearAllAppData } from '../services/StorageService';
+import { Image } from 'react-native';
 
 export const AppContext = createContext();
 
 const DEFAULT_USER = {
   uid: 'UID-000000',
   name: 'Amani User',
-  avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80',
+  avatar: (Image.resolveAssetSource && Image.resolveAssetSource(require('../../assets/slot1.jpg'))?.uri) || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80',
   avatarSlots: [
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80',
-    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80',
-    'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=150&h=150&q=80',
-    'https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=150&h=150&q=80',
+    (Image.resolveAssetSource && Image.resolveAssetSource(require('../../assets/slot1.jpg'))?.uri) || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80',
+    (Image.resolveAssetSource && Image.resolveAssetSource(require('../../assets/slot2.jpg'))?.uri) || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80',
+    (Image.resolveAssetSource && Image.resolveAssetSource(require('../../assets/slot3.jpg'))?.uri) || 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=150&h=150&q=80',
+    (Image.resolveAssetSource && Image.resolveAssetSource(require('../../assets/slot4.jpg'))?.uri) || 'https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=150&h=150&q=80',
   ],
   activeAvatarSlot: 0,
   nativeLang: 'en',
@@ -104,6 +105,29 @@ export const AppProvider = ({ children }) => {
     const timer = setTimeout(() => {
       loadSettings();
     }, 0);
+
+    const initNotifications = async () => {
+      try {
+        const { registerForPushNotificationsAsync } = require('../services/NotificationService');
+        const token = await registerForPushNotificationsAsync();
+        if (token) {
+          updateSettings({ expoPushToken: token });
+          try {
+            await fetch('http://localhost:3000/api/register-push', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userKey: 'UID-000000', token }) // Or use currentUser.uid if available inside the scope
+            });
+          } catch (err) {
+            console.error('Failed to register token with backend', err);
+          }
+        }
+      } catch (e) {
+        console.error('Push notification setup error:', e);
+      }
+    };
+    initNotifications();
+
     return () => clearTimeout(timer);
   }, []);
 

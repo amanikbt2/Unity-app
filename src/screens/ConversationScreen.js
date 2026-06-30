@@ -31,11 +31,15 @@ import {
   IOSOutputFormat,
 } from "expo-audio";
 import * as Speech from "expo-speech";
-import * as FileSystem from "expo-file-system/legacy";
+import * as FileSystem from "expo-file-system";
+import { trackEvent } from "../utils/Analytics";
 import { translateText, translateVoice, chatWithAI } from "../services/TranslationService";
 import { AppContext } from "../context/AppContext";
+import * as Notifications from 'expo-notifications';
+import { scheduleLocalNotification } from '../services/NotificationService';
 import UserProfilePopup from "../components/UserProfilePopup";
-import { saveChat, getChats } from "../services/DatabaseService";
+import { saveChat, getChats, clearContactUnread, updateContactLastMessageTime } from "../services/DatabaseService";
+import { messageQueue } from "../services/MessageQueue";
 
 const { width } = Dimensions.get("window");
 
@@ -321,6 +325,7 @@ export default function ConversationScreen({ route, navigation }) {
   useEffect(() => {
     async function loadChatHistory() {
       try {
+        await clearContactUnread(partnerId);
         const dbChats = await getChats(partnerId);
         if (dbChats && dbChats.length > 0) {
           const formatted = dbChats.map((item) => ({
@@ -360,7 +365,7 @@ export default function ConversationScreen({ route, navigation }) {
               "Hello, welcome! Speak or type, and I will translate for you in real-time.",
             sender: "partner",
             orig_lang: `${partnerLangName} (Original)`,
-            trans_lang: `${userLangName} (Translated)`,
+            transLang: `${userLangName} (Translated)`,
             timestamp: Date.now(),
           };
 
@@ -374,7 +379,7 @@ export default function ConversationScreen({ route, navigation }) {
               text: firstMsg.text,
               origLang: firstMsg.orig_lang,
               transText: firstMsg.trans_text,
-              transLang: firstMsg.trans_lang,
+              transLang: firstMsg.transLang,
             },
           ]);
           setSubtitleReceived(welcomeText);
@@ -383,7 +388,38 @@ export default function ConversationScreen({ route, navigation }) {
         console.error("Error loading chat history:", e);
       }
     }
+    
     loadChatHistory();
+
+    // Subscribe to new messages from MessageQueue
+    const unsubscribe = messageQueue.subscribe((event) => {
+      if (event.isUserUpdate && event.userMsgId) {
+        setChatBubbles((prev) =>
+          prev.map((msg) =>
+            msg.id === event.userMsgId
+              ? { ...msg, transText: event.transText }
+              : msg
+          )
+        );
+      } else if (event.success && event.partnerMsgId) {
+        setChatBubbles((prev) =>
+          prev.map((msg) =>
+            msg.id === event.partnerMsgId
+              ? { 
+                  ...msg, 
+                  transText: event.replyText, 
+                  text: event.partnerSpokenText 
+                }
+              : msg
+          )
+        );
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      clearContactUnread(partnerId);
+    };
   }, [partnerId]);
 
   // Scroll to bottom helper
@@ -498,6 +534,7 @@ export default function ConversationScreen({ route, navigation }) {
   };
 
   const handleVoiceMessage = async (audioUri) => {
+    trackEvent("sent_voice_message", currentUser, { partnerId });
     const partnerLang = getLangCodeFromFlag(partnerFlag);
     const partnerLangName = partnerId === "unity_ai" 
       ? getLangDetails(currentUser.unityAILang)?.name || "AI"
@@ -536,6 +573,7 @@ export default function ConversationScreen({ route, navigation }) {
         trans_lang: `${partnerLangName} (Translated)`,
         timestamp: Date.now(),
       });
+      await updateContactLastMessageTime(partnerId, Date.now());
 
       // Speak translation out loud (simulating playing on partner's end)
       Speech.speak(translation, { language: partnerLang });
@@ -545,12 +583,25 @@ export default function ConversationScreen({ route, navigation }) {
         (err) => console.warn("Failed to delete transient audio file:", err),
       );
 
+      // Add temporary typing bubble instantly
+      const partnerMsgId = "msg_" + (Date.now() + 1);
+      const tempPartnerMsg = {
+        id: partnerMsgId,
+        sender: "partner",
+        avatar: partnerFlag,
+        text: "...",
+        origLang: `${partnerLangName} (Original)`,
+        transText: "...",
+        transLang: `${userLangName} (Translated)`,
+      };
+      setChatBubbles((prev) => [...prev, tempPartnerMsg]);
+
       // Simulate partner responding with voice (or AI)
       setTimeout(async () => {
         try {
           let partnerResponseBase = "I heard your voice message! Loud and clear.";
           let partnerSpokenText = "";
-
+          
           if (partnerId === "unity_ai") {
             const aiReply = await chatWithAI(translation, [], currentUser.unityAILang || "en");
             partnerSpokenText = aiReply;
@@ -562,20 +613,18 @@ export default function ConversationScreen({ route, navigation }) {
             );
           }
 
-          const partnerMsgId = "msg_" + (Date.now() + 1);
           const partnerMsg = {
-            id: partnerMsgId,
-            sender: "partner",
-            avatar: partnerFlag,
+            ...tempPartnerMsg,
             text: partnerSpokenText,
-            origLang: `${partnerLangName} (Original)`,
             transText: partnerResponseBase,
-            transLang: `${userLangName} (Translated)`,
           };
 
-          setSubtitleReceived(partnerSpokenText);
-          setSubtitleUser(partnerResponseBase);
-          setChatBubbles((prev) => [...prev, partnerMsg]);
+          setSubtitleReceived(partnerResponseBase);
+          setChatBubbles((prev) =>
+            prev.map((msg) =>
+              msg.id === partnerMsgId ? partnerMsg : msg,
+            ),
+          );
 
           // Save partner response to SQLite
           await saveChat({
@@ -588,13 +637,22 @@ export default function ConversationScreen({ route, navigation }) {
             trans_lang: `${userLangName} (Translated)`,
             timestamp: Date.now(),
           });
+          await updateContactLastMessageTime(partnerId, Date.now());
 
           // Speak partner's translated response to the user in their language
           Speech.speak(partnerResponseBase, {
             language: currentUser.nativeLang,
           });
+          
+          // Schedule 2-minute reminder for user to reply
+          scheduleLocalNotification(
+            "Waiting for Reply",
+            `${partnerName} is waiting for your reply, maybe you forgot?`,
+            { seconds: 120 }
+          );
+
         } catch (err) {
-          console.error("Failed to simulate partner response:", err);
+          console.error("Failed to translate simulated partner voice response:", err);
         }
       }, 3500);
     } catch (error) {
@@ -611,6 +669,12 @@ export default function ConversationScreen({ route, navigation }) {
 
   const handleSendText = async () => {
     if (!inputText.trim()) return;
+    trackEvent("sent_text_message", currentUser, { partnerId });
+
+    // Clear any pending 2-minute reminders when user replies
+    if (Platform.OS !== "web") {
+      Notifications.cancelAllScheduledNotificationsAsync().catch(() => {});
+    }
 
     const text = inputText.trim();
     setInputText("");
@@ -623,92 +687,67 @@ export default function ConversationScreen({ route, navigation }) {
       : getLangDetails(partnerLang).name;
     const userLangName = getLangDetails(currentUser.nativeLang).name;
 
-    // Create temporary bubble while translating
-    const userMsgId = "msg_" + Date.now();
-    const userMsg = {
-      id: userMsgId,
-      sender: "user",
-      avatar: "🇺🇸", // or get user flag from context
-      text: text,
-      origLang: `${userLangName} (Original)`,
-      transText: "...",
-      transLang: `${partnerLangName} ${partnerId === "unity_ai" ? "(AI)" : "(Translated)"}`,
-    };
-    setChatBubbles((prev) => [...prev, userMsg]);
-
     try {
-      const translation = await translateText(text, partnerLang);
-
-      // Update message with actual translation
-      setChatBubbles((prev) =>
-        prev.map((msg) =>
-          msg.id === userMsgId ? { ...msg, transText: translation } : msg,
-        ),
-      );
-      setSubtitleReceived(translation);
-
-      // Save user message to SQLite
+      // Create user message with pending translation
+      const userMsgId = "msg_" + Date.now();
+      const userMsg = {
+        id: userMsgId,
+        sender: "user",
+        avatar: "🇺🇸", // or get user flag from context
+        text: text,
+        origLang: `${userLangName} (Original)`,
+        transText: "...",
+        transLang: `${partnerLangName} ${partnerId === "unity_ai" ? "(AI)" : "(Translated)"}`,
+      };
+      setChatBubbles((prev) => [...prev, userMsg]);
+      
       await saveChat({
         id: userMsgId,
         partner_id: partnerId,
         text: text,
-        trans_text: translation,
+        trans_text: "...",
         sender: "user",
         orig_lang: `${userLangName} (Original)`,
         trans_lang: `${partnerLangName} (Translated)`,
         timestamp: Date.now(),
       });
+      await updateContactLastMessageTime(partnerId, Date.now());
 
-      // Simulate partner responding with text
-      setTimeout(async () => {
-        try {
-          let partnerResponseBase = "Got your text! Thanks for checking in.";
-          let partnerSpokenText = "";
+      // Create a temporary partner typing bubble
+      const partnerMsgId = "msg_" + (Date.now() + 1);
+      const tempPartnerMsg = {
+        id: partnerMsgId,
+        sender: "partner",
+        avatar: partnerFlag,
+        text: "...",
+        origLang: `${partnerLangName} (Original)`,
+        transText: "...",
+        transLang: `${userLangName} (Translated)`,
+      };
+      setChatBubbles((prev) => [...prev, tempPartnerMsg]);
 
-          if (partnerId === "unity_ai") {
-            const aiReply = await chatWithAI(translation, [], currentUser.unityAILang || "en");
-            partnerSpokenText = aiReply;
-            partnerResponseBase = await translateText(aiReply, currentUser.nativeLang);
-          } else {
-            partnerSpokenText = await translateText(
-              partnerResponseBase,
-              partnerLang,
-            );
-          }
-
-          const partnerMsgId = "msg_" + (Date.now() + 1);
-          const partnerMsg = {
-            id: partnerMsgId,
-            sender: "partner",
-            avatar: partnerFlag,
-            text: partnerSpokenText,
-            origLang: `${partnerLangName} (Original)`,
-            transText: partnerResponseBase,
-            transLang: `${userLangName} (Translated)`,
-          };
-
-          setSubtitleReceived(partnerSpokenText);
-          setSubtitleUser(partnerResponseBase);
-          setChatBubbles((prev) => [...prev, partnerMsg]);
-
-          // Save partner reply to SQLite
-          await saveChat({
-            id: partnerMsgId,
-            partner_id: partnerId,
-            text: partnerSpokenText,
-            trans_text: partnerResponseBase,
-            sender: "partner",
-            orig_lang: `${partnerLangName} (Original)`,
-            trans_lang: `${userLangName} (Translated)`,
-            timestamp: Date.now(),
-          });
-        } catch (err) {
-          console.error("Failed to translate simulated partner reply:", err);
+      // Enqueue job to get real AI response or translation in background
+      await messageQueue.enqueue({
+        id: "job_" + Date.now(),
+        type: partnerId === "unity_ai" ? "ai" : "translate",
+        partnerId,
+        partnerMsgId,
+        userMsgId,
+        partnerName: partnerId === "unity_ai" ? "Unity AI" : partnerLangName,
+        partnerLangName,
+        userLangName,
+        payload: {
+          text: text,
+          partnerLang,
+          userLang: currentUser.nativeLang,
+          targetLang: currentUser.unityAILang || "en", // For AI
+          history: [], // Omitted for brevity
         }
-      }, 2000);
+      });
+      
     } catch (error) {
-      console.error("Text translation error:", error);
-      setSubtitleReceived("Translation failed");
+      console.error("Text send error:", error);
+      setSubtitleUser("Text send failed");
     }
   };
 
@@ -816,14 +855,40 @@ export default function ConversationScreen({ route, navigation }) {
 
           {/* Messages body with middle divider line */}
           <View style={styles.bubbleBody}>
-            <Text
-              style={[
-                styles.bubbleTextOriginal,
-                isUser ? styles.whiteText : { color: colors.text },
-              ]}
-            >
-              {bubble.text}
-            </Text>
+            {/* Top Text */}
+            {(!isUser && bubble.transText === "...") ? (
+              <RNAnimated.View
+                style={{
+                  opacity: shimmerAnim,
+                  height: 20,
+                  width: 140,
+                  borderRadius: 8,
+                  overflow: "hidden",
+                  marginBottom: 8,
+                }}
+              >
+                <LinearGradient
+                  colors={[
+                    "rgba(139, 92, 246, 0.1)",
+                    "rgba(139, 92, 246, 0.25)",
+                    "rgba(139, 92, 246, 0.1)",
+                  ]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={{ flex: 1 }}
+                />
+              </RNAnimated.View>
+            ) : (
+              <Text
+                style={[
+                  styles.bubbleTextOriginal,
+                  isUser ? styles.whiteText : { color: colors.text },
+                ]}
+              >
+                {isUser ? bubble.text : bubble.transText}
+              </Text>
+            )}
+
             <View
               style={[
                 styles.bubbleDivider,
@@ -834,7 +899,9 @@ export default function ConversationScreen({ route, navigation }) {
                 },
               ]}
             />
-            {bubble.transText === "..." ? (
+
+            {/* Bottom Text */}
+            {(isUser && bubble.transText === "...") ? (
               <RNAnimated.View
                 style={{
                   opacity: shimmerAnim,
@@ -847,15 +914,9 @@ export default function ConversationScreen({ route, navigation }) {
               >
                 <LinearGradient
                   colors={[
-                    isUser
-                      ? "rgba(255, 255, 255, 0.15)"
-                      : "rgba(139, 92, 246, 0.1)",
-                    isUser
-                      ? "rgba(255, 255, 255, 0.45)"
-                      : "rgba(139, 92, 246, 0.25)",
-                    isUser
-                      ? "rgba(255, 255, 255, 0.15)"
-                      : "rgba(139, 92, 246, 0.1)",
+                    "rgba(255, 255, 255, 0.15)",
+                    "rgba(255, 255, 255, 0.45)",
+                    "rgba(255, 255, 255, 0.15)",
                   ]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
@@ -869,7 +930,7 @@ export default function ConversationScreen({ route, navigation }) {
                   isUser ? { color: "#93C5FD" } : { color: colors.primary },
                 ]}
               >
-                {bubble.transText}
+                {isUser ? bubble.transText : bubble.text}
               </Text>
             )}
           </View>
@@ -1395,6 +1456,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   bubbleTextContainer: {
+    flexShrink: 1,
     borderRadius: 18,
     paddingHorizontal: 16,
     paddingVertical: 12,

@@ -18,6 +18,7 @@ import {
   Alert,
   Linking,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -31,11 +32,15 @@ import Svg, {
   Rect,
   Polyline,
 } from "react-native-svg";
+import { Ionicons, MaterialIcons, Feather } from "@expo/vector-icons";
+import { Picker } from "@react-native-picker/picker";
+import { trackEvent } from "../utils/Analytics";
 import * as Contacts from "expo-contacts";
 import * as ImagePicker from "expo-image-picker";
 import { AppContext } from "../context/AppContext";
 import { translateText } from "../services/TranslationService";
-import { createPost } from "../services/PostService";
+import { createPost, syncPendingPosts } from "../services/PostService";
+import { scheduleLocalNotification } from '../services/NotificationService';
 import {
   initDatabase,
   getContacts as getDbContacts,
@@ -46,6 +51,8 @@ import {
   saveExploreProfiles as saveDbExplore,
   hasUnsyncedContacts,
   getUnsyncedContactsCount,
+  savePendingPost,
+  incrementContactUnread,
 } from "../services/DatabaseService";
 import {
   initDirectories,
@@ -278,7 +285,7 @@ const getPostDisplayText = (post) =>
   (post?.description || post?.content || "").trim();
 
 export default function HomeScreen({ navigation }) {
-  const { currentUser, getLangDetails, getLangDetailsFromFlag } =
+  const { currentUser, getLangDetails, getLangDetailsFromFlag, LANGS } =
     useContext(AppContext);
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState("chats");
@@ -289,6 +296,9 @@ export default function HomeScreen({ navigation }) {
   const [imported, setImported] = useState(false);
   const [showImportSuccess, setShowImportSuccess] = useState(true);
   const [contactSearchText, setContactSearchText] = useState("");
+  const [exploreSearchText, setExploreSearchText] = useState("");
+  const [postSearchText, setPostSearchText] = useState("");
+  const [isPostSearchVisible, setIsPostSearchVisible] = useState(false);
   const [posts, setPosts] = useState(INITIAL_POSTS);
   const [exploreProfiles, setExploreProfiles] = useState(EXPLORE_PEOPLE);
   const [startConvModalVisible, setStartConvModalVisible] = useState(false);
@@ -572,7 +582,8 @@ export default function HomeScreen({ navigation }) {
         } else {
           // Prepopulate database with default contacts
           await saveDbContacts(INITIAL_CONTACTS);
-          setContacts(INITIAL_CONTACTS);
+          const initialWithTime = await getDbContacts();
+          setContacts(initialWithTime);
         }
 
         // 2. Load Posts
@@ -607,6 +618,22 @@ export default function HomeScreen({ navigation }) {
     }
     loadLocalData();
   }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      async function refreshContacts() {
+        try {
+          const latestContacts = await getDbContacts();
+          if (latestContacts && latestContacts.length > 0) {
+            setContacts(latestContacts);
+          }
+        } catch (e) {
+          console.error("Failed to refresh contacts on focus:", e);
+        }
+      }
+      refreshContacts();
+    }, [])
+  );
 
   // Define onboarding tasks
   const allTasks = [
@@ -702,22 +729,27 @@ export default function HomeScreen({ navigation }) {
   };
 
   const handleStartConv = () => {
+    trackEvent("opened_start_conversation", currentUser, {});
     setStartConvSearch("");
     setStartConvFilter("contacts");
     setStartConvModalVisible(true);
   };
 
-  const handlePartnerClick = (name, avatar, flag, id, status) => {
+  const handlePartnerClick = (name, avatar, flag, id, status, lang, langName) => {
+    trackEvent("started_chat", currentUser, { partnerName: name, partnerId: id });
     navigation.navigate("Conversation", {
       partnerName: name,
       partnerAvatar: avatar,
       partnerFlag: flag,
       partnerId: id || name,
       partnerStatus: status,
+      partnerLang: lang,
+      partnerLangName: langName,
     });
   };
 
   const handleOpenSettings = (target) => {
+    trackEvent("opened_settings", currentUser, { target });
     setOnboardingVisible(false);
     navigation.navigate("Profile", { scrollTo: target });
   };
@@ -755,9 +787,38 @@ export default function HomeScreen({ navigation }) {
     setProfilePopupVisible(true);
   };
 
+  const handlePostLike = async (postId) => {
+    try {
+      const userKey = currentUser?.name || currentUser?.id || "Anonymous";
+      
+      const response = await fetch(`${SERVER_URL}/api/posts/${postId}/like`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ userKey }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to toggle like");
+      }
+
+      const updatedPost = await response.json();
+      setPosts((currentPosts) =>
+        currentPosts.map((post) =>
+          post.id === postId ? updatedPost : post
+        )
+      );
+      trackEvent("liked_post", currentUser, { postId });
+    } catch (error) {
+      console.error("Error toggling like:", error);
+    }
+  };
+
   const handleImportContacts = async () => {
     if (isImporting) return;
     setIsImporting(true);
+    trackEvent("started_contact_import", currentUser, {});
     try {
       const { status } = await Contacts.requestPermissionsAsync();
       if (status !== "granted") {
@@ -813,7 +874,7 @@ export default function HomeScreen({ navigation }) {
         let unityUserMap = {};
         try {
           console.log("[Contacts] Checking backend for Unity accounts...");
-          const res = await fetch(`${API_URL}/api/check-contacts`, {
+          const res = await fetch(`${SERVER_URL}/api/check-contacts`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ phoneNumbers })
@@ -973,8 +1034,9 @@ export default function HomeScreen({ navigation }) {
 
       if (!result.canceled && result.assets?.length > 0) {
         const uris = result.assets.map(a => a.uri);
-        setNewPostImages(uris);
-        setNewPostMediaType(getPostMediaTypeFromAsset(result.assets[0].type, uris[0]));
+        setNewPostImages(prev => [...prev, ...uris]);
+        // Only set media type if it's the first image being added or was a gradient
+        setNewPostMediaType(prev => prev === "gradient" || prev === null ? getPostMediaTypeFromAsset(result.assets[0].type, uris[0]) : prev);
       }
     } catch (error) {
       console.error("Failed to pick post media", error);
@@ -989,7 +1051,7 @@ export default function HomeScreen({ navigation }) {
   };
 
   const handleCreatePost = async () => {
-    if (!newPostText.trim()) return;
+    if (!newPostText.trim() && newPostImages.length === 0) return;
 
     const userFlag = currentUser.nativeLang
       ? getLangDetails(currentUser.nativeLang).flag || "\u{1F30D}"
@@ -1000,39 +1062,61 @@ export default function HomeScreen({ navigation }) {
         : "Amani User";
     const postCopy = buildPostCopy(newPostText.trim());
 
-    try {
-      const createdPost = await createPost({
-        content: postCopy.content,
-        description: postCopy.description,
-        authorId: currentUser.email || authorName,
-        authorName,
-        authorAvatar:
-          currentUser.avatar ||
-          "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
-        authorFlag: userFlag,
-        authorNativeLang: currentUser.nativeLang || "",
-        imageUris: newPostImages,
-        mediaType: newPostMediaType,
-        backgroundKey: newPostBackgroundKey,
-      });
+    // Optimistically create the post object
+    const pendingPostId = "pending_" + Date.now();
+    const newPostPayload = {
+      id: pendingPostId,
+      content: postCopy.content,
+      description: postCopy.description,
+      authorId: currentUser.email || authorName,
+      authorName,
+      authorAvatar:
+        currentUser.avatar ||
+        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+      authorFlag: userFlag,
+      authorNativeLang: currentUser.nativeLang || "",
+      imageUris: newPostImages,
+      mediaType: newPostMediaType,
+      backgroundKey: newPostBackgroundKey,
+    };
 
-      setPosts((prev) => [normalizePost(createdPost), ...normalizePosts(prev)]);
-      setPostModalVisible(false);
-      setNewPostText("");
-      setNewPostImages([]);
-      setNewPostMediaType("gradient");
-      setNewPostBackgroundKey("aurora");
+    // Show optimistic UI immediately and close modal
+    const optimisticPost = {
+      ...newPostPayload,
+      isPending: true,
+      time: "Just now",
+      flag: userFlag,
+      likes: 0,
+      liked: false,
+      comments: [],
+    };
+    
+    setPosts((prev) => [optimisticPost, ...prev]);
+    setPostModalVisible(false);
+    setNewPostText("");
+    setNewPostImages([]);
+    setNewPostMediaType("gradient");
+    setNewPostBackgroundKey("aurora");
+    
+    // Notify user of background upload
+    scheduleLocalNotification("Uploading Post...", "Your post is being sent to the server.", { seconds: 1 });
+
+    try {
+      // Save to local offline queue
+      await savePendingPost(pendingPostId, newPostPayload);
+      
+      // Trigger background sync
+      await syncPendingPosts();
+      
+      // Remove pending flag in UI
+      setPosts((prev) => prev.map((p) => p.id === pendingPostId ? { ...p, isPending: false } : p));
     } catch (error) {
-      console.error("[HomeScreen] Failed to create post:", error);
-      Alert.alert(
-        "Post Failed",
-        error.message || "Unable to publish your post.",
-      );
+      console.error("[HomeScreen] Failed to queue post:", error);
     }
   };
 
   const getAuthorAvatar = (authorName) => {
-    if (
+    if(
       authorName === currentUser.name ||
       authorName === "Amani User" ||
       authorName === "Me"
@@ -1229,7 +1313,15 @@ export default function HomeScreen({ navigation }) {
   const displayedExplore = [
     myProfile,
     ...normalizePosts(exploreProfiles).filter((e) => e.id !== "me"),
-  ];
+  ].filter((person) => {
+    if (!exploreSearchText) return true;
+    const q = exploreSearchText.toLowerCase();
+    return (
+      (person.name && person.name.toLowerCase().includes(q)) ||
+      (person.utid && person.utid.toLowerCase().includes(q)) ||
+      (person.uid && person.uid.toLowerCase().includes(q))
+    );
+  });
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
@@ -1434,7 +1526,7 @@ export default function HomeScreen({ navigation }) {
                   <View
                     style={[styles.flagBadge, { backgroundColor: colors.bg }]}
                   >
-                    {renderFlagOrEmoji(INITIAL_CONTACTS[0].flag)}
+                    {renderFlagOrEmoji(LANGS[currentUser.unityAILang]?.flag || "🌍")}
                   </View>
                   {isOnlineStatus(INITIAL_CONTACTS[0].status) && (
                     <View
@@ -1451,9 +1543,11 @@ export default function HomeScreen({ navigation }) {
                     handlePartnerClick(
                       INITIAL_CONTACTS[0].name,
                       INITIAL_CONTACTS[0].avatar,
-                      INITIAL_CONTACTS[0].flag,
+                      LANGS[currentUser.unityAILang]?.flag || "🌍",
                       INITIAL_CONTACTS[0].id,
-                      INITIAL_CONTACTS[0].status
+                      INITIAL_CONTACTS[0].status,
+                      currentUser.unityAILang || "en",
+                      LANGS[currentUser.unityAILang]?.name || "English"
                     )
                   }
                   style={styles.convBodyPress}
@@ -1790,26 +1884,64 @@ export default function HomeScreen({ navigation }) {
             </View>
 
             {contactsFilter === "my" && (
-              <View>
-                <TextInput
-                  style={[
-                    styles.searchInput,
-                    {
-                      backgroundColor: colors.cardBg,
+              <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                  borderRadius: 24,
+                  paddingHorizontal: 16,
+                  height: 48,
+                }}>
+                  <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 10 }}>
+                    <Circle cx="11" cy="11" r="8" />
+                    <Path d="M21 21l-4.35-4.35" />
+                  </Svg>
+                  <TextInput
+                    style={{
+                      flex: 1,
                       color: colors.text,
-                      borderColor: colors.border,
-                      borderWidth: 1,
-                      marginBottom: 16,
-                      borderRadius: 12,
-                      paddingHorizontal: 16,
-                      height: 48,
-                    },
-                  ]}
-                  placeholder="Search by name or UTID"
-                  placeholderTextColor={colors.textMuted}
-                  onChangeText={setContactSearchText}
-                  value={contactSearchText}
-                />
+                      fontSize: 16,
+                      outlineStyle: "none",
+                    }}
+                    placeholder="Search by name or UTID"
+                    placeholderTextColor={colors.textMuted}
+                    onChangeText={setContactSearchText}
+                    value={contactSearchText}
+                  />
+                </View>
+
+                {/* Simulate Message Button */}
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: colors.primary + '20',
+                    borderWidth: 1,
+                    borderColor: colors.primary + '40',
+                    borderRadius: 12,
+                    padding: 12,
+                    marginBottom: 16,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  activeOpacity={0.7}
+                  onPress={async () => {
+                    const nonMeContacts = contacts.filter(c => c.id !== "me" && c.name !== "Me");
+                    if (nonMeContacts.length === 0) return;
+                    const randomContact = nonMeContacts[Math.floor(Math.random() * nonMeContacts.length)];
+                    await incrementContactUnread(randomContact.id, Date.now());
+                    const latestContacts = await getDbContacts();
+                    setContacts(latestContacts);
+                    scheduleLocalNotification("New message", `You have a new simulated message from ${randomContact.name}`, { seconds: 1 });
+                  }}
+                >
+                  <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}>
+                    <Path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                  </Svg>
+                  <Text style={{ color: colors.primary, fontWeight: '600' }}>Simulate Incoming Message</Text>
+                </TouchableOpacity>
                 {!imported ? (
                   <TouchableOpacity
                     style={[
@@ -1975,10 +2107,24 @@ export default function HomeScreen({ navigation }) {
                           >
                             {contact.name}
                           </Text>
+                          {contact.unreadCount > 0 && (
+                            <View style={{
+                              backgroundColor: '#EF4444',
+                              borderRadius: 12,
+                              minWidth: 20,
+                              height: 20,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              marginLeft: 8,
+                              paddingHorizontal: 6,
+                            }}>
+                              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: 'bold' }}>{contact.unreadCount}</Text>
+                            </View>
+                          )}
                           <Text
                             style={[
                               styles.contactStatus,
-                              { color: colors.accent },
+                              { color: colors.accent, marginLeft: contact.unreadCount > 0 ? 8 : 0 },
                             ]}
                           >
                             {contact.status}
@@ -2021,14 +2167,36 @@ export default function HomeScreen({ navigation }) {
 
             {contactsFilter === "explore" && (
               <View>
-                <Text
-                  style={[
-                    styles.sectionTitle,
-                    { color: colors.textDimmed, marginTop: 12 },
-                  ]}
-                >
-                  Explore Translation Partners
-                </Text>
+                {/* Search Bar for Explore */}
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                  borderRadius: 24,
+                  paddingHorizontal: 16,
+                  height: 48,
+                  marginTop: 12,
+                  marginBottom: 16,
+                }}>
+                  <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 10 }}>
+                    <Circle cx="11" cy="11" r="8" />
+                    <Path d="M21 21l-4.35-4.35" />
+                  </Svg>
+                  <TextInput
+                    style={{
+                      flex: 1,
+                      color: colors.text,
+                      fontSize: 16,
+                      outlineStyle: "none",
+                    }}
+                    placeholder="Search by name or UTID"
+                    placeholderTextColor={colors.textMuted}
+                    onChangeText={setExploreSearchText}
+                    value={exploreSearchText}
+                  />
+                </View>
 
                 <View style={styles.exploreGrid}>
                   {displayedExplore.map((person) => (
@@ -2116,15 +2284,66 @@ export default function HomeScreen({ navigation }) {
 
         {activeTab === "updates" && (
           <View style={styles.updatesContainer}>
-            <Text
-              style={[
-                styles.sectionTitle,
-                { color: colors.textDimmed, marginLeft: 20 },
-              ]}
-            >
-              Recent Updates
-            </Text>
-            {posts.map((post) => {
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, marginBottom: 12 }}>
+              {!isPostSearchVisible ? (
+                <Text style={[styles.sectionTitle, { color: colors.textDimmed, margin: 0 }]}>
+                  Recent Updates
+                </Text>
+              ) : (
+                <View style={{
+                  flex: 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                  borderRadius: 24,
+                  paddingHorizontal: 16,
+                  height: 40,
+                  marginRight: 12,
+                }}>
+                  <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}>
+                    <Circle cx="11" cy="11" r="8" />
+                    <Path d="M21 21l-4.35-4.35" />
+                  </Svg>
+                  <TextInput
+                    style={{ flex: 1, color: colors.text, fontSize: 14, outlineStyle: 'none', borderWidth: 0 }}
+                    placeholder="Search posts, UTID..."
+                    placeholderTextColor={colors.textMuted}
+                    onChangeText={setPostSearchText}
+                    value={postSearchText}
+                    autoFocus
+                  />
+                </View>
+              )}
+              <TouchableOpacity onPress={() => {
+                if (isPostSearchVisible) {
+                  setPostSearchText("");
+                }
+                setIsPostSearchVisible(!isPostSearchVisible);
+              }} activeOpacity={0.7} style={{ padding: 4 }}>
+                {isPostSearchVisible ? (
+                  <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <Line x1="18" y1="6" x2="6" y2="18" />
+                    <Line x1="6" y1="6" x2="18" y2="18" />
+                  </Svg>
+                ) : (
+                  <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <Circle cx="11" cy="11" r="8" />
+                    <Path d="M21 21l-4.35-4.35" />
+                  </Svg>
+                )}
+              </TouchableOpacity>
+            </View>
+            
+            {posts.filter(post => {
+              if (!postSearchText) return true;
+              const q = postSearchText.toLowerCase();
+              return (post.authorName && post.authorName.toLowerCase().includes(q)) || 
+                     (post.content && post.content.toLowerCase().includes(q)) || 
+                     (post.description && post.description.toLowerCase().includes(q)) ||
+                     (post.authorEmail && post.authorEmail.toLowerCase().includes(q));
+            }).map((post) => {
               return (
                 <View
                   key={post.id}
@@ -2133,6 +2352,7 @@ export default function HomeScreen({ navigation }) {
                     {
                       backgroundColor: colors.cardBg,
                       borderColor: colors.border,
+                      opacity: post.isPending ? 0.7 : 1,
                     },
                   ]}
                 >
@@ -2158,34 +2378,26 @@ export default function HomeScreen({ navigation }) {
                       >
                         {post.authorName}
                       </Text>
-                      <Text
-                        style={[
-                          styles.postTimeText,
-                          { color: colors.textDimmed },
-                        ]}
-                      >
-                        {post.time}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                        <Text
+                          style={[
+                            styles.postTimeText,
+                            { color: colors.textDimmed },
+                          ]}
+                        >
+                          {post.time}
+                        </Text>
+                        {post.isPending && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 6 }}>
+                            <Text style={{ color: colors.primary, fontSize: 12, marginRight: 4 }}>• Uploading</Text>
+                            <ActivityIndicator size="small" color={colors.primary} />
+                          </View>
+                        )}
+                      </View>
                     </View>
 
                     {/* Header Action Icons: Chat + 3-Dot Options */}
                     <View style={styles.postHeaderActions}>
-                      <TouchableOpacity
-                        onPress={() => handlePostChat(post)}
-                        style={styles.postHeaderActionBtn}
-                        activeOpacity={0.7}
-                      >
-                        <Svg
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke={colors.textMuted}
-                          strokeWidth="2.2"
-                        >
-                          <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                        </Svg>
-                      </TouchableOpacity>
 
                       <TouchableOpacity
                         onPress={() => handlePostMoreOptions(post)}
@@ -5142,7 +5354,7 @@ const styles = StyleSheet.create({
   },
   createPostImgPreviewContainer: {
     position: "relative",
-    width: "100%",
+    width: 100,
     height: 132,
     borderRadius: 12,
     overflow: "hidden",
