@@ -16,7 +16,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Path, Line, Circle, Rect, Polyline } from "react-native-svg";
+import Svg, { Path, Line, Circle, Rect, Polyline, Polygon } from "react-native-svg";
 import { AppContext } from "../context/AppContext";
 import UserProfilePopup from "../components/UserProfilePopup";
 import {
@@ -94,8 +94,6 @@ export default function ProfileScreen({ route, navigation }) {
     useState(false);
   const [isNativeLangModalVisible, setIsNativeLangModalVisible] =
     useState(false);
-  const [isSecondaryLangModalVisible, setIsSecondaryLangModalVisible] =
-    useState(false);
   const [isUnityAILangModalVisible, setIsUnityAILangModalVisible] =
     useState(false);
   const [isTrainingModalVisible, setIsTrainingModalVisible] = useState(false);
@@ -118,6 +116,7 @@ export default function ProfileScreen({ route, navigation }) {
   const [storageStats, setStorageStats] = useState({
     imagesSize: "0.00",
     avatarsSize: "0.00",
+    videosSize: "0.00",
     totalSize: "0.00",
   });
   const [isCleaning, setIsCleaning] = useState(false);
@@ -518,9 +517,6 @@ export default function ProfileScreen({ route, navigation }) {
   };
 
   const selectNativeLang = (code) => {
-    if (currentUser.secondaryLangs.includes(code)) {
-      toggleSecondaryLang(code); // Remove from secondary if it's there
-    }
     updateSettings({ nativeLang: code, nativeLangSelected: true });
     setIsNativeLangModalVisible(false);
   };
@@ -528,20 +524,6 @@ export default function ProfileScreen({ route, navigation }) {
   const selectUnityAILang = (code) => {
     updateSettings({ unityAILang: code });
     setIsUnityAILangModalVisible(false);
-  };
-
-  const toggleSecondaryLang = (code) => {
-    const list = [...currentUser.secondaryLangs];
-    const index = list.indexOf(code);
-    if (index > -1) {
-      list.splice(index, 1);
-    } else {
-      list.push(code);
-    }
-    handleAutoSave({
-      secondaryLangs: list,
-      secondaryLangsSelected: list.length > 0,
-    });
   };
 
   const handleTogglePref = (key) => {
@@ -628,16 +610,6 @@ export default function ProfileScreen({ route, navigation }) {
     if (currentUser.nativeLang && !list.includes(currentUser.nativeLang)) {
       list.push(currentUser.nativeLang);
     }
-    return list;
-  };
-
-  const getSecondaryPills = () => {
-    const list = Object.keys(LANGS).slice(0, 4);
-    currentUser.secondaryLangs.forEach((lang) => {
-      if (!list.includes(lang)) {
-        list.push(lang);
-      }
-    });
     return list;
   };
 
@@ -1142,87 +1114,6 @@ export default function ProfileScreen({ route, navigation }) {
           </View>
         </View>
 
-        {/* Secondary target languages selection (Show 4 + Show All) */}
-        <View
-          onLayout={(e) => {
-            layoutOffsets.current.secondaryLang = e.nativeEvent.layout.y;
-          }}
-          style={[
-            styles.formGroup,
-            glowTarget === "secondaryLang" && styles.glowSection,
-            {
-              borderWidth: 2,
-              borderColor:
-                glowTarget === "secondaryLang" ? "#F59E0B" : "transparent",
-              borderRadius: 16,
-              padding: 8,
-            },
-          ]}
-        >
-          <Text style={[styles.label, { color: colors.textMuted }]}>
-            Secondary Languages (To Translate)
-          </Text>
-          <View style={styles.langPills}>
-            {getSecondaryPills().map((code) => {
-              const lang = LANGS[code];
-              if (!lang) return null;
-              const isChecked = currentUser.secondaryLangs.includes(code);
-              return (
-                <TouchableOpacity
-                  key={code}
-                  style={[
-                    styles.pillItem,
-                    isChecked
-                      ? {
-                          backgroundColor: colors.primaryGlow,
-                          borderColor: colors.primary,
-                        }
-                      : {
-                          backgroundColor: colors.cardBg,
-                          borderColor: colors.border,
-                        },
-                  ]}
-                  onPress={() => toggleSecondaryLang(code)}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.pillText,
-                      isChecked
-                        ? { color: colors.primary, fontWeight: "600" }
-                        : { color: colors.textMuted },
-                    ]}
-                  >
-                    {isChecked ? "✓ " : ""}
-                    {lang.flag} {lang.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity
-              style={[
-                styles.pillItem,
-                {
-                  backgroundColor: colors.cardBg,
-                  borderColor: colors.primary,
-                  borderStyle: "dashed",
-                },
-              ]}
-              onPress={() => setIsSecondaryLangModalVisible(true)}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[
-                  styles.pillText,
-                  { color: colors.primary, fontWeight: "600" },
-                ]}
-              >
-                + Show All
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
         {/* AI Companion settings */}
         <View style={styles.formGroup}>
           <Text style={[styles.label, { color: colors.textMuted }]}>
@@ -1392,312 +1283,131 @@ export default function ProfileScreen({ route, navigation }) {
                 borderColor: colors.border,
                 padding: 16,
                 borderRadius: 16,
-                gap: 12,
+                gap: 16,
               },
             ]}
           >
-            {/* Storage Stats */}
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                borderBottomWidth: 1,
-                borderBottomColor: colors.border,
-                paddingBottom: 12,
-              }}
-            >
-              <View>
-                <Text
-                  style={{
-                    fontSize: 16,
-                    fontWeight: "600",
-                    color: colors.text,
-                  }}
-                >
-                  Images Cache
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 13,
-                    color: colors.textMuted,
-                    marginTop: 2,
-                  }}
-                >
-                  Shared post media
-                </Text>
+            {/* Storage Grid */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+              <View style={{ width: '48%', marginBottom: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border }}>
+                <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 8 }}><Rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><Circle cx="8.5" cy="8.5" r="1.5" /><Polyline points="21 15 16 10 5 21" /></Svg>
+                <Text style={{ fontSize: 13, color: colors.textMuted, fontWeight: '500' }}>Images</Text>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text, marginTop: 4 }}>{storageStats.imagesSize} MB</Text>
               </View>
-              <Text
-                style={{
-                  fontSize: 16,
-                  fontWeight: "700",
-                  color: colors.accent,
-                }}
-              >
-                {storageStats.imagesSize} MB
-              </Text>
-            </View>
 
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                borderBottomWidth: 1,
-                borderBottomColor: colors.border,
-                paddingBottom: 12,
-              }}
-            >
-              <View>
-                <Text
-                  style={{
-                    fontSize: 16,
-                    fontWeight: "600",
-                    color: colors.text,
-                  }}
-                >
-                  Avatars Cache
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 13,
-                    color: colors.textMuted,
-                    marginTop: 2,
-                  }}
-                >
-                  Contact profile images
-                </Text>
+              <View style={{ width: '48%', marginBottom: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border }}>
+                <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 8 }}><Path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><Circle cx="12" cy="7" r="4" /></Svg>
+                <Text style={{ fontSize: 13, color: colors.textMuted, fontWeight: '500' }}>Avatars</Text>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text, marginTop: 4 }}>{storageStats.avatarsSize} MB</Text>
               </View>
-              <Text
-                style={{
-                  fontSize: 16,
-                  fontWeight: "700",
-                  color: colors.accent,
-                }}
-              >
-                {storageStats.avatarsSize} MB
-              </Text>
+
+              <View style={{ width: '48%', marginBottom: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border }}>
+                <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 8 }}><Polygon points="23 7 16 12 23 17 23 7" /><Rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></Svg>
+                <Text style={{ fontSize: 13, color: colors.textMuted, fontWeight: '500' }}>Videos</Text>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text, marginTop: 4 }}>{storageStats.videosSize} MB</Text>
+              </View>
+
+              <View style={{ width: '48%', marginBottom: 12, backgroundColor: colors.primaryGlow, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.primary + '40' }}>
+                <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 8 }}><Line x1="22" y1="12" x2="2" y2="12" /><Path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /><Line x1="6" y1="16" x2="6.01" y2="16" /><Line x1="10" y1="16" x2="10.01" y2="16" /></Svg>
+                <Text style={{ fontSize: 13, color: colors.primary, fontWeight: '600' }}>Total Cache</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: colors.primary, marginTop: 2 }}>{storageStats.totalSize} MB</Text>
+              </View>
             </View>
 
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                paddingBottom: 8,
-              }}
-            >
-              <Text
-                style={{ fontSize: 16, fontWeight: "700", color: colors.text }}
-              >
-                Total Space Used
-              </Text>
-              <Text
-                style={{
-                  fontSize: 17,
-                  fontWeight: "800",
-                  color: colors.primary,
-                }}
-              >
-                {storageStats.totalSize} MB
-              </Text>
+            {/* Actions Row */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+              {/* Cleanup */}
+              <View style={{ alignItems: 'center', width: '22%' }}>
+                <TouchableOpacity
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                    justifyContent: "center",
+                    alignItems: "center",
+                    marginBottom: 6,
+                  }}
+                  onPress={handleSmartCleanup}
+                  disabled={isCleaning}
+                >
+                  {isCleaning ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Path d="M3 6h18" /><Path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></Svg>
+                  )}
+                </TouchableOpacity>
+                <Text style={{ fontSize: 11, color: colors.textMuted, textAlign: 'center', fontWeight: '500' }}>Cleanup</Text>
+              </View>
+
+              {/* Backup */}
+              <View style={{ alignItems: 'center', width: '22%' }}>
+                <TouchableOpacity
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: colors.primary,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    marginBottom: 6,
+                  }}
+                  onPress={handleCloudBackup}
+                  disabled={isBackingUp}
+                >
+                  {isBackingUp ? (
+                    <ActivityIndicator size="small" color="#FFF" />
+                  ) : (
+                    <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><Polyline points="17 8 12 3 7 8" /><Line x1="12" y1="3" x2="12" y2="15" /></Svg>
+                  )}
+                </TouchableOpacity>
+                <Text style={{ fontSize: 11, color: colors.text, textAlign: 'center', fontWeight: '600' }}>Backup</Text>
+              </View>
+
+              {/* Wipe */}
+              <View style={{ alignItems: 'center', width: '22%' }}>
+                <TouchableOpacity
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    justifyContent: "center",
+                    alignItems: "center",
+                    marginBottom: 6,
+                  }}
+                  onPress={handleClearAll}
+                >
+                  <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z" /><Line x1="18" y1="9" x2="12" y2="15" /><Line x1="12" y1="9" x2="18" y2="15" /></Svg>
+                </TouchableOpacity>
+                <Text style={{ fontSize: 11, color: '#EF4444', textAlign: 'center', fontWeight: '500' }}>Wipe Data</Text>
+              </View>
+
+              {/* Log Out */}
+              <View style={{ alignItems: 'center', width: '22%' }}>
+                <TouchableOpacity
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                    justifyContent: "center",
+                    alignItems: "center",
+                    marginBottom: 6,
+                  }}
+                  onPress={logoutUser}
+                >
+                  <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><Polyline points="16 17 21 12 16 7" /><Line x1="21" y1="12" x2="9" y2="12" /></Svg>
+                </TouchableOpacity>
+                <Text style={{ fontSize: 11, color: colors.textMuted, textAlign: 'center', fontWeight: '500' }}>Log Out</Text>
+              </View>
             </View>
 
-            {/* Actions Grid */}
-            <View style={{ gap: 10, marginTop: 8 }}>
-              <TouchableOpacity
-                style={{
-                  height: 48,
-                  borderRadius: 12,
-                  backgroundColor: colors.primaryGlow,
-                  justifyContent: "center",
-                  alignItems: "center",
-                  flexDirection: "row",
-                  gap: 8,
-                  borderWidth: 1,
-                  borderColor: colors.primary,
-                }}
-                onPress={handleSmartCleanup}
-                disabled={isCleaning}
-                activeOpacity={0.8}
-              >
-                {isCleaning ? (
-                  <ActivityIndicator size="small" color={colors.primary} />
-                ) : (
-                  <>
-                    <Svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={colors.primary}
-                      strokeWidth="2.5"
-                    >
-                      <Path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" />
-                      <Path d="m9 12 2 2 4-4" />
-                    </Svg>
-                    <Text
-                      style={{
-                        color: colors.primary,
-                        fontWeight: "600",
-                        fontSize: 15,
-                      }}
-                    >
-                      Run Smart Cleanup
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
+            {/* Delete Account Link at the bottom center */}
+            <TouchableOpacity onPress={handleStartDeleteAccount} style={{ marginTop: 12, alignItems: 'center', paddingVertical: 8 }}>
+               <Text style={{ color: '#EF4444', fontSize: 13, fontWeight: '600' }}>Delete Account</Text>
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                style={{
-                  height: 48,
-                  borderRadius: 12,
-                  backgroundColor: colors.primary,
-                  justifyContent: "center",
-                  alignItems: "center",
-                  flexDirection: "row",
-                  gap: 8,
-                }}
-                onPress={handleCloudBackup}
-                disabled={isBackingUp}
-                activeOpacity={0.85}
-              >
-                {isBackingUp ? (
-                  <ActivityIndicator size="small" color="white" />
-                ) : (
-                  <>
-                    <Svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="white"
-                      strokeWidth="2.5"
-                    >
-                      <Path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <Polyline points="17 8 12 3 7 8" />
-                      <Line x1="12" y1="3" x2="12" y2="15" />
-                    </Svg>
-                    <Text
-                      style={{
-                        color: "white",
-                        fontWeight: "600",
-                        fontSize: 15,
-                      }}
-                    >
-                      Backup Data to Cloud
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={{
-                  height: 48,
-                  borderRadius: 12,
-                  backgroundColor: "rgba(239, 68, 68, 0.08)",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  flexDirection: "row",
-                  gap: 8,
-                  borderWidth: 1,
-                  borderColor: colors.danger,
-                }}
-                onPress={handleClearAll}
-                activeOpacity={0.8}
-              >
-                <Svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke={colors.danger}
-                  strokeWidth="2.5"
-                >
-                  <Path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                </Svg>
-                <Text
-                  style={{
-                    color: colors.danger,
-                    fontWeight: "600",
-                    fontSize: 15,
-                  }}
-                >
-                  Clear Database & Media
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={{
-                  height: 48,
-                  borderRadius: 12,
-                  backgroundColor: "rgba(127, 29, 29, 0.14)",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  flexDirection: "row",
-                  gap: 8,
-                  borderWidth: 1,
-                  borderColor: "rgba(239, 68, 68, 0.75)",
-                }}
-                onPress={handleStartDeleteAccount}
-                activeOpacity={0.8}
-              >
-                <Svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke={colors.danger}
-                  strokeWidth="2.5"
-                >
-                  <Path d="M3 6h18M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6" />
-                </Svg>
-                <Text
-                  style={{
-                    color: colors.danger,
-                    fontWeight: "700",
-                    fontSize: 15,
-                  }}
-                >
-                  Delete Account
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={{
-                  height: 48,
-                  borderRadius: 12,
-                  backgroundColor: "rgba(239, 68, 68, 0.08)",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  flexDirection: "row",
-                  gap: 8,
-                  borderWidth: 1,
-                  borderColor: colors.danger,
-                }}
-                onPress={handleLogout}
-                activeOpacity={0.8}
-              >
-                <Svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke={colors.danger}
-                  strokeWidth="2.5"
-                >
-                  <Path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                  <Polyline points="16 17 21 12 16 7" />
-                  <Line x1="21" y1="12" x2="9" y2="12" />
-                </Svg>
-                <Text
-                  style={{
-                    color: colors.danger,
-                    fontWeight: "600",
-                    fontSize: 15,
-                  }}
-                >
-                  Log Out
-                </Text>
-              </TouchableOpacity>
-            </View>
           </View>
         </View>
 
@@ -2055,94 +1765,6 @@ export default function ProfileScreen({ route, navigation }) {
                 })}
               </View>
             </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Modal 2: Secondary Languages Selection (Popup of 20) */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={isSecondaryLangModalVisible}
-        onRequestClose={() => setIsSecondaryLangModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View
-            style={[styles.modalContent, { backgroundColor: colors.cardBg }]}
-          >
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>
-                Target Languages
-              </Text>
-              <TouchableOpacity
-                onPress={() => setIsSecondaryLangModalVisible(false)}
-                style={styles.modalCloseBtn}
-              >
-                <Text style={[styles.modalCloseText, { color: colors.text }]}>
-                  &times;
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView
-              contentContainerStyle={styles.modalScroll}
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={styles.modalGrid}>
-                {Object.keys(LANGS).map((code) => {
-                  const lang = LANGS[code];
-                  const isChecked = currentUser.secondaryLangs.includes(code);
-                  return (
-                    <TouchableOpacity
-                      key={code}
-                      style={[
-                        styles.modalGridItem,
-                        { borderColor: colors.border },
-                        isChecked && {
-                          backgroundColor: colors.primaryGlow,
-                          borderColor: colors.primary,
-                        },
-                      ]}
-                      onPress={() => toggleSecondaryLang(code)}
-                    >
-                      <View style={styles.checkboxContainer}>
-                        <Text style={styles.modalGridItemFlag}>
-                          {lang.flag}
-                        </Text>
-                        {isChecked && (
-                          <View
-                            style={[
-                              styles.checkboxBadge,
-                              { backgroundColor: colors.primary },
-                            ]}
-                          >
-                            <Text style={styles.checkboxBadgeText}>✓</Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text
-                        style={[
-                          styles.modalGridItemText,
-                          { color: colors.text },
-                          isChecked && {
-                            fontWeight: "700",
-                            color: colors.primary,
-                          },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {lang.name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </ScrollView>
-            <TouchableOpacity
-              style={[styles.modalDoneBtn, { backgroundColor: colors.primary }]}
-              onPress={() => setIsSecondaryLangModalVisible(false)}
-            >
-              <Text style={styles.modalDoneBtnText}>Done</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>

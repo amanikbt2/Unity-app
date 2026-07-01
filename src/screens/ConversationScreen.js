@@ -701,17 +701,21 @@ export default function ConversationScreen({ route, navigation }) {
       };
       setChatBubbles((prev) => [...prev, userMsg]);
       
-      await saveChat({
-        id: userMsgId,
-        partner_id: partnerId,
-        text: text,
-        trans_text: "...",
-        sender: "user",
-        orig_lang: `${userLangName} (Original)`,
-        trans_lang: `${partnerLangName} (Translated)`,
-        timestamp: Date.now(),
-      });
-      await updateContactLastMessageTime(partnerId, Date.now());
+      try {
+        await saveChat({
+          id: userMsgId,
+          partner_id: partnerId,
+          text: text,
+          trans_text: "...",
+          sender: "user",
+          orig_lang: `${userLangName} (Original)`,
+          trans_lang: `${partnerLangName} (Translated)`,
+          timestamp: Date.now(),
+        });
+        await updateContactLastMessageTime(partnerId, Date.now());
+      } catch (dbError) {
+        console.warn("Skipping SQLite save on Web:", dbError.message);
+      }
 
       // Create a temporary partner typing bubble
       const partnerMsgId = "msg_" + (Date.now() + 1);

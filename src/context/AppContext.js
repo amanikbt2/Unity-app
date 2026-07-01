@@ -113,7 +113,8 @@ export const AppProvider = ({ children }) => {
         if (token) {
           updateSettings({ expoPushToken: token });
           try {
-            await fetch('http://localhost:3000/api/register-push', {
+            const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+          await fetch(`${API_URL}/api/register-push`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ userKey: 'UID-000000', token }) // Or use currentUser.uid if available inside the scope

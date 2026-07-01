@@ -1,8 +1,8 @@
 export const trackEvent = async (event, user, details = {}) => {
   try {
     // Send event asynchronously (fire and forget)
-    // Using localhost for android emulator/development
-    const backendUrl = "http://10.0.2.2:3000/api/track"; 
+    const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+    const backendUrl = `${API_URL}/api/track`;
     
     // Attempt standard fetch (for web) and fallback for React Native android 10.0.2.2 
     fetch(backendUrl, {
@@ -16,9 +16,10 @@ export const trackEvent = async (event, user, details = {}) => {
         details
       })
     }).catch((err) => {
-      // In case we are running on web instead of Android emulator, try localhost
+      // In case we are running on web instead of Android emulator, try the fallback
       if (err.message.includes("Network request failed")) {
-        fetch("http://localhost:3000/api/track", {
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+        fetch(`${API_URL}/api/track`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"

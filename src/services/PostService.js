@@ -3,7 +3,7 @@ import { getPendingPosts, deletePendingPost } from './DatabaseService';
 import * as Notifications from 'expo-notifications';
 import { scheduleLocalNotification } from './NotificationService';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
 
 function getFileNameFromUri(uri) {
   if (!uri || typeof uri !== 'string') return 'upload.jpg';

@@ -32,9 +32,11 @@ async function fetchWithRetry(url, options, delayMs = 3000) {
     const timeoutId = setTimeout(() => controller.abort(), 15000);
     
     try {
+      console.log(`[Network] Fetching ${url} (Attempt ${attempt + 1})`);
       const response = await fetch(url, { ...options, signal: controller.signal });
       clearTimeout(timeoutId);
       
+      console.log(`[Network] Success ${url} (Status: ${response.status})`);
       if (response.ok) return response;
       
       // If it's a gateway error, it might be the server waking up or a proxy issue.
@@ -47,6 +49,7 @@ async function fetchWithRetry(url, options, delayMs = 3000) {
       return response;
     } catch (error) {
       clearTimeout(timeoutId);
+      console.log(`[Network] Error fetching ${url}:`, error.message);
       const msg = error.message.toLowerCase();
       // Detect offline network errors or our thrown gateway errors
       const isNetworkError = 

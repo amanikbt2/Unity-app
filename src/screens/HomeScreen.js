@@ -289,6 +289,7 @@ export default function HomeScreen({ navigation }) {
     useContext(AppContext);
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState("chats");
+  const [callsFilter, setCallsFilter] = useState("all");
   const [onboardingVisible, setOnboardingVisible] = useState(true);
   const [contactsFilter, setContactsFilter] = useState("my");
   const [contacts, setContacts] = useState(INITIAL_CONTACTS);
@@ -2657,9 +2658,34 @@ export default function HomeScreen({ navigation }) {
 
         {activeTab === "calls" && (
           <View>
-            <Text style={[styles.sectionTitle, { color: colors.textDimmed }]}>
-              Recent Translations
-            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 12, gap: 10 }}
+            >
+              {["all", "missed", "contacts", "spam", "outgoing", "incoming"].map((filterItem) => (
+                <TouchableOpacity
+                  key={filterItem}
+                  onPress={() => setCallsFilter(filterItem)}
+                  style={[
+                    {
+                      paddingHorizontal: 16,
+                      paddingVertical: 8,
+                      borderRadius: 20,
+                      backgroundColor: callsFilter === filterItem ? colors.primary : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'),
+                    }
+                  ]}
+                >
+                  <Text style={{
+                    color: callsFilter === filterItem ? '#fff' : colors.text,
+                    fontWeight: callsFilter === filterItem ? '600' : '500',
+                    textTransform: 'capitalize'
+                  }}>
+                    {filterItem}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
 
             <View
               style={[

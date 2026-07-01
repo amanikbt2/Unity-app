@@ -7,6 +7,7 @@ import { getContacts, getDatabase, clearDatabase } from "./DatabaseService";
 const BASE_DIR = `${FileSystem.documentDirectory}Unity/`;
 const IMAGES_DIR = `${BASE_DIR}Media/Images/`;
 const AVATARS_DIR = `${BASE_DIR}Media/Avatars/`;
+const VIDEOS_DIR = `${BASE_DIR}Media/Videos/`;
 const USERDATA_DIR = `${BASE_DIR}UserData/`;
 
 const SETTINGS_BACKUP_PATH = `${USERDATA_DIR}settings.json`;
@@ -21,7 +22,7 @@ export async function initDirectories() {
   }
 
   try {
-    const dirs = [IMAGES_DIR, AVATARS_DIR, USERDATA_DIR];
+    const dirs = [IMAGES_DIR, AVATARS_DIR, VIDEOS_DIR, USERDATA_DIR];
     for (const dir of dirs) {
       const info = await FileSystem.getInfoAsync(dir);
       if (!info.exists) {
@@ -221,15 +222,17 @@ export async function getStorageStats() {
 
     const imagesSize = await getDirSize(IMAGES_DIR);
     const avatarsSize = await getDirSize(AVATARS_DIR);
+    const videosSize = await getDirSize(VIDEOS_DIR);
 
     return {
       imagesSize: (imagesSize / (1024 * 1024)).toFixed(2), // in MB
       avatarsSize: (avatarsSize / (1024 * 1024)).toFixed(2), // in MB
-      totalSize: ((imagesSize + avatarsSize) / (1024 * 1024)).toFixed(2),
+      videosSize: (videosSize / (1024 * 1024)).toFixed(2), // in MB
+      totalSize: ((imagesSize + avatarsSize + videosSize) / (1024 * 1024)).toFixed(2),
     };
   } catch (error) {
     console.error("[StorageService] getStorageStats error:", error);
-    return { imagesSize: "0.00", avatarsSize: "0.00", totalSize: "0.00" };
+    return { imagesSize: "0.00", avatarsSize: "0.00", videosSize: "0.00", totalSize: "0.00" };
   }
 }
 
@@ -243,14 +246,17 @@ export async function clearLocalMediaCache() {
   }
 
   try {
-    const dirs = [IMAGES_DIR, AVATARS_DIR];
-    for (const dir of dirs) {
-      const files = await FileSystem.readDirectoryAsync(dir);
+    const clearDir = async (dirPath) => {
+      const files = await FileSystem.readDirectoryAsync(dirPath);
       for (const file of files) {
-        await FileSystem.deleteAsync(`${dir}${file}`);
+        await FileSystem.deleteAsync(`${dirPath}${file}`, {
+          idempotent: true,
+        });
       }
-    }
-    console.log("[StorageService] All local media files cleared.");
+    };
+    await clearDir(IMAGES_DIR);
+    await clearDir(AVATARS_DIR);
+    await clearDir(VIDEOS_DIR);
     return true;
   } catch (error) {
     console.error("[StorageService] clearLocalMediaCache error:", error);

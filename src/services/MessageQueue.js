@@ -74,19 +74,21 @@ class MessageQueueService {
 
   async processQueue() {
     console.log(`[MessageQueue] processQueue started. isProcessing=${this.isProcessing}, isConnected=${this.isConnected}, queueLength=${this.queue.length}`);
-    if (this.isProcessing || !this.isConnected || this.queue.length === 0) {
+    if (this.isProcessing || this.queue.length === 0) {
       console.log(`[MessageQueue] processQueue aborted.`);
       return;
     }
 
     this.isProcessing = true;
 
-    while (this.queue.length > 0 && this.isConnected) {
+    while (this.queue.length > 0) {
       const job = this.queue[0];
       let success = false;
       let replyText = null;
 
       let aiReply = undefined;
+      
+      job.attempts = (job.attempts || 0) + 1;
 
       try {
         if (job.type === 'ai') {
@@ -121,13 +123,24 @@ class MessageQueueService {
         }
       } catch (err) {
         console.error('Queue job failed:', err);
-        // If it's a network error, break the loop and try again later
-        if (err.message.toLowerCase().includes('network') || err.message.toLowerCase().includes('gateway')) {
-           break; 
+        if (err.message.toLowerCase().includes('network') || err.message.toLowerCase().includes('gateway') || err.message.toLowerCase().includes('failed to fetch')) {
+           if (job.attempts > 3) {
+             console.warn("Job failed 3 times, dropping from queue.");
+             replyText = "Network Error - Message failed.";
+             success = true;
+           } else {
+             break; 
+           }
+        } else {
+           replyText = "Failed to send message.";
+           success = true; 
         }
-        // Otherwise, it's a fatal error, so we will just consider it 'failed' and remove it from queue
-        replyText = "Failed to send message.";
-        success = true; 
+      }
+
+      // Prevent infinite loops for corrupted jobs
+      if (!success && job.type !== 'ai' && job.type !== 'translate') {
+        console.warn("Corrupted job detected, dropping from queue.");
+        success = true;
       }
 
       if (success) {
