@@ -12,6 +12,7 @@ import {
   Platform,
   Dimensions,
   Animated as RNAnimated,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -105,6 +106,50 @@ const COMPRESSED_AUDIO_OPTIONS = {
     bitsPerSecond: 128000,
   },
   isMeteringEnabled: true,
+};
+
+const TypingIndicator = ({ color }) => {
+  const dot1 = useRef(new RNAnimated.Value(0)).current;
+  const dot2 = useRef(new RNAnimated.Value(0)).current;
+  const dot3 = useRef(new RNAnimated.Value(0)).current;
+
+  useEffect(() => {
+    const animateDot = (dot) => {
+      return RNAnimated.sequence([
+        RNAnimated.timing(dot, { toValue: -5, duration: 250, useNativeDriver: true }),
+        RNAnimated.timing(dot, { toValue: 0, duration: 250, useNativeDriver: true }),
+      ]);
+    };
+
+    RNAnimated.loop(
+      RNAnimated.stagger(150, [
+        animateDot(dot1),
+        animateDot(dot2),
+        animateDot(dot3),
+      ])
+    ).start();
+  }, []);
+
+  const Dot = ({ anim }) => (
+    <RNAnimated.View
+      style={{
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: color || '#9CA3AF',
+        marginHorizontal: 3,
+        transform: [{ translateY: anim }]
+      }}
+    />
+  );
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 12 }}>
+      <Dot anim={dot1} />
+      <Dot anim={dot2} />
+      <Dot anim={dot3} />
+    </View>
+  );
 };
 
 export default function ConversationScreen({ route, navigation }) {
@@ -658,7 +703,9 @@ export default function ConversationScreen({ route, navigation }) {
     } catch (error) {
       console.error("Voice translation error:", error);
       setSubtitleUser("Voice translation failed");
-      setSubtitleReceived("Check server or API Key configuration.");
+      const errorMessage = error.message || "Unknown error occurred.";
+      setSubtitleReceived(`Error: ${errorMessage}`);
+      Alert.alert("Voice Chat Error", errorMessage);
 
       // Still clean up the file on failure
       await FileSystem.deleteAsync(audioUri, { idempotent: true }).catch(
@@ -738,6 +785,7 @@ export default function ConversationScreen({ route, navigation }) {
         partnerMsgId,
         userMsgId,
         partnerName: partnerId === "unity_ai" ? "Unity AI" : partnerLangName,
+        partnerAvatarUrl: partnerAvatar,
         partnerLangName,
         userLangName,
         payload: {
@@ -816,73 +864,54 @@ export default function ConversationScreen({ route, navigation }) {
           {renderFlagOrEmoji(flagEmoji)}
         </TouchableOpacity>
 
-        <View
-          style={[
-            styles.bubbleTextContainer,
-            isUser
-              ? { backgroundColor: colors.primary }
-              : {
-                  backgroundColor: colors.cardBg,
-                  borderColor: colors.border,
-                  borderWidth: 1,
-                },
-          ]}
-        >
-          {/* Custom Header at the top (flag, country, language labels) */}
+        {(!isUser && bubble.transText === "...") ? (
+          <View style={{ marginLeft: 8, justifyContent: 'center' }}>
+            <TypingIndicator color={colors.textMuted} />
+          </View>
+        ) : (
           <View
             style={[
-              styles.bubbleHeader,
-              {
-                borderBottomColor: isUser
-                  ? "rgba(255, 255, 255, 0.15)"
-                  : "rgba(0, 0, 0, 0.05)",
-              },
+              styles.bubbleTextContainer,
+              isUser
+                ? { backgroundColor: colors.primary }
+                : {
+                    backgroundColor: colors.cardBg,
+                    borderColor: colors.border,
+                    borderWidth: 1,
+                  },
             ]}
           >
-            <Text
+            {/* Custom Header at the top (flag, country, language labels) */}
+            <View
               style={[
-                styles.bubbleSender,
-                isUser ? styles.whiteText : { color: colors.text },
+                styles.bubbleHeader,
+                {
+                  borderBottomColor: isUser
+                    ? "rgba(255, 255, 255, 0.15)"
+                    : "rgba(0, 0, 0, 0.05)",
+                },
               ]}
             >
-              {senderLabel}
-            </Text>
-            <Text
-              style={[
-                styles.bubbleMeta,
-                isUser ? styles.lightWhiteText : { color: colors.textDimmed },
-              ]}
-            >
-              {metaLabel}
-            </Text>
-          </View>
-
-          {/* Messages body with middle divider line */}
-          <View style={styles.bubbleBody}>
-            {/* Top Text */}
-            {(!isUser && bubble.transText === "...") ? (
-              <RNAnimated.View
-                style={{
-                  opacity: shimmerAnim,
-                  height: 20,
-                  width: 140,
-                  borderRadius: 8,
-                  overflow: "hidden",
-                  marginBottom: 8,
-                }}
+              <Text
+                style={[
+                  styles.bubbleSender,
+                  isUser ? styles.whiteText : { color: colors.text },
+                ]}
               >
-                <LinearGradient
-                  colors={[
-                    "rgba(139, 92, 246, 0.1)",
-                    "rgba(139, 92, 246, 0.25)",
-                    "rgba(139, 92, 246, 0.1)",
-                  ]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={{ flex: 1 }}
-                />
-              </RNAnimated.View>
-            ) : (
+                {senderLabel}
+              </Text>
+              <Text
+                style={[
+                  styles.bubbleMeta,
+                  isUser ? styles.lightWhiteText : { color: colors.textDimmed },
+                ]}
+              >
+                {metaLabel}
+              </Text>
+            </View>
+
+            {/* Messages body with middle divider line */}
+            <View style={styles.bubbleBody}>
               <Text
                 style={[
                   styles.bubbleTextOriginal,
@@ -891,54 +920,32 @@ export default function ConversationScreen({ route, navigation }) {
               >
                 {isUser ? bubble.text : bubble.transText}
               </Text>
-            )}
 
-            <View
-              style={[
-                styles.bubbleDivider,
-                {
-                  backgroundColor: isUser
-                    ? "rgba(255, 255, 255, 0.15)"
-                    : "rgba(0, 0, 0, 0.05)",
-                },
-              ]}
-            />
+              {!isUser && (
+                <>
+                  <View
+                    style={[
+                      styles.bubbleDivider,
+                      {
+                        backgroundColor: "rgba(0, 0, 0, 0.05)",
+                      },
+                    ]}
+                  />
 
-            {/* Bottom Text */}
-            {(isUser && bubble.transText === "...") ? (
-              <RNAnimated.View
-                style={{
-                  opacity: shimmerAnim,
-                  height: 16,
-                  width: 140,
-                  borderRadius: 8,
-                  overflow: "hidden",
-                  marginTop: 4,
-                }}
-              >
-                <LinearGradient
-                  colors={[
-                    "rgba(255, 255, 255, 0.15)",
-                    "rgba(255, 255, 255, 0.45)",
-                    "rgba(255, 255, 255, 0.15)",
-                  ]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={{ flex: 1 }}
-                />
-              </RNAnimated.View>
-            ) : (
-              <Text
-                style={[
-                  styles.bubbleTextTrans,
-                  isUser ? { color: "#93C5FD" } : { color: colors.primary },
-                ]}
-              >
-                {isUser ? bubble.transText : bubble.text}
-              </Text>
-            )}
+                  {/* Bottom Text (Partner's Original Text) */}
+                  <Text
+                    style={[
+                      styles.bubbleTextTrans,
+                      { color: colors.primary },
+                    ]}
+                  >
+                    {bubble.text}
+                  </Text>
+                </>
+              )}
+            </View>
           </View>
-        </View>
+        )}
       </View>
     );
   };
@@ -1137,126 +1144,121 @@ export default function ConversationScreen({ route, navigation }) {
         <View style={styles.controlsBar}>
           {isKeyboardMode ? (
             /* Keyboard Mode Typing Input bar */
-            <View style={styles.keyboardInputContainer}>
-              <TextInput
-                style={[
-                  styles.textInput,
-                  {
-                    backgroundColor: colors.bg,
-                    color: colors.text,
-                    borderColor: colors.border,
-                  },
-                ]}
-                placeholder="Type translated message..."
-                placeholderTextColor={colors.textDimmed}
-                value={inputText}
-                onChangeText={setInputText}
-                onSubmitEditing={handleSendText}
-              />
+            <>
+              {/* Mic Icon (Switch back to Voice) on the LEFT */}
               <TouchableOpacity
-                style={[styles.sendBtn, { backgroundColor: colors.primary }]}
-                onPress={handleSendText}
-                activeOpacity={0.8}
-              >
-                <Svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="white"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <Line x1="22" y1="2" x2="11" y2="13" />
-                  <Polygon points="22 2 15 22 11 13 2 9 22 2" />
-                </Svg>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            /* Voice Controls (Mic status) */
-            <View style={styles.voiceControlsContainer}>
-              <TouchableOpacity
-                style={[
-                  styles.controlCircle,
-                  !isOnline
-                    ? { backgroundColor: colors.border }
-                    : isRecording
-                    ? { backgroundColor: colors.danger }
-                    : {
-                        backgroundColor: colors.primary,
-                      },
-                ]}
-                onPressIn={isOnline ? startRecording : undefined}
-                onPressOut={isOnline ? stopRecording : undefined}
+                style={{
+                  width: 44,
+                  height: 44,
+                  justifyContent: "center",
+                  alignItems: "center",
+                  marginRight: 8,
+                }}
+                onPress={() => setIsKeyboardMode(false)}
                 activeOpacity={0.7}
-                disabled={!isOnline}
               >
-                <Svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="white"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                >
+                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                   <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                   <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                 </Svg>
               </TouchableOpacity>
-              <Text
-                style={[styles.micStatusLabel, { color: colors.textMuted }]}
-              >
-                {isOnline 
-                  ? (isRecording ? "Recording..." : "Hold mic to speak")
-                  : "The user is currently offline"
-                }
-              </Text>
-            </View>
-          )}
 
-          {/* Keyboard Toggle Icon (toggles between mic and keyboard modes) */}
-          <TouchableOpacity
-            style={[
-              styles.controlCircle,
-              {
-                backgroundColor: colors.cardBg,
-                borderColor: colors.border,
-                borderWidth: 1,
-              },
-            ]}
-            onPress={() => setIsKeyboardMode(!isKeyboardMode)}
-            activeOpacity={0.7}
-          >
-            {isKeyboardMode ? (
-              /* SVG Mic Icon (to switch back to voice) */
-              <Svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke={colors.textMuted}
-                strokeWidth="2"
+              <View style={[
+                styles.keyboardInputContainer, 
+                { 
+                  backgroundColor: colors.bg, 
+                  borderColor: colors.border, 
+                  borderWidth: 1, 
+                  borderRadius: 24, 
+                  paddingLeft: 16, 
+                  paddingRight: 6, 
+                  paddingVertical: 6, 
+                  marginRight: 0,
+                  gap: 8,
+                }
+              ]}>
+                <TextInput
+                  style={[
+                    styles.textInput,
+                    {
+                      borderWidth: 0,
+                      backgroundColor: "transparent",
+                      color: colors.text,
+                      height: 36,
+                      paddingHorizontal: 0,
+                    },
+                  ]}
+                  placeholder="Message..."
+                  placeholderTextColor={colors.textDimmed}
+                  value={inputText}
+                  onChangeText={setInputText}
+                  onSubmitEditing={handleSendText}
+                />
+                <TouchableOpacity
+                  style={[styles.sendBtn, { backgroundColor: colors.primary, width: 36, height: 36, borderRadius: 18 }]}
+                  onPress={handleSendText}
+                  activeOpacity={0.8}
+                >
+                  <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <Line x1="22" y1="2" x2="11" y2="13" />
+                    <Polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </Svg>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : (
+            /* Voice Controls */
+            <>
+              <View style={styles.voiceControlsContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.controlCircle,
+                    !isOnline
+                      ? { backgroundColor: colors.border }
+                      : isRecording
+                      ? { backgroundColor: colors.danger }
+                      : {
+                          backgroundColor: colors.primary,
+                        },
+                  ]}
+                  onPressIn={isOnline ? startRecording : undefined}
+                  onPressOut={isOnline ? stopRecording : undefined}
+                  activeOpacity={0.7}
+                  disabled={!isOnline}
+                >
+                  <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round">
+                    <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                    <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  </Svg>
+                </TouchableOpacity>
+                <Text style={[styles.micStatusLabel, { color: colors.textMuted }]}>
+                  {isOnline 
+                    ? (isRecording ? "Recording..." : "Hold mic to speak")
+                    : "The user is currently offline"
+                  }
+                </Text>
+              </View>
+
+              {/* Keyboard Toggle Icon on the RIGHT */}
+              <TouchableOpacity
+                style={[
+                  styles.controlCircle,
+                  {
+                    backgroundColor: colors.cardBg,
+                    borderColor: colors.border,
+                    borderWidth: 1,
+                  },
+                ]}
+                onPress={() => setIsKeyboardMode(true)}
+                activeOpacity={0.7}
               >
-                <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              </Svg>
-            ) : (
-              /* SVG Keyboard Icon (to switch to text) */
-              <Svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke={colors.textMuted}
-                strokeWidth="2"
-              >
-                <Rect x="3" y="4" width="18" height="12" rx="2" />
-                <Path d="M7 8h10M7 12h10M10 16h4" />
-              </Svg>
-            )}
-          </TouchableOpacity>
+                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2">
+                  <Rect x="3" y="4" width="18" height="12" rx="2" />
+                  <Path d="M7 8h10M7 12h10M10 16h4" />
+                </Svg>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </SafeAreaView>
     </KeyboardAvoidingView>

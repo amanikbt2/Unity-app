@@ -1,3 +1,4 @@
+
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
@@ -29,7 +30,7 @@ async function fetchWithRetry(url, options, delayMs = 3000) {
   let attempt = 0;
   while (true) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout
     
     try {
       console.log(`[Network] Fetching ${url} (Attempt ${attempt + 1})`);
@@ -130,11 +131,17 @@ export async function translateVoice(audioUri, targetLang) {
   try {
     const formData = new FormData();
 
-    formData.append("audio", {
-      uri: audioUri,
-      name: "recording.m4a",
-      type: "audio/m4a",
-    });
+    if (Platform.OS === 'web') {
+      const fetchResponse = await fetch(audioUri);
+      const blob = await fetchResponse.blob();
+      formData.append("audio", blob, "recording.m4a");
+    } else {
+      formData.append("audio", {
+        uri: audioUri,
+        name: "recording.m4a",
+        type: "audio/m4a",
+      });
+    }
     formData.append("targetLang", targetLang);
 
     const response = await fetchWithRetry(`${BASE_URL}/api/translate-voice`, {

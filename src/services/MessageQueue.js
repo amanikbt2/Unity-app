@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import * as Notifications from 'expo-notifications';
+import { displayMessageNotification } from './NotificationService';
 import { chatWithAI, translateText } from './TranslationService';
 import { saveChat, updateContactLastMessageTime } from './DatabaseService';
 
@@ -178,13 +179,7 @@ class MessageQueueService {
 
         // Trigger background notification if we got a valid reply
         if (replyText && job.partnerName) {
-           await Notifications.scheduleNotificationAsync({
-             content: {
-               title: job.partnerName,
-               body: replyText,
-             },
-             trigger: null, // trigger immediately
-           });
+           await displayMessageNotification(job.partnerName, replyText, job.partnerAvatarUrl);
         }
       }
     }

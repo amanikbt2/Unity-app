@@ -13,6 +13,7 @@ import {
   Dimensions,
   Alert,
   Linking,
+  Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -88,6 +89,7 @@ export default function ProfileScreen({ route, navigation }) {
   const scrollRef = useRef(null);
   const layoutOffsets = useRef({});
   const [glowTarget, setGlowTarget] = useState(null);
+  const glowAnim = useRef(new Animated.Value(0)).current;
 
   // Modal Visibility states
   const [isImageSourceModalVisible, setIsImageSourceModalVisible] =
@@ -348,12 +350,21 @@ export default function ProfileScreen({ route, navigation }) {
 
         // Trigger blinking yellow glow
         setGlowTarget(highlightTarget);
+        glowAnim.setValue(0);
+        
+        Animated.sequence([
+          // 3 Rapid Blinks
+          Animated.timing(glowAnim, { toValue: 1, duration: 150, useNativeDriver: false }),
+          Animated.timing(glowAnim, { toValue: 0, duration: 150, useNativeDriver: false }),
+          Animated.timing(glowAnim, { toValue: 1, duration: 150, useNativeDriver: false }),
+          Animated.timing(glowAnim, { toValue: 0, duration: 150, useNativeDriver: false }),
+          Animated.timing(glowAnim, { toValue: 1, duration: 150, useNativeDriver: false }),
+          Animated.timing(glowAnim, { toValue: 0, duration: 150, useNativeDriver: false }),
+          // 1 Slow Blink
+          Animated.timing(glowAnim, { toValue: 1, duration: 500, useNativeDriver: false }),
+          Animated.timing(glowAnim, { toValue: 0, duration: 1000, useNativeDriver: false })
+        ]).start(() => setGlowTarget(null));
 
-        const clearGlow = setTimeout(() => {
-          setGlowTarget(null);
-        }, 2500); // Glow remains visible for 2.5s
-
-        return () => clearTimeout(clearGlow);
       }, 400); // 400ms delay to ensure component layout coordinates are fully ready
 
       return () => clearTimeout(scrollTimer);
@@ -877,320 +888,290 @@ export default function ProfileScreen({ route, navigation }) {
         </View>
 
         {/* Display name field */}
-        <View
-          onLayout={(e) => {
-            layoutOffsets.current.username = e.nativeEvent.layout.y;
-          }}
-          style={[
-            styles.formGroup,
-            glowTarget === "username" && styles.glowSection,
-            {
-              borderWidth: 2,
-              borderColor:
-                glowTarget === "username" ? "#F59E0B" : "transparent",
-              borderRadius: 16,
-              padding: 8,
-            },
-          ]}
-        >
-          <Text style={[styles.label, { color: colors.textMuted }]}>
-            Display Name
-          </Text>
-          <TextInput
-            style={[
-              styles.inputField,
-              {
-                backgroundColor: colors.cardBg,
-                color: colors.text,
-                borderColor: colors.border,
-              },
-            ]}
-            placeholder="Enter display name"
-            placeholderTextColor={colors.textDimmed}
-            value={name}
-            onChangeText={handleNameChange}
-          />
-        </View>
-
-        {/* Phone number field */}
-        <View
-          onLayout={(e) => {
-            layoutOffsets.current.phone = e.nativeEvent.layout.y;
-          }}
-          style={[
-            styles.formGroup,
-            glowTarget === "phone" && styles.glowSection,
-            {
-              borderWidth: 2,
-              borderColor:
-                glowTarget === "phone" ? "#F59E0B" : "transparent",
-              borderRadius: 16,
-              padding: 8,
-            },
-          ]}
-        >
-          <Text style={[styles.label, { color: colors.textMuted }]}>
-            Phone Number
-          </Text>
-          <TextInput
-            style={[
-              styles.inputField,
-              {
-                backgroundColor: colors.cardBg,
-                color: colors.text,
-                borderColor: colors.border,
-              },
-            ]}
-            placeholder="+1 234 567 8900"
-            placeholderTextColor={colors.textDimmed}
-            keyboardType="phone-pad"
-            value={phone}
-            onChangeText={handlePhoneChange}
-          />
-        </View>
-
-        {/* Native language picker (Show 4 + Show All) */}
-        <View
-          onLayout={(e) => {
-            layoutOffsets.current.nativeLang = e.nativeEvent.layout.y;
-          }}
-          style={[
-            styles.formGroup,
-            glowTarget === "nativeLang" && styles.glowSection,
-            {
-              borderWidth: 2,
-              borderColor:
-                glowTarget === "nativeLang" ? "#F59E0B" : "transparent",
-              borderRadius: 16,
-              padding: 8,
-            },
-          ]}
-        >
-          <Text style={[styles.label, { color: colors.textMuted }]}>
-            Native Language
-          </Text>
-          <View style={styles.langPills}>
-            {getNativePills().map((code) => {
-              const lang = LANGS[code];
-              if (!lang) return null;
-              const isSelected = currentUser.nativeLang === code;
-              return (
-                <TouchableOpacity
-                  key={code}
-                  style={[
-                    styles.pillItem,
-                    isSelected
-                      ? {
-                          backgroundColor: colors.primaryGlow,
-                          borderColor: colors.primary,
-                        }
-                      : {
-                          backgroundColor: colors.cardBg,
-                          borderColor: colors.border,
-                        },
-                  ]}
-                  onPress={() => selectNativeLang(code)}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.pillText,
-                      isSelected
-                        ? { color: colors.primary, fontWeight: "600" }
-                        : { color: colors.textMuted },
-                    ]}
-                  >
-                    {lang.flag} {lang.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity
-              style={[
-                styles.pillItem,
-                {
-                  backgroundColor: colors.cardBg,
-                  borderColor: colors.primary,
-                  borderStyle: "dashed",
-                },
-              ]}
-              onPress={() => setIsNativeLangModalVisible(true)}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[
-                  styles.pillText,
-                  { color: colors.primary, fontWeight: "600" },
-                ]}
-              >
-                + Show All
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Train Voice AI Section (Placed below Native Language) */}
-        <View
-          onLayout={(e) => {
-            layoutOffsets.current.voice = e.nativeEvent.layout.y;
-          }}
-          style={[
-            styles.formGroup,
-            glowTarget === "voice" && styles.glowSection,
-            {
-              borderWidth: 2,
-              borderColor: glowTarget === "voice" ? "#F59E0B" : "transparent",
-              borderRadius: 16,
-              padding: 8,
-            },
-          ]}
-        >
-          <Text style={[styles.label, { color: colors.textMuted }]}>
-            Voice AI Profile
-          </Text>
-          <View
-            style={[
-              styles.voiceAICard,
-              { backgroundColor: colors.cardBg, borderColor: colors.border },
-            ]}
-          >
-            <View style={styles.voiceAIRow}>
-              <TouchableOpacity
-                style={[
-                  styles.voiceAIBtn,
-                  currentUser.voiceAITrained
-                    ? {
-                        backgroundColor: colors.success + "20",
-                        borderColor: colors.success,
-                        borderWidth: 1,
-                      }
-                    : { backgroundColor: colors.primary },
-                ]}
-                onPress={startVoiceTraining}
-                activeOpacity={0.8}
-              >
-                {currentUser.voiceAITrained && (
-                  <Text
-                    style={[
-                      styles.voiceAITicketText,
-                      { color: colors.success, fontSize: 16 },
-                    ]}
-                  >
-                    ✓{" "}
-                  </Text>
-                )}
-                <Text
-                  style={[
-                    styles.voiceAIBtnText,
-                    currentUser.voiceAITrained
-                      ? { color: colors.success }
-                      : { color: "white" },
-                  ]}
-                >
-                  {currentUser.voiceAITrained
-                    ? "Retrain Voice AI"
-                    : "Train Your Voice AI"}
-                </Text>
-              </TouchableOpacity>
-
-              {currentUser.voiceAITrained && (
-                <TouchableOpacity
-                  style={[
-                    styles.voiceAIBtn,
-                    { backgroundColor: colors.accent },
-                  ]}
-                  onPress={() => setIsTestingModalVisible(true)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.voiceAIBtnText}>Test Your AI</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            <Text style={[styles.voiceAIDesc, { color: colors.textMuted }]}>
-              {currentUser.voiceAITrained
-                ? "Your speech model is active! Translate spoken audio using your own cloned voice."
-                : "Clone your voice to speak translations in your own vocal print instead of robotic TTS."}
-            </Text>
-          </View>
-        </View>
-
-        {/* AI Companion settings */}
+        {/* Account Details Section */}
         <View style={styles.formGroup}>
           <Text style={[styles.label, { color: colors.textMuted }]}>
-            AI Companion Language
+            Account Details
           </Text>
-          <Text style={{ color: colors.textDimmed, fontSize: 13, marginBottom: 8, marginTop: -4 }}>
-            AI translates best in selected language
-          </Text>
-          <View style={styles.langPills}>
-            <TouchableOpacity
-              style={[
-                styles.pillItem,
-                {
-                  backgroundColor: colors.primaryGlow,
-                  borderColor: colors.primary,
-                },
-              ]}
-              onPress={() => setIsUnityAILangModalVisible(true)}
-              activeOpacity={0.7}
+          <View
+            style={{
+              backgroundColor: colors.cardBg,
+              borderColor: colors.border,
+              borderWidth: 1,
+              borderRadius: 16,
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+            }}
+          >
+            {/* Display Name */}
+            <Animated.View
+              onLayout={(e) => {
+                layoutOffsets.current.username = e.nativeEvent.layout.y;
+              }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+                paddingVertical: 8,
+                ...(glowTarget === "username" ? { 
+                  backgroundColor: glowAnim.interpolate({ inputRange: [0, 1], outputRange: ["transparent", colors.primaryGlow] }), 
+                  borderRadius: 8, paddingHorizontal: 8, marginHorizontal: -8 
+                } : {})
+              }}
             >
-              <Text
-                style={[
-                  styles.pillText,
-                  { color: colors.primary, fontWeight: "600" },
-                ]}
-              >
-                {LANGS[currentUser.unityAILang]?.flag || "🌍"}{" "}
-                {LANGS[currentUser.unityAILang]?.name ||
-                  currentUser.unityAILang ||
-                  "Select Language"}{" "}
-                (Change)
-              </Text>
-            </TouchableOpacity>
+              <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 12 }}>
+                <Path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <Circle cx="12" cy="7" r="4" />
+              </Svg>
+              <TextInput
+                style={{
+                  flex: 1,
+                  fontSize: 16,
+                  color: colors.text,
+                  paddingVertical: 8,
+                }}
+                placeholder="Display Name"
+                placeholderTextColor={colors.textDimmed}
+                value={name}
+                onChangeText={handleNameChange}
+              />
+            </Animated.View>
+
+            {/* Phone Number */}
+            <Animated.View
+              onLayout={(e) => {
+                layoutOffsets.current.phone = e.nativeEvent.layout.y;
+              }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                paddingVertical: 8,
+                ...(glowTarget === "phone" ? { 
+                  backgroundColor: glowAnim.interpolate({ inputRange: [0, 1], outputRange: ["transparent", colors.primaryGlow] }), 
+                  borderRadius: 8, paddingHorizontal: 8, marginHorizontal: -8 
+                } : {})
+              }}
+            >
+              <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 12 }}>
+                <Path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+              </Svg>
+              <TextInput
+                style={{
+                  flex: 1,
+                  fontSize: 16,
+                  color: colors.text,
+                  paddingVertical: 8,
+                }}
+                placeholder="+1 234 567 8900"
+                placeholderTextColor={colors.textDimmed}
+                keyboardType="phone-pad"
+                value={phone}
+                onChangeText={handlePhoneChange}
+              />
+            </Animated.View>
           </View>
         </View>
 
-        {/* Test Microphone with Horizontal Level Meter */}
+        {/* Language & AI Section */}
+        <View style={styles.formGroup}>
+          <Text style={[styles.label, { color: colors.textMuted }]}>
+            Language & AI
+          </Text>
+          <View
+            style={{
+              backgroundColor: colors.cardBg,
+              borderColor: colors.border,
+              borderWidth: 1,
+              borderRadius: 16,
+              padding: 16,
+              gap: 16,
+            }}
+          >
+            {/* Native Language */}
+            <Animated.View
+              onLayout={(e) => {
+                layoutOffsets.current.nativeLang = e.nativeEvent.layout.y;
+              }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+                paddingBottom: 16,
+                ...(glowTarget === "nativeLang" ? { 
+                  backgroundColor: glowAnim.interpolate({ inputRange: [0, 1], outputRange: ["transparent", colors.primaryGlow] }), 
+                  borderRadius: 8, padding: 8, marginHorizontal: -8 
+                } : {})
+              }}
+            >
+              <View>
+                <Text style={{ fontSize: 15, fontWeight: "500", color: colors.text }}>Native Language</Text>
+                <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>Your primary spoken language</Text>
+              </View>
+              <TouchableOpacity
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 20,
+                }}
+                onPress={() => setIsNativeLangModalVisible(true)}
+              >
+                <Text style={{ fontSize: 15, fontWeight: "600", color: colors.text, marginRight: 4 }}>
+                  {LANGS[currentUser.nativeLang]?.flag || "🌍"} {LANGS[currentUser.nativeLang]?.name || "Select"}
+                </Text>
+                <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Polyline points="6 9 12 15 18 9" /></Svg>
+              </TouchableOpacity>
+            </Animated.View>
+
+            {/* AI Companion Language */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+                paddingBottom: 16,
+              }}
+            >
+              <View>
+                <Text style={{ fontSize: 15, fontWeight: "500", color: colors.text }}>AI Companion</Text>
+                <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>Target translation language</Text>
+              </View>
+              <TouchableOpacity
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  backgroundColor: colors.primaryGlow,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: colors.primary + '50',
+                }}
+                onPress={() => setIsUnityAILangModalVisible(true)}
+              >
+                <Text style={{ fontSize: 15, fontWeight: "600", color: colors.primary, marginRight: 4 }}>
+                  {LANGS[currentUser.unityAILang]?.flag || "🌍"} {LANGS[currentUser.unityAILang]?.name || "Select"}
+                </Text>
+                <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Polyline points="6 9 12 15 18 9" /></Svg>
+              </TouchableOpacity>
+            </View>
+
+            {/* Voice AI Profile */}
+            <Animated.View
+              onLayout={(e) => {
+                layoutOffsets.current.voice = e.nativeEvent.layout.y;
+              }}
+              style={{
+                ...(glowTarget === "voice" ? { 
+                  backgroundColor: glowAnim.interpolate({ inputRange: [0, 1], outputRange: ["transparent", colors.primaryGlow] }), 
+                  borderRadius: 8, padding: 8, marginHorizontal: -8 
+                } : {})
+              }}
+            >
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text style={{ fontSize: 15, fontWeight: "500", color: colors.text }}>Voice AI Profile</Text>
+                  <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: 4, lineHeight: 18 }}>
+                    {currentUser.voiceAITrained
+                      ? "Your speech model is active! Translate spoken audio using your own cloned voice."
+                      : "Clone your voice to speak translations in your own vocal print instead of robotic TTS."}
+                  </Text>
+                </View>
+                {currentUser.voiceAITrained && (
+                  <TouchableOpacity
+                    style={{
+                      backgroundColor: colors.accent + '20',
+                      paddingHorizontal: 16,
+                      paddingVertical: 8,
+                      borderRadius: 20,
+                    }}
+                    onPress={() => setIsTestingModalVisible(true)}
+                  >
+                    <Text style={{ color: colors.accent, fontWeight: "700", fontSize: 14 }}>Test AI</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              
+              <TouchableOpacity
+                style={{
+                  marginTop: 12,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: currentUser.voiceAITrained ? 'transparent' : colors.primary,
+                  borderWidth: currentUser.voiceAITrained ? 1 : 0,
+                  borderColor: colors.border,
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                }}
+                onPress={startVoiceTraining}
+              >
+                {currentUser.voiceAITrained ? (
+                  <Text style={{ color: colors.text, fontWeight: "600", fontSize: 15 }}>Retrain Voice Model</Text>
+                ) : (
+                  <>
+                    <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}><Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><Path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></Svg>
+                    <Text style={{ color: "white", fontWeight: "600", fontSize: 15 }}>Train Your Voice AI</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+
+          </View>
+        </View>
+
+        {/* Microphone Test Section */}
         <View style={styles.formGroup}>
           <Text style={[styles.label, { color: colors.textMuted }]}>
             Microphone Test
           </Text>
           <View
-            style={[
-              styles.micTestCard,
-              { backgroundColor: colors.cardBg, borderColor: colors.border },
-            ]}
+            style={{
+              backgroundColor: colors.cardBg,
+              borderColor: colors.border,
+              borderWidth: 1,
+              borderRadius: 16,
+              padding: 16,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
           >
-            <View style={styles.micTestControls}>
+            <View style={{ flex: 1, paddingRight: 16 }}>
               <TouchableOpacity
-                style={[
-                  styles.testMicBtn,
-                  isTestingMic
-                    ? { backgroundColor: colors.danger }
-                    : { backgroundColor: colors.primary },
-                ]}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  backgroundColor: isTestingMic ? colors.danger + '20' : colors.primaryGlow,
+                  paddingHorizontal: 16,
+                  paddingVertical: 10,
+                  borderRadius: 24,
+                  alignSelf: "flex-start",
+                  borderWidth: 1,
+                  borderColor: isTestingMic ? colors.danger + '50' : colors.primary + '50',
+                }}
                 onPress={toggleMicTest}
-                activeOpacity={0.75}
               >
-                <Text style={styles.testMicText}>
-                  {isTestingMic
-                    ? "Stop Test"
-                    : micTestStatus === "checking"
-                      ? "Checking..."
-                      : "Test Microphone"}
+                <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isTestingMic ? colors.danger : colors.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}><Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><Path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></Svg>
+                <Text style={{ color: isTestingMic ? colors.danger : colors.primary, fontWeight: "600", fontSize: 14 }}>
+                  {isTestingMic ? "Stop Test" : micTestStatus === "checking" ? "Checking..." : "Test Mic"}
                 </Text>
               </TouchableOpacity>
+              <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 8 }}>
+                {isTestingMic ? "Meter shows live input" : "Tap to run hardware test"}
+              </Text>
+            </View>
 
-              {/* Bouncing Level Meter */}
+            <View style={{ width: 120 }}>
               {renderMicLevelMeter()}
             </View>
-            <Text style={[styles.micTestDesc, { color: colors.textMuted }]}>
-              {isTestingMic
-                ? "Speak now. The meter is following live microphone input."
-                : micTestStatus === "checking"
-                  ? "Requesting microphone access..."
-                  : "Tap to run a real device microphone input test."}
-            </Text>
           </View>
         </View>
 
@@ -1200,72 +1181,67 @@ export default function ProfileScreen({ route, navigation }) {
             Preferences
           </Text>
           <View
-            style={[
-              styles.toggleList,
-              { backgroundColor: colors.cardBg, borderColor: colors.border },
-            ]}
+            style={{
+              backgroundColor: colors.cardBg,
+              borderColor: colors.border,
+              borderWidth: 1,
+              borderRadius: 16,
+              paddingHorizontal: 16,
+            }}
           >
-            <View
-              style={[styles.toggleItem, { borderBottomColor: colors.border }]}
-            >
-              <Text style={[styles.toggleLabel, { color: colors.text }]}>
-                Dark Theme Mode
-              </Text>
-              <Switch
-                value={currentUser.prefDarkTheme}
-                onValueChange={() => handleTogglePref("prefDarkTheme")}
-                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
-              />
+            {/* Dark Theme */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 6, borderRadius: 8, marginRight: 12 }}>
+                  <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></Svg>
+                </View>
+                <Text style={{ fontSize: 15, color: colors.text, fontWeight: "500" }}>Dark Theme</Text>
+              </View>
+              <Switch value={currentUser.prefDarkTheme} onValueChange={() => handleTogglePref("prefDarkTheme")} trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }} />
             </View>
 
-            <View
-              style={[styles.toggleItem, { borderBottomColor: colors.border }]}
-            >
-              <Text style={[styles.toggleLabel, { color: colors.text }]}>
-                Auto-translate Incoming Voice
-              </Text>
-              <Switch
-                value={currentUser.prefAutoTrans}
-                onValueChange={() => handleTogglePref("prefAutoTrans")}
-                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
-              />
+            {/* Auto Translate */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 6, borderRadius: 8, marginRight: 12 }}>
+                  <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Circle cx="12" cy="12" r="10" /><Line x1="2" y1="12" x2="22" y2="12" /><Path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></Svg>
+                </View>
+                <Text style={{ fontSize: 15, color: colors.text, fontWeight: "500" }}>Auto-Translate Audio</Text>
+              </View>
+              <Switch value={currentUser.prefAutoTrans} onValueChange={() => handleTogglePref("prefAutoTrans")} trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }} />
             </View>
 
-            <View
-              style={[styles.toggleItem, { borderBottomColor: colors.border }]}
-            >
-              <Text style={[styles.toggleLabel, { color: colors.text }]}>
-                Haptic Feedback on Mic Activation
-              </Text>
-              <Switch
-                value={currentUser.prefHaptics}
-                onValueChange={() => handleTogglePref("prefHaptics")}
-                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
-              />
+            {/* Haptics */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 6, borderRadius: 8, marginRight: 12 }}>
+                  <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><Line x1="12" y1="18" x2="12.01" y2="18" /></Svg>
+                </View>
+                <Text style={{ fontSize: 15, color: colors.text, fontWeight: "500" }}>Haptic Feedback</Text>
+              </View>
+              <Switch value={currentUser.prefHaptics} onValueChange={() => handleTogglePref("prefHaptics")} trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }} />
             </View>
 
-            <View
-              style={[styles.toggleItem, { borderBottomColor: colors.border }]}
-            >
-              <Text style={[styles.toggleLabel, { color: colors.text }]}>
-                Voice Activation Detection (VAD)
-              </Text>
-              <Switch
-                value={currentUser.prefVad}
-                onValueChange={() => handleTogglePref("prefVad")}
-                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
-              />
+            {/* VAD */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 6, borderRadius: 8, marginRight: 12 }}>
+                  <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Path d="M2 12h4l2-9 5 18 3-9h6" /></Svg>
+                </View>
+                <Text style={{ fontSize: 15, color: colors.text, fontWeight: "500" }}>Voice Activity Detection</Text>
+              </View>
+              <Switch value={currentUser.prefVad} onValueChange={() => handleTogglePref("prefVad")} trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }} />
             </View>
 
-            <View style={styles.toggleItem}>
-              <Text style={[styles.toggleLabel, { color: colors.text }]}>
-                Enable Chat Text Transcripts
-              </Text>
-              <Switch
-                value={currentUser.prefShowTranscripts}
-                onValueChange={() => handleTogglePref("prefShowTranscripts")}
-                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
-              />
+            {/* Transcripts */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 6, borderRadius: 8, marginRight: 12 }}>
+                  <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></Svg>
+                </View>
+                <Text style={{ fontSize: 15, color: colors.text, fontWeight: "500" }}>Show Transcripts</Text>
+              </View>
+              <Switch value={currentUser.prefShowTranscripts} onValueChange={() => handleTogglePref("prefShowTranscripts")} trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }} />
             </View>
           </View>
         </View>

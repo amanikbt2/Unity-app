@@ -293,6 +293,7 @@ export default function HomeScreen({ navigation }) {
   const [onboardingVisible, setOnboardingVisible] = useState(true);
   const [contactsFilter, setContactsFilter] = useState("my");
   const [contacts, setContacts] = useState(INITIAL_CONTACTS);
+  const [syncedCount, setSyncedCount] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
   const [imported, setImported] = useState(false);
   const [showImportSuccess, setShowImportSuccess] = useState(true);
@@ -472,30 +473,27 @@ export default function HomeScreen({ navigation }) {
 
     (async () => {
       const nextTranslations = {};
-      await Promise.all(
-        normalizePosts(posts)
-          .slice(0, 12)
-          .map(async (post) => {
-            const sourceText = getPostDisplayText(post);
-            if (!sourceText) return;
+      const postsToTranslate = normalizePosts(posts).slice(0, 12);
+      for (const post of postsToTranslate) {
+        if (!isActive) break;
+        const sourceText = getPostDisplayText(post);
+        if (!sourceText) continue;
 
-            try {
-              const translated = await translateText(
-                sourceText,
-                targetLang.code,
-              );
-              if (isActive && translated?.trim()) {
-                nextTranslations[post.id] = translated.trim();
-              }
-            } catch (error) {
-              console.warn("[HomeScreen] Post translation failed:", error);
-            }
-          }),
-      );
-
-      if (isActive) {
-        setPostTranslations(nextTranslations);
+        try {
+          const translated = await translateText(
+            sourceText,
+            targetLang.code,
+          );
+          if (isActive && translated?.trim()) {
+            nextTranslations[post.id] = translated.trim();
+            // Update state incrementally so UI doesn't wait for all
+            setPostTranslations(prev => ({ ...prev, [post.id]: translated.trim() }));
+          }
+        } catch (error) {
+          console.warn("[HomeScreen] Post translation failed:", error);
+        }
       }
+
     })();
 
     return () => {
@@ -572,7 +570,14 @@ export default function HomeScreen({ navigation }) {
   useEffect(() => {
     async function loadLocalData() {
       try {
-        await initDatabase();
+        const dbSuccess = await initDatabase();
+        if (!dbSuccess) {
+          console.warn("[HomeScreen] Database initialization failed. Skipping local data load.");
+          // Still try to fetch from server if possible
+          preFetchServerData();
+          return;
+        }
+
         await initDirectories();
 
         // 1. Load Contacts
@@ -732,7 +737,7 @@ export default function HomeScreen({ navigation }) {
   const handleStartConv = () => {
     trackEvent("opened_start_conversation", currentUser, {});
     setStartConvSearch("");
-    setStartConvFilter("contacts");
+    setStartConvFilter("global");
     setStartConvModalVisible(true);
   };
 
@@ -957,6 +962,7 @@ export default function HomeScreen({ navigation }) {
         // Refresh local contacts list
         const updatedContacts = await getDbContacts();
         setContacts(updatedContacts);
+        setSyncedCount(formattedContacts.length);
         setImported(true);
         setShowImportSuccess(true);
         setTimeout(() => setShowImportSuccess(false), 30000);
@@ -976,7 +982,7 @@ export default function HomeScreen({ navigation }) {
       }
     } catch (e) {
       console.error("[Contacts] Sync error:", e);
-      Alert.alert("Sync Failed", "An error occurred while importing contacts.");
+      Alert.alert("Sync Failed", `An error occurred while importing contacts: ${e.message || String(e)}`);
     } finally {
       setIsImporting(false);
     }
@@ -1914,35 +1920,7 @@ export default function HomeScreen({ navigation }) {
                   />
                 </View>
 
-                {/* Simulate Message Button */}
-                <TouchableOpacity
-                  style={{
-                    backgroundColor: colors.primary + '20',
-                    borderWidth: 1,
-                    borderColor: colors.primary + '40',
-                    borderRadius: 12,
-                    padding: 12,
-                    marginBottom: 16,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                  activeOpacity={0.7}
-                  onPress={async () => {
-                    const nonMeContacts = contacts.filter(c => c.id !== "me" && c.name !== "Me");
-                    if (nonMeContacts.length === 0) return;
-                    const randomContact = nonMeContacts[Math.floor(Math.random() * nonMeContacts.length)];
-                    await incrementContactUnread(randomContact.id, Date.now());
-                    const latestContacts = await getDbContacts();
-                    setContacts(latestContacts);
-                    scheduleLocalNotification("New message", `You have a new simulated message from ${randomContact.name}`, { seconds: 1 });
-                  }}
-                >
-                  <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}>
-                    <Path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-                  </Svg>
-                  <Text style={{ color: colors.primary, fontWeight: '600' }}>Simulate Incoming Message</Text>
-                </TouchableOpacity>
+
                 {!imported ? (
                   <TouchableOpacity
                     style={[
@@ -2026,7 +2004,7 @@ export default function HomeScreen({ navigation }) {
                         { color: colors.accent },
                       ]}
                     >
-                      ✓ Successfully synced {contacts.length} phone contacts!
+                      ✓ Successfully synced {syncedCount} phone contacts!
                     </Text>
                   </View>
                 ) : null}
@@ -3862,69 +3840,7 @@ export default function HomeScreen({ navigation }) {
               </TouchableOpacity>
             </View>
 
-            {/* Filter Tabs / Chips: "From Contact" and "From Global" */}
-            <View style={styles.modalFilterRow}>
-              <TouchableOpacity
-                style={[
-                  styles.modalFilterChip,
-                  startConvFilter === "contacts"
-                    ? {
-                        backgroundColor: colors.primaryGlow,
-                        borderColor: colors.primary,
-                      }
-                    : {
-                        backgroundColor: colors.bg,
-                        borderColor: colors.border,
-                      },
-                ]}
-                onPress={() => setStartConvFilter("contacts")}
-              >
-                <Text
-                  style={[
-                    styles.modalFilterChipText,
-                    {
-                      color:
-                        startConvFilter === "contacts"
-                          ? colors.primary
-                          : colors.textMuted,
-                    },
-                  ]}
-                >
-                  From Contacts
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.modalFilterChip,
-                  startConvFilter === "global"
-                    ? {
-                        backgroundColor: colors.primaryGlow,
-                        borderColor: colors.primary,
-                      }
-                    : {
-                        backgroundColor: colors.bg,
-                        borderColor: colors.border,
-                      },
-                ]}
-                onPress={() => setStartConvFilter("global")}
-              >
-                <Text
-                  style={[
-                    styles.modalFilterChipText,
-                    {
-                      color:
-                        startConvFilter === "global"
-                          ? colors.primary
-                          : colors.textMuted,
-                    },
-                  ]}
-                >
-                  From Global
-                </Text>
-              </TouchableOpacity>
-            </View>
-
+            {/* Filter Tabs removed as per user request (now defaults to global) */}
             {/* Search Input */}
             <View
               style={[

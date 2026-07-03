@@ -11,6 +11,7 @@ import AuthScreen from "./src/screens/AuthScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import ConversationScreen from "./src/screens/ConversationScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
+import AppAnnouncerModal from "./src/components/AppAnnouncerModal";
 
 const Stack = createNativeStackNavigator();
 
@@ -44,6 +45,9 @@ const AppContent = () => {
           <Stack.Screen name="Profile" component={ProfileScreen} />
         </Stack.Navigator>
       </NavigationContainer>
+      
+      {/* Global Admin Popup Announcer */}
+      <AppAnnouncerModal />
     </SafeAreaProvider>
   );
 };

@@ -121,24 +121,28 @@ export async function initDatabase() {
       );
     `);
 
-    const contactColumns = await db.getAllAsync("PRAGMA table_info(contacts);");
-    const existingContactColumns = new Set(
-      contactColumns.map((column) => column.name),
-    );
-    if (!existingContactColumns.has("is_unity_user")) {
-      await db.execAsync(
-        "ALTER TABLE contacts ADD COLUMN is_unity_user INTEGER DEFAULT 0;",
+    try {
+      const contactColumns = await db.getAllAsync("PRAGMA table_info(contacts);");
+      const existingContactColumns = new Set(
+        contactColumns.map((column) => column.name),
       );
-    }
-    if (!existingContactColumns.has("unread_count")) {
-      await db.execAsync(
-        "ALTER TABLE contacts ADD COLUMN unread_count INTEGER DEFAULT 0;",
-      );
-    }
-    if (!existingContactColumns.has("last_message_time")) {
-      await db.execAsync(
-        "ALTER TABLE contacts ADD COLUMN last_message_time INTEGER DEFAULT 0;",
-      );
+      if (!existingContactColumns.has("is_unity_user")) {
+        await db.runAsync(
+          "ALTER TABLE contacts ADD COLUMN is_unity_user INTEGER DEFAULT 0;",
+        );
+      }
+      if (!existingContactColumns.has("unread_count")) {
+        await db.runAsync(
+          "ALTER TABLE contacts ADD COLUMN unread_count INTEGER DEFAULT 0;",
+        );
+      }
+      if (!existingContactColumns.has("last_message_time")) {
+        await db.runAsync(
+          "ALTER TABLE contacts ADD COLUMN last_message_time INTEGER DEFAULT 0;",
+        );
+      }
+    } catch (e) {
+      console.warn("Error migrating contacts table:", e);
     }
 
     // Create chats table (stores only text translations, not raw voice files)
@@ -180,18 +184,22 @@ export async function initDatabase() {
       );
     `);
 
-    const postColumns = await db.getAllAsync("PRAGMA table_info(posts);");
-    const existingPostColumns = new Set(
-      postColumns.map((column) => column.name),
-    );
-    for (const [columnName, columnType] of Object.entries(
-      POSTS_SCHEMA_COLUMNS,
-    )) {
-      if (!existingPostColumns.has(columnName)) {
-        await db.execAsync(
-          `ALTER TABLE posts ADD COLUMN ${columnName} ${columnType};`,
-        );
+    try {
+      const postColumns = await db.getAllAsync("PRAGMA table_info(posts);");
+      const existingPostColumns = new Set(
+        postColumns.map((column) => column.name),
+      );
+      for (const [columnName, columnType] of Object.entries(
+        POSTS_SCHEMA_COLUMNS,
+      )) {
+        if (!existingPostColumns.has(columnName)) {
+          await db.runAsync(
+            `ALTER TABLE posts ADD COLUMN ${columnName} ${columnType};`,
+          );
+        }
       }
+    } catch (e) {
+      console.warn("Error migrating posts table:", e);
     }
 
     // Create explore_profiles table

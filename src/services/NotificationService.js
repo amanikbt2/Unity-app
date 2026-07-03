@@ -1,6 +1,7 @@
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import notifee, { AndroidStyle, AndroidImportance } from '@notifee/react-native';
 
 // Set up the notification handler for when the app is in the foreground
 Notifications.setNotificationHandler({
@@ -61,4 +62,67 @@ export async function scheduleLocalNotification(title, body, trigger = null) {
     },
     trigger, // e.g. { seconds: 120 } for 2 minutes from now, or null for immediate
   });
+}
+
+export async function displayMessageNotification(senderName, messageText, avatarUrl = null) {
+  if (Platform.OS === 'web') return; // Notifee is not supported on web
+
+  try {
+    // Request permissions (required for iOS)
+    await notifee.requestPermission();
+
+  let channelId = 'default';
+
+  if (Platform.OS === 'android') {
+    // Create a channel (required for Android)
+    channelId = await notifee.createChannel({
+      id: 'messages',
+      name: 'Messages',
+      importance: AndroidImportance.HIGH,
+    });
+  }
+
+  // Build Android notification
+  const androidConfig = {
+    channelId,
+    smallIcon: 'ic_launcher', // fallback to default app icon
+    color: '#8B5CF6',
+    pressAction: {
+      id: 'default',
+    },
+    // The main style for WhatsApp-like messaging layout
+    style: {
+      type: AndroidStyle.MESSAGING,
+      person: {
+        name: senderName,
+        icon: avatarUrl || undefined,
+      },
+      messages: [
+        {
+          text: messageText,
+          timestamp: Date.now(),
+          person: {
+            name: senderName,
+            icon: avatarUrl || undefined,
+          },
+        },
+      ],
+      title: `${senderName} • UnityApp`, // "Unity AI . UnityApp"
+    },
+  };
+
+  // If we have an avatar URL, also use it as the largeIcon
+  if (avatarUrl && Platform.OS === 'android') {
+    androidConfig.largeIcon = avatarUrl;
+  }
+
+    // Display a notification
+    await notifee.displayNotification({
+      title: senderName,
+      body: messageText,
+      android: androidConfig,
+    });
+  } catch (error) {
+    console.warn("Failed to display notification:", error);
+  }
 }
