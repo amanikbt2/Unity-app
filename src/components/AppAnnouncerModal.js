@@ -15,18 +15,27 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppContext } from '../context/AppContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import Constants from 'expo-constants';
-import Svg, { X } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 
 const { width, height } = Dimensions.get('window');
 
 const AppAnnouncerModal = () => {
-  const { isDark, colors } = useContext(AppContext);
+  const { currentUser } = useContext(AppContext);
+  const isDark = currentUser?.prefDarkTheme || false;
+  const colors = {
+    bg: isDark ? "#0A0612" : "#F8FAFC",
+    cardBg: isDark ? "#120C24" : "#FFFFFF",
+    border: isDark ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)",
+    text: isDark ? "#F3F4F6" : "#0F172A",
+    textMuted: isDark ? "#9CA3AF" : "#475569",
+    textDimmed: isDark ? "#6B7280" : "#64748B",
+    accent: isDark ? "#06B6D4" : "#0284C7",
+    primary: isDark ? "#8B5CF6" : "#4F46E5",
+    primaryGlow: isDark ? "rgba(139, 92, 246, 0.15)" : "rgba(79, 70, 229, 0.08)",
+    headerBg: isDark ? "rgba(10, 6, 18, 0.85)" : "rgba(241, 245, 249, 0.95)",
+  };
   const [popup, setPopup] = useState(null);
   const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    fetchLatestPopup();
-  }, []);
 
   const fetchLatestPopup = async () => {
     try {
@@ -54,6 +63,10 @@ const AppAnnouncerModal = () => {
       console.warn("Failed to fetch app popups:", error.message);
     }
   };
+
+  useEffect(() => {
+    fetchLatestPopup();
+  }, []);
 
   const handleDismiss = async () => {
     if (popup?.id) {
@@ -116,7 +129,7 @@ const AppAnnouncerModal = () => {
             >
               <View style={[styles.closeCircle, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
                 <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <X />
+                  <Path d="M18 6L6 18M6 6l12 12" />
                 </Svg>
               </View>
             </TouchableOpacity>
