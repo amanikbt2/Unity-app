@@ -80,11 +80,15 @@ export async function createPost({
         } catch (e) {
           console.error("Failed to append web image blob", e);
         }
-      } else if (uri.startsWith('file://')) {
+      } else {
+        let fileUri = uri;
+        if (!fileUri.startsWith('file://') && !fileUri.startsWith('content://') && !fileUri.startsWith('http')) {
+          fileUri = 'file://' + fileUri;
+        }
         formData.append('images', {
-          uri: uri,
-          name: getFileNameFromUri(uri),
-          type: getMimeTypeFromUri(uri),
+          uri: fileUri,
+          name: getFileNameFromUri(fileUri),
+          type: getMimeTypeFromUri(fileUri),
         });
       }
     }

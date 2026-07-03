@@ -2,6 +2,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
+import * as FileSystem from 'expo-file-system';
 
 let BASE_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
 
@@ -122,6 +123,8 @@ export async function translateText(text, targetLang) {
   }
 }
 
+
+
 /**
  * Transcribes and translates a voice recording file using the secure backend gateway.
  */
@@ -129,38 +132,61 @@ export async function translateVoice(audioUri, targetLang) {
   if (!audioUri) throw new Error("No audio URI provided");
 
   try {
-    const formData = new FormData();
-
     if (Platform.OS === 'web') {
+      const formData = new FormData();
       const fetchResponse = await fetch(audioUri);
       const blob = await fetchResponse.blob();
       formData.append("audio", blob, "recording.m4a");
-    } else {
-      formData.append("audio", {
-        uri: audioUri,
-        name: "recording.m4a",
-        type: "audio/m4a",
+      formData.append("targetLang", targetLang);
+
+      const response = await fetchWithRetry(`${BASE_URL}/api/translate-voice`, {
+        method: "POST",
+        body: formData,
+        headers: { Accept: "application/json" },
       });
+
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+
+      const data = await response.json();
+      return {
+        transcription: data.transcription || "",
+        translation: data.translation || "",
+      };
+    } else {
+      // Use expo-file-system for Native uploads to avoid FormData polyfill issues
+      let fileUri = audioUri;
+      if (!fileUri.startsWith('file://') && !fileUri.startsWith('content://') && !fileUri.startsWith('http')) {
+        fileUri = 'file://' + fileUri;
+      }
+
+      // We cannot easily use fetchWithRetry here, so we do a standard upload
+      const response = await FileSystem.uploadAsync(`${BASE_URL}/api/translate-voice`, fileUri, {
+        httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+        fieldName: 'audio',
+        mimeType: 'audio/m4a',
+        parameters: {
+          targetLang: targetLang,
+        },
+      });
+
+      if (response.status < 200 || response.status >= 300) {
+        let errorMsg = `Upload failed with status ${response.status}`;
+        try {
+          const body = JSON.parse(response.body);
+          if (body.error) errorMsg = body.error;
+        } catch (e) {}
+        throw new Error(errorMsg);
+      }
+
+      const data = JSON.parse(response.body);
+      return {
+        transcription: data.transcription || "",
+        translation: data.translation || "",
+      };
     }
-    formData.append("targetLang", targetLang);
-
-    const response = await fetchWithRetry(`${BASE_URL}/api/translate-voice`, {
-      method: "POST",
-      body: formData,
-      headers: {
-        Accept: "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(await readErrorMessage(response));
-    }
-
-    const data = await response.json();
-    return {
-      transcription: data.transcription || "",
-      translation: data.translation || "",
-    };
   } catch (error) {
     console.error("Voice translation service error:", error);
     throw error;

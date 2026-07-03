@@ -22,7 +22,7 @@ const { width, height } = Dimensions.get('window');
 const AppAnnouncerModal = () => {
   const { currentUser } = useContext(AppContext);
   const isDark = currentUser?.prefDarkTheme || false;
-  const colors = {
+  const themeColors = {
     bg: isDark ? "#0A0612" : "#F8FAFC",
     cardBg: isDark ? "#120C24" : "#FFFFFF",
     border: isDark ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)",
@@ -102,7 +102,7 @@ const AppAnnouncerModal = () => {
       }}
     >
       <View style={styles.overlay}>
-        <View style={[styles.modalContainer, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
+        <View style={[styles.modalContainer, { backgroundColor: themeColors.cardBg, borderColor: themeColors.border }]}>
           
           {/* Header Image */}
           {popup.imageUrl ? (
@@ -113,7 +113,7 @@ const AppAnnouncerModal = () => {
             />
           ) : (
             <LinearGradient
-              colors={[colors.primary, colors.accent || '#06B6D4']}
+              colors={[themeColors.primary, themeColors.accent || '#06B6D4']}
               style={styles.gradientHeader}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
@@ -138,12 +138,12 @@ const AppAnnouncerModal = () => {
           {/* Content */}
           <ScrollView style={styles.contentContainer} showsVerticalScrollIndicator={false}>
             {popup.subtopic ? (
-              <Text style={[styles.subtopic, { color: colors.primary }]}>{popup.subtopic.toUpperCase()}</Text>
+              <Text style={[styles.subtopic, { color: themeColors.primary }]}>{popup.subtopic.toUpperCase()}</Text>
             ) : null}
             
-            <Text style={[styles.title, { color: colors.text }]}>{popup.title}</Text>
+            <Text style={[styles.title, { color: themeColors.text }]}>{popup.title}</Text>
             
-            <Text style={[styles.bodyText, { color: colors.textMuted }]}>
+            <Text style={[styles.bodyText, { color: themeColors.textMuted }]}>
               {popup.text}
             </Text>
           </ScrollView>
@@ -156,19 +156,19 @@ const AppAnnouncerModal = () => {
                   key={idx}
                   style={[
                     styles.actionBtn, 
-                    { backgroundColor: idx === 0 ? colors.primary : colors.cardBg, borderColor: idx === 0 ? colors.primary : colors.border }
+                    { backgroundColor: idx === 0 ? themeColors.primary : themeColors.cardBg, borderColor: idx === 0 ? themeColors.primary : themeColors.border }
                   ]}
                   onPress={() => handleAction(action.url)}
                   activeOpacity={0.8}
                 >
-                  <Text style={[styles.actionText, { color: idx === 0 ? '#FFFFFF' : colors.text }]}>
+                  <Text style={[styles.actionText, { color: idx === 0 ? '#FFFFFF' : themeColors.text }]}>
                     {action.label}
                   </Text>
                 </TouchableOpacity>
               ))
             ) : (
               <TouchableOpacity
-                style={[styles.actionBtn, { backgroundColor: colors.primary, borderColor: colors.primary }]}
+                style={[styles.actionBtn, { backgroundColor: themeColors.primary, borderColor: themeColors.primary }]}
                 onPress={handleDismiss}
                 activeOpacity={0.8}
               >

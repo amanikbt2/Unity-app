@@ -222,7 +222,7 @@ const normalizePost = (post) => ({
   likes: typeof post?.likes === "number" ? post.likes : 0,
   liked: Boolean(post?.liked),
   comments: Array.isArray(post?.comments) ? post.comments : [],
-  images: Array.isArray(post?.images) ? post.images : (post?.image ? [post.image] : []),
+  images: Array.isArray(post?.images) ? post.images : (Array.isArray(post?.imageUrls) ? post.imageUrls : (post?.image ? [post.image] : [])),
   images_local_paths: Array.isArray(post?.images_local_paths) ? post.images_local_paths : [],
 });
 
@@ -516,8 +516,9 @@ export default function HomeScreen({ navigation }) {
         // Cache images in background
         const postsWithCachedMedia = await Promise.all(
           remotePosts.map(async (post) => {
-            const localImages = post.images?.length > 0
-              ? await Promise.all(post.images.map(img => cacheRemoteImage(img, "image")))
+            const postImages = post.imageUrls || post.images || [];
+            const localImages = postImages.length > 0
+              ? await Promise.all(postImages.map(img => cacheRemoteImage(img, "image")))
               : [];
             const localAvatar = post.avatar
               ? await cacheRemoteImage(post.avatar, "avatar")
@@ -964,16 +965,23 @@ export default function HomeScreen({ navigation }) {
         setContacts(updatedContacts);
         setSyncedCount(formattedContacts.length);
         setImported(true);
-        setShowImportSuccess(true);
-        setTimeout(() => setShowImportSuccess(false), 30000);
+        
+        if (formattedContacts.length > 0) {
+          setShowImportSuccess(true);
+          setTimeout(() => setShowImportSuccess(false), 30000);
+          Alert.alert(
+            "Sync Complete",
+            `Successfully synced ${formattedContacts.length} contacts from your phone!`,
+          );
+        } else {
+          Alert.alert(
+            "Sync Complete",
+            "No new contacts were found to sync.",
+          );
+        }
 
         // Save the import check timestamp for next 7-day cycle
         await saveLastImportCheckTime(Date.now());
-
-        Alert.alert(
-          "Sync Complete",
-          `Successfully synced ${formattedContacts.length} contacts from your phone!`,
-        );
       } else {
         Alert.alert(
           "No Contacts Found",
@@ -1331,14 +1339,14 @@ export default function HomeScreen({ navigation }) {
   });
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.bg }]}>
+    <View style={[styles.container, { backgroundColor:colors.bg }]}>
       <SafeAreaView
         style={[
           styles.safeArea,
           {
             borderBottomWidth: 1,
-            borderBottomColor: colors.border,
-            backgroundColor: colors.cardBg,
+            borderBottomColor:colors.border,
+            backgroundColor:colors.cardBg,
           },
         ]}
         edges={["top", "left", "right"]}
@@ -1346,7 +1354,7 @@ export default function HomeScreen({ navigation }) {
         {/* Header bar */}
         <View style={styles.header}>
           <View>
-            <Text style={[styles.headerGreeting, { color: colors.text }]}>
+            <Text style={[styles.headerGreeting, { color:colors.text }]}>
               {activeTab === "chats"
                 ? "Chats"
                 : activeTab === "updates"
@@ -1355,7 +1363,7 @@ export default function HomeScreen({ navigation }) {
                     ? "Contacts"
                     : "Calls"}
             </Text>
-            <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
+            <Text style={[styles.headerSubtitle, { color:colors.textMuted }]}>
               {activeTab === "chats"
                 ? "You're ready to communicate instantly"
                 : activeTab === "updates"
@@ -1367,7 +1375,7 @@ export default function HomeScreen({ navigation }) {
           </View>
           {/* Menu Button (Three horizontal lines menu like WhatsApp) */}
           <TouchableOpacity
-            style={[styles.menuBtn, { backgroundColor: colors.border }]}
+            style={[styles.menuBtn, { backgroundColor:colors.border }]}
             onPress={handleOpenSettings}
             activeOpacity={0.7}
           >
@@ -1404,7 +1412,7 @@ export default function HomeScreen({ navigation }) {
                     styles.pulseRing,
                     {
                       borderWidth: 1.5,
-                      borderColor: colors.primary,
+                      borderColor:colors.primary,
                       backgroundColor: "transparent",
                       transform: [
                         {
@@ -1428,7 +1436,7 @@ export default function HomeScreen({ navigation }) {
                     styles.pulseRing,
                     {
                       borderWidth: 1.5,
-                      borderColor: colors.primary,
+                      borderColor:colors.primary,
                       backgroundColor: "transparent",
                       transform: [
                         {
@@ -1452,7 +1460,7 @@ export default function HomeScreen({ navigation }) {
                     styles.pulseRing,
                     {
                       borderWidth: 1.5,
-                      borderColor: colors.primary,
+                      borderColor:colors.primary,
                       backgroundColor: "transparent",
                       transform: [
                         {
@@ -1471,7 +1479,7 @@ export default function HomeScreen({ navigation }) {
                 />
 
                 <TouchableOpacity
-                  style={[styles.giantCta, { backgroundColor: colors.primary }]}
+                  style={[styles.giantCta, { backgroundColor:colors.primary }]}
                   onPress={handleStartConv}
                   activeOpacity={0.85}
                 >
@@ -1498,27 +1506,27 @@ export default function HomeScreen({ navigation }) {
                   </LinearGradient>
                 </TouchableOpacity>
               </View>
-              <Text style={[styles.ctaTitle, { color: colors.text }]}>
+              <Text style={[styles.ctaTitle, { color:colors.text }]}>
                 Start a Conversation
               </Text>
-              <Text style={[styles.ctaSubtitle, { color: colors.textMuted }]}>
+              <Text style={[styles.ctaSubtitle, { color:colors.textMuted }]}>
                 Tap to start new conversation
               </Text>
             </View>
 
-            <Text style={[styles.sectionTitle, { color: colors.textDimmed }]}>
+            <Text style={[styles.sectionTitle, { color:colors.textDimmed }]}>
               Recent Conversations
             </Text>
 
             <View
               style={[
                 styles.convList,
-                { backgroundColor: colors.cardBg, borderColor: colors.border },
+                { backgroundColor:colors.cardBg, borderColor:colors.border },
               ]}
             >
               {/* Unity AI Card */}
               <View
-                style={[styles.convCard, { borderBottomColor: colors.border }]}
+                style={[styles.convCard, { borderBottomColor:colors.border }]}
               >
                 <TouchableOpacity
                   activeOpacity={0.85}
@@ -1531,7 +1539,7 @@ export default function HomeScreen({ navigation }) {
                     style={styles.avatar}
                   />
                   <View
-                    style={[styles.flagBadge, { backgroundColor: colors.bg }]}
+                    style={[styles.flagBadge, { backgroundColor:colors.bg }]}
                   >
                     {renderFlagOrEmoji(LANGS[currentUser.unityAILang]?.flag || "🌍")}
                   </View>
@@ -1539,7 +1547,7 @@ export default function HomeScreen({ navigation }) {
                     <View
                       style={[
                         styles.onlineBadge,
-                        { borderColor: colors.cardBg },
+                        { borderColor:colors.cardBg },
                       ]}
                     />
                   )}
@@ -1562,18 +1570,18 @@ export default function HomeScreen({ navigation }) {
                   <View style={styles.convDetails}>
                     <View style={styles.convHeader}>
                       <Text
-                        style={[styles.partnerName, { color: colors.text, fontWeight: "700" }]}
+                        style={[styles.partnerName, { color:colors.text, fontWeight: "700" }]}
                       >
                         {INITIAL_CONTACTS[0].name}
                       </Text>
                       <Text
-                        style={[styles.convTime, { color: colors.textDimmed }]}
+                        style={[styles.convTime, { color:colors.textDimmed }]}
                       >
                         Always Online
                       </Text>
                     </View>
                     <Text
-                      style={[styles.convPreview, { color: colors.primary }]}
+                      style={[styles.convPreview, { color:colors.primary }]}
                     >
                       AI is ready to chat!
                     </Text>
@@ -1597,7 +1605,7 @@ export default function HomeScreen({ navigation }) {
 
               {/* Partner Card 1 */}
               <View
-                style={[styles.convCard, { borderBottomColor: colors.border }]}
+                style={[styles.convCard, { borderBottomColor:colors.border }]}
               >
                 <TouchableOpacity
                   activeOpacity={0.85}
@@ -1621,7 +1629,7 @@ export default function HomeScreen({ navigation }) {
                     style={styles.avatar}
                   />
                   <View
-                    style={[styles.flagBadge, { backgroundColor: colors.bg }]}
+                    style={[styles.flagBadge, { backgroundColor:colors.bg }]}
                   >
                     {renderFlagOrEmoji("🇪🇸")}
                   </View>
@@ -1640,18 +1648,18 @@ export default function HomeScreen({ navigation }) {
                   <View style={styles.convDetails}>
                     <View style={styles.convHeader}>
                       <Text
-                        style={[styles.partnerName, { color: colors.text }]}
+                        style={[styles.partnerName, { color:colors.text }]}
                       >
                         Sophia Martinez
                       </Text>
                       <Text
-                        style={[styles.convTime, { color: colors.textDimmed }]}
+                        style={[styles.convTime, { color:colors.textDimmed }]}
                       >
                         2m ago
                       </Text>
                     </View>
                     <Text
-                      style={[styles.convPreview, { color: colors.textMuted }]}
+                      style={[styles.convPreview, { color:colors.textMuted }]}
                     >
                       English ⇄ Spanish (Active)
                     </Text>
@@ -1675,7 +1683,7 @@ export default function HomeScreen({ navigation }) {
 
               {/* Partner Card 2 */}
               <View
-                style={[styles.convCard, { borderBottomColor: colors.border }]}
+                style={[styles.convCard, { borderBottomColor:colors.border }]}
               >
                 <TouchableOpacity
                   activeOpacity={0.85}
@@ -1699,7 +1707,7 @@ export default function HomeScreen({ navigation }) {
                     style={styles.avatar}
                   />
                   <View
-                    style={[styles.flagBadge, { backgroundColor: colors.bg }]}
+                    style={[styles.flagBadge, { backgroundColor:colors.bg }]}
                   >
                     {renderFlagOrEmoji("🇯🇵")}
                   </View>
@@ -1718,18 +1726,18 @@ export default function HomeScreen({ navigation }) {
                   <View style={styles.convDetails}>
                     <View style={styles.convHeader}>
                       <Text
-                        style={[styles.partnerName, { color: colors.text }]}
+                        style={[styles.partnerName, { color:colors.text }]}
                       >
                         Kenji Sato
                       </Text>
                       <Text
-                        style={[styles.convTime, { color: colors.textDimmed }]}
+                        style={[styles.convTime, { color:colors.textDimmed }]}
                       >
                         1h ago
                       </Text>
                     </View>
                     <Text
-                      style={[styles.convPreview, { color: colors.textMuted }]}
+                      style={[styles.convPreview, { color:colors.textMuted }]}
                     >
                       English ⇄ Japanese
                     </Text>
@@ -1775,7 +1783,7 @@ export default function HomeScreen({ navigation }) {
                     style={styles.avatar}
                   />
                   <View
-                    style={[styles.flagBadge, { backgroundColor: colors.bg }]}
+                    style={[styles.flagBadge, { backgroundColor:colors.bg }]}
                   >
                     {renderFlagOrEmoji("🇰🇪")}
                   </View>
@@ -1794,18 +1802,18 @@ export default function HomeScreen({ navigation }) {
                   <View style={styles.convDetails}>
                     <View style={styles.convHeader}>
                       <Text
-                        style={[styles.partnerName, { color: colors.text }]}
+                        style={[styles.partnerName, { color:colors.text }]}
                       >
                         Amara Okoro
                       </Text>
                       <Text
-                        style={[styles.convTime, { color: colors.textDimmed }]}
+                        style={[styles.convTime, { color:colors.textDimmed }]}
                       >
                         Yesterday
                       </Text>
                     </View>
                     <Text
-                      style={[styles.convPreview, { color: colors.textMuted }]}
+                      style={[styles.convPreview, { color:colors.textMuted }]}
                     >
                       English ⇄ Swahili
                     </Text>
@@ -1838,12 +1846,12 @@ export default function HomeScreen({ navigation }) {
                   styles.filterChip,
                   contactsFilter === "my"
                     ? {
-                        backgroundColor: colors.primaryGlow,
-                        borderColor: colors.primary,
+                        backgroundColor:colors.primaryGlow,
+                        borderColor:colors.primary,
                       }
                     : {
-                        backgroundColor: colors.cardBg,
-                        borderColor: colors.border,
+                        backgroundColor:colors.cardBg,
+                        borderColor:colors.border,
                       },
                 ]}
                 activeOpacity={0.7}
@@ -1853,8 +1861,8 @@ export default function HomeScreen({ navigation }) {
                   style={[
                     styles.filterChipText,
                     contactsFilter === "my"
-                      ? { color: colors.primary, fontWeight: "600" }
-                      : { color: colors.textMuted },
+                      ? { color:colors.primary, fontWeight: "600" }
+                      : { color:colors.textMuted },
                   ]}
                 >
                   My Contacts
@@ -1866,12 +1874,12 @@ export default function HomeScreen({ navigation }) {
                   styles.filterChip,
                   contactsFilter === "explore"
                     ? {
-                        backgroundColor: colors.primaryGlow,
-                        borderColor: colors.primary,
+                        backgroundColor:colors.primaryGlow,
+                        borderColor:colors.primary,
                       }
                     : {
-                        backgroundColor: colors.cardBg,
-                        borderColor: colors.border,
+                        backgroundColor:colors.cardBg,
+                        borderColor:colors.border,
                       },
                 ]}
                 activeOpacity={0.7}
@@ -1881,8 +1889,8 @@ export default function HomeScreen({ navigation }) {
                   style={[
                     styles.filterChipText,
                     contactsFilter === "explore"
-                      ? { color: colors.primary, fontWeight: "600" }
-                      : { color: colors.textMuted },
+                      ? { color:colors.primary, fontWeight: "600" }
+                      : { color:colors.textMuted },
                   ]}
                 >
                   Explore People
@@ -1909,7 +1917,7 @@ export default function HomeScreen({ navigation }) {
                   <TextInput
                     style={{
                       flex: 1,
-                      color: colors.text,
+                      color:colors.text,
                       fontSize: 16,
                       outlineStyle: "none",
                     }}
@@ -1921,13 +1929,13 @@ export default function HomeScreen({ navigation }) {
                 </View>
 
 
-                {!imported ? (
+                {true ? (
                   <TouchableOpacity
                     style={[
                       styles.importCard,
                       {
-                        backgroundColor: colors.cardBg,
-                        borderColor: colors.border,
+                        backgroundColor:colors.cardBg,
+                        borderColor:colors.border,
                       },
                     ]}
                     onPress={handleImportContacts}
@@ -1946,7 +1954,7 @@ export default function HomeScreen({ navigation }) {
                       <View
                         style={[
                           styles.importIconContainer,
-                          { backgroundColor: colors.primaryGlow },
+                          { backgroundColor:colors.primaryGlow },
                         ]}
                       >
                         {isImporting ? (
@@ -1971,14 +1979,14 @@ export default function HomeScreen({ navigation }) {
                       </View>
                       <View style={styles.importInfo}>
                         <Text
-                          style={[styles.importTitle, { color: colors.text }]}
+                          style={[styles.importTitle, { color:colors.text }]}
                         >
-                          {isImporting ? "Syncing..." : "Import Phone Contacts"}
+                          {isImporting ? "Syncing..." : "Sync Phone Contacts"}
                         </Text>
                         <Text
                           style={[
                             styles.importDesc,
-                            { color: colors.textMuted },
+                            { color:colors.textMuted },
                           ]}
                         >
                           {isImporting
@@ -1988,20 +1996,22 @@ export default function HomeScreen({ navigation }) {
                       </View>
                     </LinearGradient>
                   </TouchableOpacity>
-                ) : showImportSuccess ? (
+                ) : null}
+                
+                {showImportSuccess && syncedCount > 0 ? (
                   <View
                     style={[
                       styles.importSuccessCard,
                       {
-                        backgroundColor: colors.cardBg,
-                        borderColor: colors.border,
+                        backgroundColor:colors.cardBg,
+                        borderColor:colors.border,
                       },
                     ]}
                   >
                     <Text
                       style={[
                         styles.importSuccessText,
-                        { color: colors.accent },
+                        { color:colors.accent },
                       ]}
                     >
                       ✓ Successfully synced {syncedCount} phone contacts!
@@ -2012,7 +2022,7 @@ export default function HomeScreen({ navigation }) {
                 <Text
                   style={[
                     styles.sectionTitle,
-                    { color: colors.textDimmed, marginTop: 12 },
+                    { color:colors.textDimmed, marginTop: 12 },
                   ]}
                 >
                   My Address Book
@@ -2022,8 +2032,8 @@ export default function HomeScreen({ navigation }) {
                   style={[
                     styles.convList,
                     {
-                      backgroundColor: colors.cardBg,
-                      borderColor: colors.border,
+                      backgroundColor:colors.cardBg,
+                      borderColor:colors.border,
                     },
                   ]}
                 >
@@ -2037,7 +2047,7 @@ export default function HomeScreen({ navigation }) {
                         styles.convCard,
                         index === contacts.length - 1
                           ? { borderBottomWidth: 0 }
-                          : { borderBottomColor: colors.border },
+                          : { borderBottomColor:colors.border },
                       ]}
                       activeOpacity={0.7}
                       onPress={() => {
@@ -2066,14 +2076,14 @@ export default function HomeScreen({ navigation }) {
                           <View
                             style={[
                               styles.onlineBadge,
-                              { borderColor: colors.cardBg },
+                              { borderColor:colors.cardBg },
                             ]}
                           />
                         )}
                         <View
                           style={[
                             styles.flagBadge,
-                            { backgroundColor: colors.bg },
+                            { backgroundColor:colors.bg },
                           ]}
                         >
                           {renderFlagOrEmoji(contact.flag)}
@@ -2082,7 +2092,7 @@ export default function HomeScreen({ navigation }) {
                       <View style={styles.convDetails}>
                         <View style={styles.convHeader}>
                           <Text
-                            style={[styles.partnerName, { color: colors.text }]}
+                            style={[styles.partnerName, { color:colors.text }]}
                           >
                             {contact.name}
                           </Text>
@@ -2103,7 +2113,7 @@ export default function HomeScreen({ navigation }) {
                           <Text
                             style={[
                               styles.contactStatus,
-                              { color: colors.accent, marginLeft: contact.unreadCount > 0 ? 8 : 0 },
+                              { color:colors.accent, marginLeft: contact.unreadCount > 0 ? 8 : 0 },
                             ]}
                           >
                             {contact.status}
@@ -2112,7 +2122,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.convPreview,
-                            { color: colors.textMuted },
+                            { color:colors.textMuted },
                           ]}
                         >
                           Native: {contact.langName}
@@ -2120,8 +2130,8 @@ export default function HomeScreen({ navigation }) {
                       </View>
                       <View style={styles.convArrow}>
                         {contact.isUnityUser === false ? (
-                          <View style={{ backgroundColor: colors.border, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 }}>
-                            <Text style={{ color: colors.text, fontSize: 12, fontWeight: "600" }}>Invite</Text>
+                          <View style={{ backgroundColor:colors.border, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 }}>
+                            <Text style={{ color:colors.text, fontSize: 12, fontWeight: "600" }}>Invite</Text>
                           </View>
                         ) : (
                           <Svg
@@ -2166,7 +2176,7 @@ export default function HomeScreen({ navigation }) {
                   <TextInput
                     style={{
                       flex: 1,
-                      color: colors.text,
+                      color:colors.text,
                       fontSize: 16,
                       outlineStyle: "none",
                     }}
@@ -2184,8 +2194,8 @@ export default function HomeScreen({ navigation }) {
                       style={[
                         styles.exploreCard,
                         {
-                          backgroundColor: colors.cardBg,
-                          borderColor: colors.border,
+                          backgroundColor:colors.cardBg,
+                          borderColor:colors.border,
                         },
                       ]}
                     >
@@ -2198,14 +2208,14 @@ export default function HomeScreen({ navigation }) {
                       <View
                         style={[
                           styles.exploreFlagBadge,
-                          { backgroundColor: colors.bg },
+                          { backgroundColor:colors.bg },
                         ]}
                       >
                         {renderFlagOrEmoji(person.flag)}
                       </View>
                       <View style={styles.exploreCardDetails}>
                         <Text
-                          style={[styles.exploreName, { color: colors.text }]}
+                          style={[styles.exploreName, { color:colors.text }]}
                           numberOfLines={1}
                         >
                           {person.name}
@@ -2213,7 +2223,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.exploreLang,
-                            { color: colors.primary },
+                            { color:colors.primary },
                           ]}
                           numberOfLines={1}
                         >
@@ -2222,7 +2232,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.exploreBio,
-                            { color: colors.textMuted },
+                            { color:colors.textMuted },
                           ]}
                           numberOfLines={2}
                         >
@@ -2231,7 +2241,7 @@ export default function HomeScreen({ navigation }) {
                         <TouchableOpacity
                           style={[
                             styles.exploreCta,
-                            { backgroundColor: colors.primary },
+                            { backgroundColor:colors.primary },
                           ]}
                           onPress={() =>
                             handlePartnerClick(
@@ -2265,7 +2275,7 @@ export default function HomeScreen({ navigation }) {
           <View style={styles.updatesContainer}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, marginBottom: 12 }}>
               {!isPostSearchVisible ? (
-                <Text style={[styles.sectionTitle, { color: colors.textDimmed, margin: 0 }]}>
+                <Text style={[styles.sectionTitle, { color:colors.textDimmed, margin: 0 }]}>
                   Recent Updates
                 </Text>
               ) : (
@@ -2286,7 +2296,7 @@ export default function HomeScreen({ navigation }) {
                     <Path d="M21 21l-4.35-4.35" />
                   </Svg>
                   <TextInput
-                    style={{ flex: 1, color: colors.text, fontSize: 14, outlineStyle: 'none', borderWidth: 0 }}
+                    style={{ flex: 1, color:colors.text, fontSize: 14, outlineStyle: 'none', borderWidth: 0 }}
                     placeholder="Search posts, UTID..."
                     placeholderTextColor={colors.textMuted}
                     onChangeText={setPostSearchText}
@@ -2329,8 +2339,8 @@ export default function HomeScreen({ navigation }) {
                   style={[
                     styles.postCard,
                     {
-                      backgroundColor: colors.cardBg,
-                      borderColor: colors.border,
+                      backgroundColor:colors.cardBg,
+                      borderColor:colors.border,
                       opacity: post.isPending ? 0.7 : 1,
                     },
                   ]}
@@ -2345,7 +2355,7 @@ export default function HomeScreen({ navigation }) {
                       <View
                         style={[
                           styles.flagBadge,
-                          { backgroundColor: colors.bg },
+                          { backgroundColor:colors.bg },
                         ]}
                       >
                         {renderFlagOrEmoji(post.flag)}
@@ -2353,7 +2363,7 @@ export default function HomeScreen({ navigation }) {
                     </View>
                     <View style={[styles.postAuthorInfo, { flex: 1 }]}>
                       <Text
-                        style={[styles.postAuthorName, { color: colors.text }]}
+                        style={[styles.postAuthorName, { color:colors.text }]}
                       >
                         {post.authorName}
                       </Text>
@@ -2361,14 +2371,14 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.postTimeText,
-                            { color: colors.textDimmed },
+                            { color:colors.textDimmed },
                           ]}
                         >
                           {post.time}
                         </Text>
                         {post.isPending && (
                           <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 6 }}>
-                            <Text style={{ color: colors.primary, fontSize: 12, marginRight: 4 }}>• Uploading</Text>
+                            <Text style={{ color:colors.primary, fontSize: 12, marginRight: 4 }}>• Uploading</Text>
                             <ActivityIndicator size="small" color={colors.primary} />
                           </View>
                         )}
@@ -2509,7 +2519,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.postContentText,
-                            { color: colors.text },
+                            { color:colors.text },
                           ]}
                         >
                           {previewText}
@@ -2544,13 +2554,13 @@ export default function HomeScreen({ navigation }) {
                   <View
                     style={[
                       styles.postStatsRow,
-                      { borderBottomColor: colors.border },
+                      { borderBottomColor:colors.border },
                     ]}
                   >
                     <Text
                       style={[
                         styles.postStatsText,
-                        { color: colors.textDimmed },
+                        { color:colors.textDimmed },
                       ]}
                     >
                       {post.likes} {post.likes === 1 ? "Like" : "Likes"}
@@ -2561,7 +2571,7 @@ export default function HomeScreen({ navigation }) {
                       <Text
                         style={[
                           styles.postStatsText,
-                          { color: colors.textDimmed },
+                          { color:colors.textDimmed },
                         ]}
                       >
                         {post.comments?.length ?? 0}{" "}
@@ -2582,8 +2592,8 @@ export default function HomeScreen({ navigation }) {
                         width="20"
                         height="20"
                         viewBox="0 0 24 24"
-                        fill={post.liked ? colors.danger : "none"}
-                        stroke={post.liked ? colors.danger : colors.textMuted}
+                        fill={post.liked ?colors.danger : "none"}
+                        stroke={post.liked ?colors.danger :colors.textMuted}
                         strokeWidth="2"
                       >
                         <Path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
@@ -2593,8 +2603,8 @@ export default function HomeScreen({ navigation }) {
                           styles.postActionText,
                           {
                             color: post.liked
-                              ? colors.danger
-                              : colors.textMuted,
+                              ?colors.danger
+                              :colors.textMuted,
                           },
                         ]}
                       >
@@ -2621,7 +2631,7 @@ export default function HomeScreen({ navigation }) {
                       <Text
                         style={[
                           styles.postActionText,
-                          { color: colors.textMuted },
+                          { color:colors.textMuted },
                         ]}
                       >
                         Comment
@@ -2650,12 +2660,12 @@ export default function HomeScreen({ navigation }) {
                       paddingHorizontal: 16,
                       paddingVertical: 8,
                       borderRadius: 20,
-                      backgroundColor: callsFilter === filterItem ? colors.primary : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'),
+                      backgroundColor: callsFilter === filterItem ?colors.primary : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'),
                     }
                   ]}
                 >
                   <Text style={{
-                    color: callsFilter === filterItem ? '#fff' : colors.text,
+                    color: callsFilter === filterItem ? '#fff' :colors.text,
                     fontWeight: callsFilter === filterItem ? '600' : '500',
                     textTransform: 'capitalize'
                   }}>
@@ -2668,11 +2678,11 @@ export default function HomeScreen({ navigation }) {
             <View
               style={[
                 styles.convList,
-                { backgroundColor: colors.cardBg, borderColor: colors.border },
+                { backgroundColor:colors.cardBg, borderColor:colors.border },
               ]}
             >
               <View
-                style={[styles.convCard, { borderBottomColor: colors.border }]}
+                style={[styles.convCard, { borderBottomColor:colors.border }]}
               >
                 <View style={styles.avatarContainer}>
                   <Image
@@ -2692,17 +2702,17 @@ export default function HomeScreen({ navigation }) {
                 </View>
                 <View style={styles.convDetails}>
                   <View style={styles.convHeader}>
-                    <Text style={[styles.partnerName, { color: colors.text }]}>
+                    <Text style={[styles.partnerName, { color:colors.text }]}>
                       Sophia Martinez
                     </Text>
                     <Text
-                      style={[styles.convTime, { color: colors.textDimmed }]}
+                      style={[styles.convTime, { color:colors.textDimmed }]}
                     >
                       10m ago
                     </Text>
                   </View>
                   <Text
-                    style={[styles.convPreview, { color: colors.textMuted }]}
+                    style={[styles.convPreview, { color:colors.textMuted }]}
                   >
                     Outgoing translation call • 4m 12s
                   </Text>
@@ -2728,17 +2738,17 @@ export default function HomeScreen({ navigation }) {
                 </View>
                 <View style={styles.convDetails}>
                   <View style={styles.convHeader}>
-                    <Text style={[styles.partnerName, { color: colors.text }]}>
+                    <Text style={[styles.partnerName, { color:colors.text }]}>
                       Kenji Sato
                     </Text>
                     <Text
-                      style={[styles.convTime, { color: colors.textDimmed }]}
+                      style={[styles.convTime, { color:colors.textDimmed }]}
                     >
                       Yesterday
                     </Text>
                   </View>
                   <Text
-                    style={[styles.convPreview, { color: colors.textMuted }]}
+                    style={[styles.convPreview, { color:colors.textMuted }]}
                   >
                     Incoming translation call • 12m 40s
                   </Text>
@@ -2771,8 +2781,8 @@ export default function HomeScreen({ navigation }) {
               style={[
                 styles.onboardingCard,
                 {
-                  backgroundColor: colors.cardBg,
-                  borderColor: colors.border,
+                  backgroundColor:colors.cardBg,
+                  borderColor:colors.border,
                 },
               ]}
             >
@@ -2780,7 +2790,7 @@ export default function HomeScreen({ navigation }) {
                 <View
                   style={[
                     styles.promptIcon,
-                    { backgroundColor: colors.primaryGlow },
+                    { backgroundColor:colors.primaryGlow },
                   ]}
                 >
                   <Svg
@@ -2795,13 +2805,13 @@ export default function HomeScreen({ navigation }) {
                   </Svg>
                 </View>
                 <View style={styles.promptDetails}>
-                  <Text style={[styles.promptTitle, { color: colors.text }]}>
+                  <Text style={[styles.promptTitle, { color:colors.text }]}>
                     Complete your profile
                   </Text>
                   <Text
                     style={[
                       styles.promptProgressText,
-                      { color: colors.textMuted },
+                      { color:colors.textMuted },
                     ]}
                   >
                     {onboardingPct}% completed
@@ -2812,7 +2822,7 @@ export default function HomeScreen({ navigation }) {
                   style={styles.closeMiniBtn}
                 >
                   <Text
-                    style={[styles.closeMiniText, { color: colors.textDimmed }]}
+                    style={[styles.closeMiniText, { color:colors.textDimmed }]}
                   >
                     &times;
                   </Text>
@@ -2839,10 +2849,10 @@ export default function HomeScreen({ navigation }) {
                   >
                     <LinearGradient
                       colors={[
-                        colors.primary,
+                       colors.primary,
                         "#EC4899",
-                        colors.accent,
-                        colors.primary,
+                       colors.accent,
+                       colors.primary,
                       ]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
@@ -2863,8 +2873,8 @@ export default function HomeScreen({ navigation }) {
                         task.isCompleted
                           ? styles.pillCompleted
                           : {
-                              backgroundColor: colors.bg,
-                              borderColor: colors.border,
+                              backgroundColor:colors.bg,
+                              borderColor:colors.border,
                             },
                       ]}
                       disabled={task.isCompleted}
@@ -2875,7 +2885,7 @@ export default function HomeScreen({ navigation }) {
                           styles.pillLabel,
                           task.isCompleted
                             ? styles.pillLabelCompleted
-                            : { color: colors.textMuted },
+                            : { color:colors.textMuted },
                         ]}
                       >
                         {task.isCompleted
@@ -2889,7 +2899,7 @@ export default function HomeScreen({ navigation }) {
                 <View style={styles.shoutoutContainer}>
                   <Text style={styles.shoutoutTitle}>🎉 Profile Complete!</Text>
                   <Text
-                    style={[styles.shoutoutText, { color: colors.textDimmed }]}
+                    style={[styles.shoutoutText, { color:colors.textDimmed }]}
                   >
                     {
                       "You're all set! You can customize settings in the settings menu."
@@ -2973,8 +2983,8 @@ export default function HomeScreen({ navigation }) {
         style={[
           styles.tabBar,
           {
-            backgroundColor: colors.cardBg,
-            borderColor: colors.border,
+            backgroundColor:colors.cardBg,
+            borderColor:colors.border,
             paddingBottom: insets.bottom > 0 ? insets.bottom : 10,
             height: 66 + (insets.bottom > 0 ? insets.bottom : 10),
           },
@@ -2987,7 +2997,7 @@ export default function HomeScreen({ navigation }) {
           <View
             style={[
               styles.tabIconBg,
-              activeTab === "chats" && { backgroundColor: colors.primaryGlow },
+              activeTab === "chats" && { backgroundColor:colors.primaryGlow },
             ]}
           >
             <Svg
@@ -2996,7 +3006,7 @@ export default function HomeScreen({ navigation }) {
               viewBox="0 0 24 24"
               fill="none"
               stroke={
-                activeTab === "chats" ? colors.primary : colors.textDimmed
+                activeTab === "chats" ?colors.primary :colors.textDimmed
               }
               strokeWidth="2.2"
             >
@@ -3008,7 +3018,7 @@ export default function HomeScreen({ navigation }) {
               styles.tabBarLabel,
               {
                 color:
-                  activeTab === "chats" ? colors.primary : colors.textDimmed,
+                  activeTab === "chats" ?colors.primary :colors.textDimmed,
                 fontWeight: activeTab === "chats" ? "600" : "500",
               },
             ]}
@@ -3025,7 +3035,7 @@ export default function HomeScreen({ navigation }) {
             style={[
               styles.tabIconBg,
               activeTab === "contacts" && {
-                backgroundColor: colors.primaryGlow,
+                backgroundColor:colors.primaryGlow,
               },
             ]}
           >
@@ -3035,7 +3045,7 @@ export default function HomeScreen({ navigation }) {
               viewBox="0 0 24 24"
               fill="none"
               stroke={
-                activeTab === "contacts" ? colors.primary : colors.textDimmed
+                activeTab === "contacts" ?colors.primary :colors.textDimmed
               }
               strokeWidth="2.2"
             >
@@ -3050,7 +3060,7 @@ export default function HomeScreen({ navigation }) {
               styles.tabBarLabel,
               {
                 color:
-                  activeTab === "contacts" ? colors.primary : colors.textDimmed,
+                  activeTab === "contacts" ?colors.primary :colors.textDimmed,
                 fontWeight: activeTab === "contacts" ? "600" : "500",
               },
             ]}
@@ -3066,7 +3076,7 @@ export default function HomeScreen({ navigation }) {
           <View
             style={[
               styles.tabIconBg,
-              activeTab === "calls" && { backgroundColor: colors.primaryGlow },
+              activeTab === "calls" && { backgroundColor:colors.primaryGlow },
             ]}
           >
             <Svg
@@ -3075,7 +3085,7 @@ export default function HomeScreen({ navigation }) {
               viewBox="0 0 24 24"
               fill="none"
               stroke={
-                activeTab === "calls" ? colors.primary : colors.textDimmed
+                activeTab === "calls" ?colors.primary :colors.textDimmed
               }
               strokeWidth="2.2"
             >
@@ -3087,7 +3097,7 @@ export default function HomeScreen({ navigation }) {
               styles.tabBarLabel,
               {
                 color:
-                  activeTab === "calls" ? colors.primary : colors.textDimmed,
+                  activeTab === "calls" ?colors.primary :colors.textDimmed,
                 fontWeight: activeTab === "calls" ? "600" : "500",
               },
             ]}
@@ -3104,7 +3114,7 @@ export default function HomeScreen({ navigation }) {
             style={[
               styles.tabIconBg,
               activeTab === "updates" && {
-                backgroundColor: colors.primaryGlow,
+                backgroundColor:colors.primaryGlow,
               },
             ]}
           >
@@ -3114,7 +3124,7 @@ export default function HomeScreen({ navigation }) {
               viewBox="0 0 24 24"
               fill="none"
               stroke={
-                activeTab === "updates" ? colors.primary : colors.textDimmed
+                activeTab === "updates" ?colors.primary :colors.textDimmed
               }
               strokeWidth="2.2"
               strokeLinecap="round"
@@ -3129,7 +3139,7 @@ export default function HomeScreen({ navigation }) {
               styles.tabBarLabel,
               {
                 color:
-                  activeTab === "updates" ? colors.primary : colors.textDimmed,
+                  activeTab === "updates" ?colors.primary :colors.textDimmed,
                 fontWeight: activeTab === "updates" ? "600" : "500",
               },
             ]}
@@ -3154,8 +3164,8 @@ export default function HomeScreen({ navigation }) {
             style={[
               styles.createPostModalContent,
               {
-                backgroundColor: colors.cardBg,
-                borderColor: colors.border,
+                backgroundColor:colors.cardBg,
+                borderColor:colors.border,
                 maxHeight: height - Math.max(insets.top, 24) - 12,
                 paddingBottom: Math.max(insets.bottom, 16) + 16,
               },
@@ -3165,7 +3175,7 @@ export default function HomeScreen({ navigation }) {
             <View
               style={[
                 styles.createPostHeader,
-                { borderBottomColor: colors.border },
+                { borderBottomColor:colors.border },
               ]}
             >
               <TouchableOpacity
@@ -3180,12 +3190,12 @@ export default function HomeScreen({ navigation }) {
                 ]}
               >
                 <Text
-                  style={[styles.createPostCloseText, { color: colors.text }]}
+                  style={[styles.createPostCloseText, { color:colors.text }]}
                 >
                   &times;
                 </Text>
               </TouchableOpacity>
-              <Text style={[styles.createPostTitle, { color: colors.text }]}>
+              <Text style={[styles.createPostTitle, { color:colors.text }]}>
                 Create Update
               </Text>
               <TouchableOpacity
@@ -3193,8 +3203,8 @@ export default function HomeScreen({ navigation }) {
                   styles.createPostSubmitBtn,
                   {
                     backgroundColor: newPostText.trim()
-                      ? colors.primary
-                      : colors.border,
+                      ?colors.primary
+                      :colors.border,
                   },
                 ]}
                 onPress={handleCreatePost}
@@ -3203,7 +3213,7 @@ export default function HomeScreen({ navigation }) {
                 <Text
                   style={[
                     styles.createPostSubmitBtnText,
-                    { color: newPostText.trim() ? "white" : colors.textDimmed },
+                    { color: newPostText.trim() ? "white" :colors.textDimmed },
                   ]}
                 >
                   Post
@@ -3229,7 +3239,7 @@ export default function HomeScreen({ navigation }) {
                 />
                 <View style={styles.createPostUserInfo}>
                   <Text
-                    style={[styles.createPostUserName, { color: colors.text }]}
+                    style={[styles.createPostUserName, { color:colors.text }]}
                   >
                     {currentUser.name || "Amani User"}
                   </Text>
@@ -3237,7 +3247,7 @@ export default function HomeScreen({ navigation }) {
                     <Text
                       style={[
                         styles.postLanguageBadgeText,
-                        { color: colors.primary },
+                        { color:colors.primary },
                       ]}
                     >
                       {getLangDetails(currentUser.nativeLang || "en").flag ||
@@ -3253,7 +3263,7 @@ export default function HomeScreen({ navigation }) {
               <TextInput
                 style={[
                   styles.createPostInput,
-                  { color: colors.text, borderColor: colors.border },
+                  { color:colors.text, borderColor:colors.border },
                 ]}
                 placeholder="What's on your mind? Share an update..."
                 placeholderTextColor={colors.textDimmed}
@@ -3291,7 +3301,7 @@ export default function HomeScreen({ navigation }) {
                       <Text
                         style={[
                           styles.postGradientChipLabel,
-                          { color: colors.text },
+                          { color:colors.text },
                         ]}
                       >
                         {preset.label}
@@ -3305,7 +3315,7 @@ export default function HomeScreen({ navigation }) {
                 <TouchableOpacity
                   style={[
                     styles.pickPhotoBtn,
-                    { borderColor: colors.primary, backgroundColor: isDark ? "rgba(168,85,247,0.1)" : "rgba(168,85,247,0.05)" },
+                    { borderColor:colors.primary, backgroundColor: isDark ? "rgba(168,85,247,0.1)" : "rgba(168,85,247,0.05)" },
                   ]}
                   onPress={handlePickPostImage}
                   activeOpacity={0.8}
@@ -3316,7 +3326,7 @@ export default function HomeScreen({ navigation }) {
                     <Polyline points="21 15 16 10 5 21" />
                   </Svg>
                   <Text
-                    style={[styles.pickPhotoBtnText, { color: colors.primary }]}
+                    style={[styles.pickPhotoBtnText, { color:colors.primary }]}
                   >
                     Add Photos or Video
                   </Text>
@@ -3334,7 +3344,7 @@ export default function HomeScreen({ navigation }) {
                       <TouchableOpacity
                         style={[
                           styles.deleteImgBtn,
-                          { backgroundColor: colors.danger },
+                          { backgroundColor:colors.danger },
                         ]}
                         onPress={() => {
                           setNewPostImages(prev => {
@@ -3368,7 +3378,7 @@ export default function HomeScreen({ navigation }) {
                     <TouchableOpacity
                       style={[
                         styles.deleteImgBtn,
-                        { backgroundColor: colors.danger },
+                        { backgroundColor:colors.danger },
                       ]}
                       onPress={() => {
                         setNewPostImages([]);
@@ -3401,7 +3411,7 @@ export default function HomeScreen({ navigation }) {
           <View
             style={[
               styles.optionsSheetContent,
-              { backgroundColor: colors.cardBg, borderColor: colors.border },
+              { backgroundColor:colors.cardBg, borderColor:colors.border },
             ]}
           >
             <View
@@ -3422,7 +3432,7 @@ export default function HomeScreen({ navigation }) {
                   <TouchableOpacity
                     style={[
                       styles.optionsSheetItem,
-                      { borderBottomColor: colors.border },
+                      { borderBottomColor:colors.border },
                     ]}
                     onPress={() => handleSharePost(optionsPost)}
                     activeOpacity={0.7}
@@ -3442,7 +3452,7 @@ export default function HomeScreen({ navigation }) {
                     <Text
                       style={[
                         styles.optionsSheetItemText,
-                        { color: colors.text },
+                        { color:colors.text },
                       ]}
                     >
                       Share Update
@@ -3453,7 +3463,7 @@ export default function HomeScreen({ navigation }) {
                   <TouchableOpacity
                     style={[
                       styles.optionsSheetItem,
-                      { borderBottomColor: colors.border },
+                      { borderBottomColor:colors.border },
                     ]}
                     onPress={handleCopyLink}
                     activeOpacity={0.7}
@@ -3472,7 +3482,7 @@ export default function HomeScreen({ navigation }) {
                     <Text
                       style={[
                         styles.optionsSheetItemText,
-                        { color: colors.text },
+                        { color:colors.text },
                       ]}
                     >
                       Copy Link
@@ -3515,7 +3525,7 @@ export default function HomeScreen({ navigation }) {
                       <TouchableOpacity
                         style={[
                           styles.optionsSheetItem,
-                          { borderBottomColor: colors.border },
+                          { borderBottomColor:colors.border },
                         ]}
                         onPress={() => handleReportPost(optionsPost)}
                         activeOpacity={0.7}
@@ -3559,7 +3569,7 @@ export default function HomeScreen({ navigation }) {
               activeOpacity={0.7}
             >
               <Text
-                style={[styles.optionsSheetCancelText, { color: colors.text }]}
+                style={[styles.optionsSheetCancelText, { color:colors.text }]}
               >
                 Cancel
               </Text>
@@ -3588,7 +3598,7 @@ export default function HomeScreen({ navigation }) {
           <View
             style={[
               styles.bottomSheetContent,
-              { backgroundColor: colors.cardBg, borderColor: colors.border },
+              { backgroundColor:colors.cardBg, borderColor:colors.border },
             ]}
           >
             {/* Grabber Handle */}
@@ -3607,10 +3617,10 @@ export default function HomeScreen({ navigation }) {
             <View
               style={[
                 styles.bottomSheetHeader,
-                { borderBottomColor: colors.border },
+                { borderBottomColor:colors.border },
               ]}
             >
-              <Text style={[styles.bottomSheetTitle, { color: colors.text }]}>
+              <Text style={[styles.bottomSheetTitle, { color:colors.text }]}>
                 Comments ({activePost ? (activePost.comments?.length ?? 0) : 0})
               </Text>
               <TouchableOpacity
@@ -3625,7 +3635,7 @@ export default function HomeScreen({ navigation }) {
                 ]}
               >
                 <Text
-                  style={[styles.bottomSheetCloseText, { color: colors.text }]}
+                  style={[styles.bottomSheetCloseText, { color:colors.text }]}
                 >
                   &times;
                 </Text>
@@ -3656,7 +3666,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.bottomSheetCommentAuthor,
-                            { color: colors.text },
+                            { color:colors.text },
                           ]}
                         >
                           {comment.author}
@@ -3664,7 +3674,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.bottomSheetCommentText,
-                            { color: colors.text },
+                            { color:colors.text },
                           ]}
                         >
                           {comment.content}
@@ -3676,7 +3686,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.bottomSheetCommentActionText,
-                            { color: colors.textDimmed },
+                            { color:colors.textDimmed },
                           ]}
                         >
                           Just now
@@ -3684,7 +3694,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.bottomSheetCommentActionBullet,
-                            { color: colors.textDimmed },
+                            { color:colors.textDimmed },
                           ]}
                         >
                           •
@@ -3693,7 +3703,7 @@ export default function HomeScreen({ navigation }) {
                           <Text
                             style={[
                               styles.bottomSheetCommentActionBtnText,
-                              { color: colors.textMuted },
+                              { color:colors.textMuted },
                             ]}
                           >
                             Like
@@ -3702,7 +3712,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.bottomSheetCommentActionBullet,
-                            { color: colors.textDimmed },
+                            { color:colors.textDimmed },
                           ]}
                         >
                           •
@@ -3711,7 +3721,7 @@ export default function HomeScreen({ navigation }) {
                           <Text
                             style={[
                               styles.bottomSheetCommentActionBtnText,
-                              { color: colors.textMuted },
+                              { color:colors.textMuted },
                             ]}
                           >
                             Reply
@@ -3726,7 +3736,7 @@ export default function HomeScreen({ navigation }) {
                   <Text
                     style={[
                       styles.noCommentsText,
-                      { color: colors.textDimmed },
+                      { color:colors.textDimmed },
                     ]}
                   >
                     No comments yet. Be the first to comment!
@@ -3739,7 +3749,7 @@ export default function HomeScreen({ navigation }) {
             <View
               style={[
                 styles.bottomSheetInputRow,
-                { borderTopColor: colors.border },
+                { borderTopColor:colors.border },
               ]}
             >
               <View style={styles.bottomSheetInputActionsLeft}>
@@ -3765,8 +3775,8 @@ export default function HomeScreen({ navigation }) {
                   styles.bottomSheetInput,
                   {
                     backgroundColor: isDark ? "#1E1636" : "#F1F5F9",
-                    color: colors.text,
-                    borderColor: colors.border,
+                    color:colors.text,
+                    borderColor:colors.border,
                   },
                 ]}
                 placeholder="Write a comment..."
@@ -3780,7 +3790,7 @@ export default function HomeScreen({ navigation }) {
                   styles.bottomSheetSendBtn,
                   {
                     backgroundColor: newCommentText.trim()
-                      ? colors.primary
+                      ?colors.primary
                       : isDark
                         ? "rgba(255,255,255,0.05)"
                         : "rgba(0,0,0,0.05)",
@@ -3794,7 +3804,7 @@ export default function HomeScreen({ navigation }) {
                   height="18"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke={newCommentText.trim() ? "white" : colors.textDimmed}
+                  stroke={newCommentText.trim() ? "white" :colors.textDimmed}
                   strokeWidth="2.5"
                 >
                   <Line x1="22" y1="2" x2="11" y2="13" />
@@ -3817,22 +3827,22 @@ export default function HomeScreen({ navigation }) {
           <View
             style={[
               styles.startConvModalContent,
-              { backgroundColor: colors.cardBg, borderColor: colors.border },
+              { backgroundColor:colors.cardBg, borderColor:colors.border },
             ]}
           >
             {/* Modal Header */}
             <View style={styles.modalHeaderRow}>
-              <Text style={[styles.modalTitleText, { color: colors.text }]}>
+              <Text style={[styles.modalTitleText, { color:colors.text }]}>
                 Start Translation Chat
               </Text>
               <TouchableOpacity
                 onPress={() => setStartConvModalVisible(false)}
-                style={[styles.modalCloseBtn, { backgroundColor: colors.bg }]}
+                style={[styles.modalCloseBtn, { backgroundColor:colors.bg }]}
               >
                 <Text
                   style={[
                     styles.modalCloseBtnText,
-                    { color: colors.textDimmed },
+                    { color:colors.textDimmed },
                   ]}
                 >
                   &times;
@@ -3845,7 +3855,7 @@ export default function HomeScreen({ navigation }) {
             <View
               style={[
                 styles.modalSearchBox,
-                { backgroundColor: colors.bg, borderColor: colors.border },
+                { backgroundColor:colors.bg, borderColor:colors.border },
               ]}
             >
               <Svg
@@ -3861,7 +3871,7 @@ export default function HomeScreen({ navigation }) {
                 <Line x1="21" y1="21" x2="16.65" y2="16.65" />
               </Svg>
               <TextInput
-                style={[styles.modalSearchInput, { color: colors.text }]}
+                style={[styles.modalSearchInput, { color:colors.text }]}
                 placeholder="Search by name or UID"
                 placeholderTextColor={colors.textDimmed}
                 value={startConvSearch}
@@ -3896,7 +3906,7 @@ export default function HomeScreen({ navigation }) {
                       <Text
                         style={[
                           styles.modalEmptyText,
-                          { color: colors.textDimmed, marginBottom: 16 },
+                          { color:colors.textDimmed, marginBottom: 16 },
                         ]}
                       >
                         {`No partners found matching "${startConvSearch}"`}
@@ -3906,7 +3916,7 @@ export default function HomeScreen({ navigation }) {
                           <TouchableOpacity
                             style={[
                               styles.modalAddContactCard,
-                              { borderColor: colors.border },
+                              { borderColor:colors.border },
                             ]}
                             onPress={() =>
                               handleConfirmAddContact(startConvSearch.trim())
@@ -3916,7 +3926,7 @@ export default function HomeScreen({ navigation }) {
                             <View
                               style={[
                                 styles.modalAddContactIconBg,
-                                { backgroundColor: colors.primaryGlow },
+                                { backgroundColor:colors.primaryGlow },
                               ]}
                             >
                               <Svg
@@ -3937,14 +3947,14 @@ export default function HomeScreen({ navigation }) {
                               <Text
                                 style={[
                                   styles.modalAddContactText,
-                                  { color: colors.text },
+                                  { color:colors.text },
                                 ]}
                               >
                                 {`Add "${startConvSearch.trim()}" to Contacts`}
                               </Text>
                               <Text
                                 style={{
-                                  color: colors.textDimmed,
+                                  color:colors.textDimmed,
                                   fontSize: 11,
                                   marginTop: 2,
                                 }}
@@ -3963,7 +3973,7 @@ export default function HomeScreen({ navigation }) {
                     key={item.id}
                     style={[
                       styles.modalPartnerCard,
-                      { borderBottomColor: colors.border },
+                      { borderBottomColor:colors.border },
                     ]}
                     onPress={() => {
                       if (item.isUnityUser === false) {
@@ -3993,14 +4003,14 @@ export default function HomeScreen({ navigation }) {
                         <View
                           style={[
                             styles.onlineBadge,
-                            { borderColor: colors.cardBg },
+                            { borderColor:colors.cardBg },
                           ]}
                         />
                       )}
                       <View
                         style={[
                           styles.modalFlagBadge,
-                          { backgroundColor: colors.bg },
+                          { backgroundColor:colors.bg },
                         ]}
                       >
                         {renderFlagOrEmoji(item.flag)}
@@ -4011,7 +4021,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.modalPartnerName,
-                            { color: colors.text },
+                            { color:colors.text },
                           ]}
                         >
                           {item.name}
@@ -4019,7 +4029,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.modalPartnerUid,
-                            { color: colors.textDimmed },
+                            { color:colors.textDimmed },
                           ]}
                         >
                           #{item.id}
@@ -4028,7 +4038,7 @@ export default function HomeScreen({ navigation }) {
                       <Text
                         style={[
                           styles.modalPartnerLang,
-                          { color: colors.primary },
+                          { color:colors.primary },
                         ]}
                       >
                         {item.langName}
@@ -4037,7 +4047,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.modalPartnerBio,
-                            { color: colors.textMuted },
+                            { color:colors.textMuted },
                           ]}
                           numberOfLines={1}
                         >
@@ -4047,7 +4057,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.modalPartnerBio,
-                            { color: colors.textMuted },
+                            { color:colors.textMuted },
                           ]}
                           numberOfLines={1}
                         >
@@ -4058,13 +4068,13 @@ export default function HomeScreen({ navigation }) {
                     <View
                       style={[
                         styles.modalPartnerCta,
-                        { backgroundColor: item.isUnityUser === false ? colors.border : colors.primaryGlow },
+                        { backgroundColor: item.isUnityUser === false ?colors.border :colors.primaryGlow },
                       ]}
                     >
                       <Text
                         style={[
                           styles.modalPartnerCtaText,
-                          { color: item.isUnityUser === false ? colors.text : colors.primary },
+                          { color: item.isUnityUser === false ?colors.text :colors.primary },
                         ]}
                       >
                         {item.isUnityUser === false ? "Invite" : "Chat"}

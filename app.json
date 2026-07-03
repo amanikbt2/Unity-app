@@ -31,11 +31,16 @@
       "expo-secure-store",
       "expo-image",
       "expo-status-bar",
-      ["expo-audio", {
-        "enableBackgroundPlayback": false,
-        "enableBackgroundRecording": false
-      }],
-      "@react-native-google-signin/google-signin"
+      [
+        "expo-audio",
+        {
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
+        }
+      ],
+      "@react-native-google-signin/google-signin",
+      "expo-asset",
+      "expo-splash-screen"
     ],
     "extra": {
       "eas": {
