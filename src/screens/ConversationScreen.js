@@ -20,13 +20,15 @@ import Svg, { Path, Line, Rect, Polygon } from "react-native-svg";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withRepeat,
   withTiming,
+  withRepeat,
   withSequence,
+  cancelAnimation,
   Easing,
 } from "react-native-reanimated";
 import {
   useAudioRecorder,
+  useAudioRecorderState,
   AudioModule,
   AudioQuality,
   IOSOutputFormat,
@@ -34,12 +36,21 @@ import {
 import * as Speech from "expo-speech";
 import * as FileSystem from "expo-file-system";
 import { trackEvent } from "../utils/Analytics";
-import { translateText, translateVoice, chatWithAI } from "../services/TranslationService";
+import {
+  translateText,
+  translateVoice,
+  chatWithAI,
+} from "../services/TranslationService";
 import { AppContext } from "../context/AppContext";
-import * as Notifications from 'expo-notifications';
-import { scheduleLocalNotification } from '../services/NotificationService';
+import * as Notifications from "expo-notifications";
+import { scheduleLocalNotification } from "../services/NotificationService";
 import UserProfilePopup from "../components/UserProfilePopup";
-import { saveChat, getChats, clearContactUnread, updateContactLastMessageTime } from "../services/DatabaseService";
+import {
+  saveChat,
+  getChats,
+  clearContactUnread,
+  updateContactLastMessageTime,
+} from "../services/DatabaseService";
 import { messageQueue } from "../services/MessageQueue";
 
 const { width } = Dimensions.get("window");
@@ -116,8 +127,16 @@ const TypingIndicator = ({ color }) => {
   useEffect(() => {
     const animateDot = (dot) => {
       return RNAnimated.sequence([
-        RNAnimated.timing(dot, { toValue: -5, duration: 250, useNativeDriver: true }),
-        RNAnimated.timing(dot, { toValue: 0, duration: 250, useNativeDriver: true }),
+        RNAnimated.timing(dot, {
+          toValue: -5,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        RNAnimated.timing(dot, {
+          toValue: 0,
+          duration: 250,
+          useNativeDriver: true,
+        }),
       ]);
     };
 
@@ -126,7 +145,7 @@ const TypingIndicator = ({ color }) => {
         animateDot(dot1),
         animateDot(dot2),
         animateDot(dot3),
-      ])
+      ]),
     ).start();
   }, []);
 
@@ -136,15 +155,22 @@ const TypingIndicator = ({ color }) => {
         width: 8,
         height: 8,
         borderRadius: 4,
-        backgroundColor: color || '#9CA3AF',
+        backgroundColor: color || "#9CA3AF",
         marginHorizontal: 3,
-        transform: [{ translateY: anim }]
+        transform: [{ translateY: anim }],
       }}
     />
   );
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 12 }}>
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 8,
+        paddingVertical: 12,
+      }}
+    >
       <Dot anim={dot1} />
       <Dot anim={dot2} />
       <Dot anim={dot3} />
@@ -155,18 +181,21 @@ const TypingIndicator = ({ color }) => {
 export default function ConversationScreen({ route, navigation }) {
   const { partnerName, partnerAvatar, partnerFlag, partnerId, partnerStatus } =
     route.params || {
-      partnerName: "Unity Translation AI",
+      partnerName: "unity Translation AI",
       partnerAvatar:
         "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
       partnerFlag: "🌍",
-      partnerId: "Unity Translation AI",
+      partnerId: "unity Translation AI",
     };
 
-  const isOnline = partnerId === "unity_ai" 
-    ? true
-    : partnerStatus 
-      ? /online|available|ready to chat|connected|active/.test(partnerStatus.trim().toLowerCase()) 
-      : false;
+  const isOnline =
+    partnerId === "unity_ai"
+      ? true
+      : partnerStatus
+        ? /online|available|ready to chat|connected|active/.test(
+            partnerStatus.trim().toLowerCase(),
+          )
+        : false;
 
   const { currentUser, getLangDetails, getLangDetailsFromFlag, LANGS } =
     useContext(AppContext);
@@ -192,8 +221,34 @@ export default function ConversationScreen({ route, navigation }) {
   const onRecordingStatusUpdate = (status) => {
     if (status.metering !== undefined) {
       const db = status.metering;
-      // Normal range of active voice is -60dB to 0dB. Normalize to [0, 1].
-      const normalized = Math.max(0, (db + 60) / 60);
+
+      // Smart dynamic calibration
+      // Update noise floor
+      if (db < noiseFloorRef.current) {
+        noiseFloorRef.current = db; // Snap instantly to new quietest sound
+      } else {
+        noiseFloorRef.current += 0.05; // Slowly drift up (0.5 dB/sec) to adapt to noisy rooms
+      }
+
+      // Update speech peak
+      if (db > speechPeakRef.current) {
+        speechPeakRef.current = db; // Snap instantly to new loudest sound
+      } else {
+        speechPeakRef.current -= 0.1; // Slowly drift down (1 dB/sec)
+      }
+
+      // Enforce a minimum dynamic range so thresholding doesn't break in absolute silence
+      if (speechPeakRef.current - noiseFloorRef.current < 15) {
+        speechPeakRef.current = noiseFloorRef.current + 15;
+      }
+
+      const currentNoiseFloor = noiseFloorRef.current;
+      const currentPeak = speechPeakRef.current;
+      const range = currentPeak - currentNoiseFloor;
+
+      // Map db to 0-1 range dynamically
+      let normalized = Math.max(0, (db - currentNoiseFloor) / range);
+      normalized = Math.pow(normalized, 2.5); // Apply exponential curve for punchiness
 
       orbScale.value = withTiming(1.0 + normalized * 0.45, { duration: 100 });
       glow1Opacity.value = withTiming(0.1 + normalized * 0.5, {
@@ -202,15 +257,136 @@ export default function ConversationScreen({ route, navigation }) {
       glow2Opacity.value = withTiming(0.2 + normalized * 0.6, {
         duration: 100,
       });
+
+      if (handsFreeActiveRef.current) {
+        // Dynamic speech threshold is 35% above the noise floor
+        const dynamicThreshold = currentNoiseFloor + range * 0.35;
+
+        if (db > dynamicThreshold) {
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+            silenceTimerRef.current = null;
+          }
+          if (!isSpeakingRef.current) {
+            isSpeakingRef.current = true;
+            setSubtitleUser("Speaking...");
+            Speech.stop();
+          }
+        } else {
+          if (isSpeakingRef.current) {
+            setSubtitleUser("Silent... waiting");
+            if (!silenceTimerRef.current) {
+              silenceTimerRef.current = setTimeout(async () => {
+                isSpeakingRef.current = false;
+                silenceTimerRef.current = null;
+                await processSmartRecording();
+              }, 2500);
+            }
+          }
+        }
+      }
     }
   };
 
-  const recorder = useAudioRecorder(
-    COMPRESSED_AUDIO_OPTIONS,
-    onRecordingStatusUpdate,
-  );
+  const processSmartRecording = async () => {
+    setSubtitleUser("Processing voice...");
+    setSubtitleReceived(`Waiting for ${partnerName}...`);
+
+    let uri = null;
+    try {
+      await recorder.stop();
+      uri = recorder.uri;
+    } catch (err) {
+      console.error("Error stopping recorder:", err);
+    }
+
+    // Immediately restart listening so the user isn't blocked
+    if (handsFreeActive) {
+      try {
+        await recorder.prepareToRecordAsync();
+        recorder.record();
+        setSubtitleUser("Listening...");
+      } catch (e) {
+        console.error("Restart recording failed", e);
+      }
+    }
+
+    // Process the voice chunk in the background
+    if (uri) {
+      handleVoiceMessage(uri).catch(console.error);
+    }
+  };
+
+  const recorder = useAudioRecorder(COMPRESSED_AUDIO_OPTIONS);
+  const recorderState = useAudioRecorderState(recorder, 100);
+
+  useEffect(() => {
+    if (recorderState) {
+      onRecordingStatusUpdate(recorderState);
+    }
+  }, [recorderState]);
 
   const [isRecording, setIsRecording] = useState(false);
+  const [handsFreeActive, setHandsFreeActive] = useState(false);
+  const handsFreeActiveRef = useRef(false);
+  const isSpeakingRef = useRef(false);
+  const silenceTimerRef = useRef(null);
+
+  const noiseFloorRef = useRef(-60);
+  const speechPeakRef = useRef(-25);
+
+  const [ttsVoices, setTtsVoices] = useState({ female: {}, male: {} });
+
+  useEffect(() => {
+    const fetchVoices = async () => {
+      try {
+        const voices = await Speech.getAvailableVoicesAsync();
+
+        const getVoiceId = (langPrefix, type) => {
+          const matchLang = voices.filter((v) =>
+            v.language.startsWith(langPrefix),
+          );
+
+          if (type === "female") {
+            const female = matchLang.find(
+              (v) =>
+                v.name.toLowerCase().includes("female") ||
+                v.name.toLowerCase().includes("siri") ||
+                v.name.toLowerCase().includes("zira") ||
+                v.identifier.toLowerCase().includes("female"),
+            );
+            return female
+              ? female.identifier
+              : matchLang[0]?.identifier || undefined;
+          } else {
+            const male = matchLang.find(
+              (v) =>
+                v.name.toLowerCase().includes("male") ||
+                v.name.toLowerCase().includes("david") ||
+                v.identifier.toLowerCase().includes("male"),
+            );
+            return male
+              ? male.identifier
+              : matchLang[0]?.identifier || undefined;
+          }
+        };
+
+        setTtsVoices({
+          female: {
+            en: getVoiceId("en", "female"),
+            es: getVoiceId("es", "female"),
+          },
+          male: {
+            en: getVoiceId("en", "male"),
+            es: getVoiceId("es", "male"),
+          },
+        });
+      } catch (e) {
+        console.log("Could not fetch voices:", e);
+      }
+    };
+    fetchVoices();
+  }, []);
 
   const getLangCodeFromFlag = (flagEmoji) => {
     if (!LANGS) return "en";
@@ -279,7 +455,9 @@ export default function ConversationScreen({ route, navigation }) {
   // Update orb pulse animation based on recording status
   useEffect(() => {
     if (isRecording) {
-      // Keep the current scale while recording; idle breathing resumes after release.
+      // Cancel idle breathing animations while recording active voice
+      cancelAnimation(orbScale);
+      cancelAnimation(glow1Opacity);
     } else {
       orbScale.value = withRepeat(
         withSequence(
@@ -433,7 +611,7 @@ export default function ConversationScreen({ route, navigation }) {
         console.error("Error loading chat history:", e);
       }
     }
-    
+
     loadChatHistory();
 
     // Subscribe to new messages from MessageQueue
@@ -443,20 +621,20 @@ export default function ConversationScreen({ route, navigation }) {
           prev.map((msg) =>
             msg.id === event.userMsgId
               ? { ...msg, transText: event.transText }
-              : msg
-          )
+              : msg,
+          ),
         );
       } else if (event.success && event.partnerMsgId) {
         setChatBubbles((prev) =>
           prev.map((msg) =>
             msg.id === event.partnerMsgId
-              ? { 
-                  ...msg, 
-                  transText: event.replyText, 
-                  text: event.partnerSpokenText 
+              ? {
+                  ...msg,
+                  transText: event.replyText,
+                  text: event.partnerSpokenText,
                 }
-              : msg
-          )
+              : msg,
+          ),
         );
       }
     });
@@ -477,113 +655,72 @@ export default function ConversationScreen({ route, navigation }) {
     }
   }, [chatBubbles, isKeyboardMode]);
 
-  const startRecording = async () => {
-    if (isPreparingRef.current || recorder.isRecording || isRecording) {
-      console.log("Recording is already preparing or active.");
-      return;
-    }
+  useEffect(() => {
+    return () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (recorder.isRecording) recorder.stop();
+    };
+  }, []);
 
-    isPreparingRef.current = true;
-    shouldStopAfterPrepareRef.current = false;
+  const toggleHandsFree = async () => {
+    if (handsFreeActive) {
+      setHandsFreeActive(false);
+      handsFreeActiveRef.current = false;
+      setIsRecording(false);
+      setSubtitleUser("Microphone muted");
 
-    try {
-      const permission = await AudioModule.getRecordingPermissionsAsync();
-      if (permission.status !== "granted") {
-        const request = await AudioModule.requestRecordingPermissionsAsync();
-        if (request.status !== "granted") {
-          alert("Microphone permission is required to use this feature.");
-          isPreparingRef.current = false;
-          return;
-        }
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
       }
+      isSpeakingRef.current = false;
 
-      await AudioModule.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      console.log("Starting recording...");
-
-      if (shouldStopAfterPrepareRef.current) {
-        console.log(
-          "User released button before preparation completed. Cancelling start.",
-        );
-        isPreparingRef.current = false;
-        await AudioModule.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: true,
-        });
-        return;
-      }
-
-      await recorder.prepareToRecordAsync();
-      recorder.record();
-
-      if (shouldStopAfterPrepareRef.current) {
-        console.log("User released button during preparation. Stopping now.");
+      try {
         await recorder.stop();
         await AudioModule.setAudioModeAsync({
           allowsRecordingIOS: false,
           playsInSilentModeIOS: true,
         });
-      } else {
-        setIsRecording(true);
-        setSubtitleUser("Recording voice...");
+      } catch (e) {}
+    } else {
+      setHandsFreeActive(true);
+      handsFreeActiveRef.current = true;
+      setIsRecording(true);
+      setSubtitleUser("Listening...");
+
+      try {
+        const permission = await AudioModule.getRecordingPermissionsAsync();
+        if (permission.status !== "granted") {
+          const request = await AudioModule.requestRecordingPermissionsAsync();
+          if (request.status !== "granted") {
+            alert("Microphone permission required.");
+            setHandsFreeActive(false);
+            return;
+          }
+        }
+
+        await AudioModule.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+        });
+
+        await recorder.prepareToRecordAsync();
+        recorder.record();
+      } catch (err) {
+        console.error(err);
+        setHandsFreeActive(false);
+        setIsRecording(false);
       }
-    } catch (err) {
-      console.error("Failed to start recording", err);
-    } finally {
-      isPreparingRef.current = false;
-    }
-  };
-
-  const stopRecording = async () => {
-    console.log("Stopping recording...");
-
-    if (isPreparingRef.current) {
-      console.log("Still preparing. Setting shouldStopAfterPrepareRef flag.");
-      shouldStopAfterPrepareRef.current = true;
-      setIsRecording(false);
-      setSubtitleUser("Processing voice...");
-      setSubtitleReceived("Translating...");
-      return;
-    }
-
-    if (!recorder.isRecording && !isRecording) {
-      console.log("No active recording to stop.");
-      return;
-    }
-
-    setIsRecording(false);
-    setSubtitleUser("Processing voice...");
-    setSubtitleReceived("Translating...");
-
-    try {
-      await recorder.stop();
-      const uri = recorder.uri;
-
-      // Deactivate recording audio mode so speaker output works
-      await AudioModule.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-      });
-
-      if (uri) {
-        await handleVoiceMessage(uri);
-      }
-    } catch (err) {
-      console.error("Failed to stop recording", err);
-      setSubtitleUser("Recording failed");
-      setSubtitleReceived("Error processing voice");
     }
   };
 
   const handleVoiceMessage = async (audioUri) => {
     trackEvent("sent_voice_message", currentUser, { partnerId });
     const partnerLang = getLangCodeFromFlag(partnerFlag);
-    const partnerLangName = partnerId === "unity_ai" 
-      ? getLangDetails(currentUser.unityAILang)?.name || "AI"
-      : getLangDetails(partnerLang).name;
+    const partnerLangName =
+      partnerId === "unity_ai"
+        ? getLangDetails(currentUser.unityAILang)?.name || "AI"
+        : getLangDetails(partnerLang).name;
     const userLangName = getLangDetails(currentUser.nativeLang).name;
 
     try {
@@ -621,7 +758,20 @@ export default function ConversationScreen({ route, navigation }) {
       await updateContactLastMessageTime(partnerId, Date.now());
 
       // Speak translation out loud (simulating playing on partner's end)
-      Speech.speak(translation, { language: partnerLang });
+      if (translation) {
+        const isMale = currentUser.gender === "male";
+        const voiceGroup = isMale ? ttsVoices.male : ttsVoices.female;
+        const voiceId = partnerLang.startsWith("en")
+          ? voiceGroup.en
+          : voiceGroup.es;
+
+        Speech.speak(translation, {
+          language: partnerLang,
+          voice: voiceId,
+          rate: currentUser.aiVoiceRate || 1.0,
+          pitch: currentUser.aiVoicePitch || (isMale ? 0.9 : 1.1),
+        });
+      }
 
       // Clean up transient audio file immediately
       await FileSystem.deleteAsync(audioUri, { idempotent: true }).catch(
@@ -644,13 +794,21 @@ export default function ConversationScreen({ route, navigation }) {
       // Simulate partner responding with voice (or AI)
       setTimeout(async () => {
         try {
-          let partnerResponseBase = "I heard your voice message! Loud and clear.";
+          let partnerResponseBase =
+            "I heard your voice message! Loud and clear.";
           let partnerSpokenText = "";
-          
+
           if (partnerId === "unity_ai") {
-            const aiReply = await chatWithAI(translation, [], currentUser.unityAILang || "en");
+            const aiReply = await chatWithAI(
+              translation,
+              [],
+              currentUser.unityAILang || "en",
+            );
             partnerSpokenText = aiReply;
-            partnerResponseBase = await translateText(aiReply, currentUser.nativeLang);
+            partnerResponseBase = await translateText(
+              aiReply,
+              currentUser.nativeLang,
+            );
           } else {
             partnerSpokenText = await translateText(
               partnerResponseBase,
@@ -664,11 +822,13 @@ export default function ConversationScreen({ route, navigation }) {
             transText: partnerResponseBase,
           };
 
-          setSubtitleReceived(partnerResponseBase);
+          setSubtitleReceived(
+            partnerId === "unity_ai"
+              ? `${partnerName} is talking...`
+              : partnerResponseBase,
+          );
           setChatBubbles((prev) =>
-            prev.map((msg) =>
-              msg.id === partnerMsgId ? partnerMsg : msg,
-            ),
+            prev.map((msg) => (msg.id === partnerMsgId ? partnerMsg : msg)),
           );
 
           // Save partner response to SQLite
@@ -685,19 +845,29 @@ export default function ConversationScreen({ route, navigation }) {
           await updateContactLastMessageTime(partnerId, Date.now());
 
           // Speak partner's translated response to the user in their language
+          // Force female voice for AI response
+          const aiVoiceId = partnerLang.startsWith("en")
+            ? ttsVoices.female.en
+            : ttsVoices.female.es;
+
           Speech.speak(partnerResponseBase, {
-            language: currentUser.nativeLang,
+            language: partnerLang,
+            voice: aiVoiceId,
+            rate: currentUser.aiVoiceRate || 1.0,
+            pitch: currentUser.aiVoicePitch || 1.1,
           });
-          
+
           // Schedule 2-minute reminder for user to reply
           scheduleLocalNotification(
             "Waiting for Reply",
             `${partnerName} is waiting for your reply, maybe you forgot?`,
-            { seconds: 120 }
+            { seconds: 120 },
           );
-
         } catch (err) {
-          console.error("Failed to translate simulated partner voice response:", err);
+          console.error(
+            "Failed to translate simulated partner voice response:",
+            err,
+          );
         }
       }, 3500);
     } catch (error) {
@@ -726,12 +896,20 @@ export default function ConversationScreen({ route, navigation }) {
     const text = inputText.trim();
     setInputText("");
     setSubtitleUser(text);
-    setSubtitleReceived("Translating...");
+
+    const waitMessages = [
+      `Waiting for ${partnerName}...`,
+      `${partnerName} is typing...`,
+    ];
+    setSubtitleReceived(
+      waitMessages[Math.floor(Math.random() * waitMessages.length)],
+    );
 
     const partnerLang = getLangCodeFromFlag(partnerFlag);
-    const partnerLangName = partnerId === "unity_ai" 
-      ? getLangDetails(currentUser.unityAILang)?.name || "AI"
-      : getLangDetails(partnerLang).name;
+    const partnerLangName =
+      partnerId === "unity_ai"
+        ? getLangDetails(currentUser.unityAILang)?.name || "AI"
+        : getLangDetails(partnerLang).name;
     const userLangName = getLangDetails(currentUser.nativeLang).name;
 
     try {
@@ -747,7 +925,7 @@ export default function ConversationScreen({ route, navigation }) {
         transLang: `${partnerLangName} ${partnerId === "unity_ai" ? "(AI)" : "(Translated)"}`,
       };
       setChatBubbles((prev) => [...prev, userMsg]);
-      
+
       try {
         await saveChat({
           id: userMsgId,
@@ -794,9 +972,8 @@ export default function ConversationScreen({ route, navigation }) {
           userLang: currentUser.nativeLang,
           targetLang: currentUser.unityAILang || "en", // For AI
           history: [], // Omitted for brevity
-        }
+        },
       });
-      
     } catch (error) {
       console.error("Text send error:", error);
       setSubtitleUser("Text send failed");
@@ -864,8 +1041,8 @@ export default function ConversationScreen({ route, navigation }) {
           {renderFlagOrEmoji(flagEmoji)}
         </TouchableOpacity>
 
-        {(!isUser && bubble.transText === "...") ? (
-          <View style={{ marginLeft: 8, justifyContent: 'center' }}>
+        {!isUser && bubble.transText === "..." ? (
+          <View style={{ marginLeft: 8, justifyContent: "center" }}>
             <TypingIndicator color={colors.textMuted} />
           </View>
         ) : (
@@ -934,10 +1111,7 @@ export default function ConversationScreen({ route, navigation }) {
 
                   {/* Bottom Text (Partner's Original Text) */}
                   <Text
-                    style={[
-                      styles.bubbleTextTrans,
-                      { color: colors.primary },
-                    ]}
+                    style={[styles.bubbleTextTrans, { color: colors.primary }]}
                   >
                     {bubble.text}
                   </Text>
@@ -1043,7 +1217,10 @@ export default function ConversationScreen({ route, navigation }) {
             ]}
           >
             <Text
-              style={[styles.subtitleLineReceived, { color: !isOnline ? colors.danger : colors.primary }]}
+              style={[
+                styles.subtitleLineReceived,
+                { color: !isOnline ? colors.danger : colors.primary },
+              ]}
             >
               {!isOnline ? "The user is currently offline" : subtitleReceived}
             </Text>
@@ -1072,9 +1249,8 @@ export default function ConversationScreen({ route, navigation }) {
             />
 
             <TouchableOpacity
-              activeOpacity={0.9}
-              onPressIn={startRecording}
-              onPressOut={stopRecording}
+              activeOpacity={0.8}
+              onPress={toggleHandsFree}
               style={{ borderRadius: 55 }}
             >
               <Animated.View
@@ -1121,7 +1297,12 @@ export default function ConversationScreen({ route, navigation }) {
                 },
               ]}
             >
-              {getLangDetails(currentUser.nativeLang)?.name || "English"} ⇄ {partnerId === "unity_ai" ? getLangDetails(currentUser.unityAILang)?.name || "AI" : getLangDetails(getLangCodeFromFlag(partnerFlag))?.name || "Spanish"} translation active
+              {getLangDetails(currentUser.nativeLang)?.name || "English"} ⇄{" "}
+              {partnerId === "unity_ai"
+                ? getLangDetails(currentUser.unityAILang)?.name || "AI"
+                : getLangDetails(getLangCodeFromFlag(partnerFlag))?.name ||
+                  "Spanish"}{" "}
+              translation active
             </Text>
           </View>
 
@@ -1157,26 +1338,37 @@ export default function ConversationScreen({ route, navigation }) {
                 onPress={() => setIsKeyboardMode(false)}
                 activeOpacity={0.7}
               >
-                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <Svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={colors.textMuted}
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                   <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                 </Svg>
               </TouchableOpacity>
 
-              <View style={[
-                styles.keyboardInputContainer, 
-                { 
-                  backgroundColor: colors.bg, 
-                  borderColor: colors.border, 
-                  borderWidth: 1, 
-                  borderRadius: 24, 
-                  paddingLeft: 16, 
-                  paddingRight: 6, 
-                  paddingVertical: 6, 
-                  marginRight: 0,
-                  gap: 8,
-                }
-              ]}>
+              <View
+                style={[
+                  styles.keyboardInputContainer,
+                  {
+                    backgroundColor: colors.bg,
+                    borderColor: colors.border,
+                    borderWidth: 1,
+                    borderRadius: 24,
+                    paddingLeft: 16,
+                    paddingRight: 6,
+                    paddingVertical: 6,
+                    marginRight: 0,
+                    gap: 8,
+                  },
+                ]}
+              >
                 <TextInput
                   style={[
                     styles.textInput,
@@ -1195,11 +1387,28 @@ export default function ConversationScreen({ route, navigation }) {
                   onSubmitEditing={handleSendText}
                 />
                 <TouchableOpacity
-                  style={[styles.sendBtn, { backgroundColor: colors.primary, width: 36, height: 36, borderRadius: 18 }]}
+                  style={[
+                    styles.sendBtn,
+                    {
+                      backgroundColor: colors.primary,
+                      width: 36,
+                      height: 36,
+                      borderRadius: 18,
+                    },
+                  ]}
                   onPress={handleSendText}
                   activeOpacity={0.8}
                 >
-                  <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <Svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="white"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <Line x1="22" y1="2" x2="11" y2="13" />
                     <Polygon points="22 2 15 22 11 13 2 9 22 2" />
                   </Svg>
@@ -1216,26 +1425,36 @@ export default function ConversationScreen({ route, navigation }) {
                     !isOnline
                       ? { backgroundColor: colors.border }
                       : isRecording
-                      ? { backgroundColor: colors.danger }
-                      : {
-                          backgroundColor: colors.primary,
-                        },
+                        ? { backgroundColor: colors.danger }
+                        : {
+                            backgroundColor: colors.primary,
+                          },
                   ]}
-                  onPressIn={isOnline ? startRecording : undefined}
-                  onPressOut={isOnline ? stopRecording : undefined}
+                  onPress={isOnline ? toggleHandsFree : undefined}
                   activeOpacity={0.7}
                   disabled={!isOnline}
                 >
-                  <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round">
+                  <Svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="white"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  >
                     <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                     <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                   </Svg>
                 </TouchableOpacity>
-                <Text style={[styles.micStatusLabel, { color: colors.textMuted }]}>
-                  {isOnline 
-                    ? (isRecording ? "Recording..." : "Hold mic to speak")
-                    : "The user is currently offline"
-                  }
+                <Text
+                  style={[styles.micStatusLabel, { color: colors.textMuted }]}
+                >
+                  {isOnline
+                    ? isRecording
+                      ? "Recording..."
+                      : "Hold mic to speak"
+                    : "The user is currently offline"}
                 </Text>
               </View>
 
@@ -1249,10 +1468,20 @@ export default function ConversationScreen({ route, navigation }) {
                     borderWidth: 1,
                   },
                 ]}
-                onPress={() => setIsKeyboardMode(true)}
+                onPress={() => {
+                  if (handsFreeActive) toggleHandsFree();
+                  setIsKeyboardMode(true);
+                }}
                 activeOpacity={0.7}
               >
-                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2">
+                <Svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={colors.textMuted}
+                  strokeWidth="2"
+                >
                   <Rect x="3" y="4" width="18" height="12" rx="2" />
                   <Path d="M7 8h10M7 12h10M10 16h4" />
                 </Svg>

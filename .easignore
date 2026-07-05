@@ -40,4 +40,10 @@ yarn-error.*
 /ios
 /android
 .env
-/jdk17
+
+# Custom additions to reduce EAS archive size
+.git/
+jdk17/
+*.log
+*.txt
+tmp_*

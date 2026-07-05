@@ -35,12 +35,12 @@ import Svg, {
 import { Ionicons, MaterialIcons, Feather } from "@expo/vector-icons";
 import { Picker } from "@react-native-picker/picker";
 import { trackEvent } from "../utils/Analytics";
-import * as Contacts from "expo-contacts";
+import * as Contacts from "expo-contacts/legacy";
 import * as ImagePicker from "expo-image-picker";
 import { AppContext } from "../context/AppContext";
 import { translateText } from "../services/TranslationService";
 import { createPost, syncPendingPosts } from "../services/PostService";
-import { scheduleLocalNotification } from '../services/NotificationService';
+import { scheduleLocalNotification } from "../services/NotificationService";
 import {
   initDatabase,
   getContacts as getDbContacts,
@@ -112,8 +112,11 @@ const isOnlineStatus = (status) =>
 const INITIAL_CONTACTS = [
   {
     id: "unity_ai",
-    name: "Unity AI",
-    avatar: (Image.resolveAssetSource && Image.resolveAssetSource(require("../../assets/icon.png"))?.uri) || "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=150&h=150&q=80",
+    name: "unity AI",
+    avatar:
+      (Image.resolveAssetSource &&
+        Image.resolveAssetSource(require("../../assets/icon.png"))?.uri) ||
+      "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=150&h=150&q=80",
     flag: "🌍",
     langName: "AI Companion",
     status: "Ready to chat",
@@ -222,8 +225,16 @@ const normalizePost = (post) => ({
   likes: typeof post?.likes === "number" ? post.likes : 0,
   liked: Boolean(post?.liked),
   comments: Array.isArray(post?.comments) ? post.comments : [],
-  images: Array.isArray(post?.images) ? post.images : (Array.isArray(post?.imageUrls) ? post.imageUrls : (post?.image ? [post.image] : [])),
-  images_local_paths: Array.isArray(post?.images_local_paths) ? post.images_local_paths : [],
+  images: Array.isArray(post?.images)
+    ? post.images
+    : Array.isArray(post?.imageUrls)
+      ? post.imageUrls
+      : post?.image
+        ? [post.image]
+        : [],
+  images_local_paths: Array.isArray(post?.images_local_paths)
+    ? post.images_local_paths
+    : [],
 });
 
 const normalizePosts = (posts) =>
@@ -480,20 +491,19 @@ export default function HomeScreen({ navigation }) {
         if (!sourceText) continue;
 
         try {
-          const translated = await translateText(
-            sourceText,
-            targetLang.code,
-          );
+          const translated = await translateText(sourceText, targetLang.code);
           if (isActive && translated?.trim()) {
             nextTranslations[post.id] = translated.trim();
             // Update state incrementally so UI doesn't wait for all
-            setPostTranslations(prev => ({ ...prev, [post.id]: translated.trim() }));
+            setPostTranslations((prev) => ({
+              ...prev,
+              [post.id]: translated.trim(),
+            }));
           }
         } catch (error) {
           console.warn("[HomeScreen] Post translation failed:", error);
         }
       }
-
     })();
 
     return () => {
@@ -517,9 +527,12 @@ export default function HomeScreen({ navigation }) {
         const postsWithCachedMedia = await Promise.all(
           remotePosts.map(async (post) => {
             const postImages = post.imageUrls || post.images || [];
-            const localImages = postImages.length > 0
-              ? await Promise.all(postImages.map(img => cacheRemoteImage(img, "image")))
-              : [];
+            const localImages =
+              postImages.length > 0
+                ? await Promise.all(
+                    postImages.map((img) => cacheRemoteImage(img, "image")),
+                  )
+                : [];
             const localAvatar = post.avatar
               ? await cacheRemoteImage(post.avatar, "avatar")
               : null;
@@ -573,7 +586,9 @@ export default function HomeScreen({ navigation }) {
       try {
         const dbSuccess = await initDatabase();
         if (!dbSuccess) {
-          console.warn("[HomeScreen] Database initialization failed. Skipping local data load.");
+          console.warn(
+            "[HomeScreen] Database initialization failed. Skipping local data load.",
+          );
           // Still try to fetch from server if possible
           preFetchServerData();
           return;
@@ -639,7 +654,7 @@ export default function HomeScreen({ navigation }) {
         }
       }
       refreshContacts();
-    }, [])
+    }, []),
   );
 
   // Define onboarding tasks
@@ -648,10 +663,14 @@ export default function HomeScreen({ navigation }) {
       id: "avatar",
       isCompleted:
         currentUser.avatarSlots &&
-        ((currentUser.avatarSlots[0] && !currentUser.avatarSlots[0].includes("photo-1534528741775")) ||
-         (currentUser.avatarSlots[1] && !currentUser.avatarSlots[1].includes("photo-1507003211169")) ||
-         (currentUser.avatarSlots[2] && !currentUser.avatarSlots[2].includes("photo-1517841905240")) ||
-         (currentUser.avatarSlots[3] && !currentUser.avatarSlots[3].includes("photo-1488426862026"))),
+        ((currentUser.avatarSlots[0] &&
+          !currentUser.avatarSlots[0].includes("photo-1534528741775")) ||
+          (currentUser.avatarSlots[1] &&
+            !currentUser.avatarSlots[1].includes("photo-1507003211169")) ||
+          (currentUser.avatarSlots[2] &&
+            !currentUser.avatarSlots[2].includes("photo-1517841905240")) ||
+          (currentUser.avatarSlots[3] &&
+            !currentUser.avatarSlots[3].includes("photo-1488426862026"))),
       uncompletedLabel: "Add profile picture",
       completedLabel: "✓ Profile picture added",
     },
@@ -685,6 +704,13 @@ export default function HomeScreen({ navigation }) {
       isCompleted: currentUser.secondaryLangsSelected === true,
       uncompletedLabel: "Add secondary language",
       completedLabel: "✓ Secondary Language Added",
+    },
+    {
+      id: "gender",
+      isCompleted: !!currentUser.gender,
+      uncompletedLabel: "Set Voice Gender",
+      completedLabel: "✓ Voice Gender Set",
+      highlight: true,
     },
   ];
 
@@ -742,8 +768,19 @@ export default function HomeScreen({ navigation }) {
     setStartConvModalVisible(true);
   };
 
-  const handlePartnerClick = (name, avatar, flag, id, status, lang, langName) => {
-    trackEvent("started_chat", currentUser, { partnerName: name, partnerId: id });
+  const handlePartnerClick = (
+    name,
+    avatar,
+    flag,
+    id,
+    status,
+    lang,
+    langName,
+  ) => {
+    trackEvent("started_chat", currentUser, {
+      partnerName: name,
+      partnerId: id,
+    });
     navigation.navigate("Conversation", {
       partnerName: name,
       partnerAvatar: avatar,
@@ -797,7 +834,7 @@ export default function HomeScreen({ navigation }) {
   const handlePostLike = async (postId) => {
     try {
       const userKey = currentUser?.name || currentUser?.id || "Anonymous";
-      
+
       const response = await fetch(`${SERVER_URL}/api/posts/${postId}/like`, {
         method: "POST",
         headers: {
@@ -812,9 +849,7 @@ export default function HomeScreen({ navigation }) {
 
       const updatedPost = await response.json();
       setPosts((currentPosts) =>
-        currentPosts.map((post) =>
-          post.id === postId ? updatedPost : post
-        )
+        currentPosts.map((post) => (post.id === postId ? updatedPost : post)),
       );
       trackEvent("liked_post", currentUser, { postId });
     } catch (error) {
@@ -871,29 +906,36 @@ export default function HomeScreen({ navigation }) {
 
         // Format and map device contacts (taking top 50 for smart fast syncing)
         const deviceContacts = data.slice(0, 50);
-        
+
         // Extract phone numbers
-        const phoneNumbers = deviceContacts.map(item => 
-          item.phoneNumbers && item.phoneNumbers.length > 0 ? item.phoneNumbers[0].number : ""
-        ).filter(num => num !== "");
+        const phoneNumbers = deviceContacts
+          .map((item) =>
+            item.phoneNumbers && item.phoneNumbers.length > 0
+              ? item.phoneNumbers[0].number
+              : "",
+          )
+          .filter((num) => num !== "");
 
         // Call backend to check which users exist
         let unityUserMap = {};
         try {
           console.log("[Contacts] Checking backend for Unity accounts...");
           const res = await fetch(`${SERVER_URL}/api/check-contacts`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phoneNumbers })
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phoneNumbers }),
           });
           const checkData = await res.json();
           if (checkData && checkData.contacts) {
-            checkData.contacts.forEach(c => {
+            checkData.contacts.forEach((c) => {
               unityUserMap[c.phone] = c.hasUnityAccount;
             });
           }
         } catch (backendErr) {
-          console.warn("[Contacts] Failed to check backend for users", backendErr);
+          console.warn(
+            "[Contacts] Failed to check backend for users",
+            backendErr,
+          );
         }
 
         const formattedContacts = await Promise.all(
@@ -904,7 +946,7 @@ export default function HomeScreen({ navigation }) {
                 : "";
             const email =
               item.emails && item.emails.length > 0 ? item.emails[0].email : "";
-            
+
             const isUnityUser = unityUserMap[phone] || false;
 
             // Smart flag assignment based on phone number country prefix
@@ -965,7 +1007,7 @@ export default function HomeScreen({ navigation }) {
         setContacts(updatedContacts);
         setSyncedCount(formattedContacts.length);
         setImported(true);
-        
+
         if (formattedContacts.length > 0) {
           setShowImportSuccess(true);
           setTimeout(() => setShowImportSuccess(false), 30000);
@@ -974,10 +1016,7 @@ export default function HomeScreen({ navigation }) {
             `Successfully synced ${formattedContacts.length} contacts from your phone!`,
           );
         } else {
-          Alert.alert(
-            "Sync Complete",
-            "No new contacts were found to sync.",
-          );
+          Alert.alert("Sync Complete", "No new contacts were found to sync.");
         }
 
         // Save the import check timestamp for next 7-day cycle
@@ -990,7 +1029,10 @@ export default function HomeScreen({ navigation }) {
       }
     } catch (e) {
       console.error("[Contacts] Sync error:", e);
-      Alert.alert("Sync Failed", `An error occurred while importing contacts: ${e.message || String(e)}`);
+      Alert.alert(
+        "Sync Failed",
+        `An error occurred while importing contacts: ${e.message || String(e)}`,
+      );
     } finally {
       setIsImporting(false);
     }
@@ -1048,10 +1090,14 @@ export default function HomeScreen({ navigation }) {
       });
 
       if (!result.canceled && result.assets?.length > 0) {
-        const uris = result.assets.map(a => a.uri);
-        setNewPostImages(prev => [...prev, ...uris]);
+        const uris = result.assets.map((a) => a.uri);
+        setNewPostImages((prev) => [...prev, ...uris]);
         // Only set media type if it's the first image being added or was a gradient
-        setNewPostMediaType(prev => prev === "gradient" || prev === null ? getPostMediaTypeFromAsset(result.assets[0].type, uris[0]) : prev);
+        setNewPostMediaType((prev) =>
+          prev === "gradient" || prev === null
+            ? getPostMediaTypeFromAsset(result.assets[0].type, uris[0])
+            : prev,
+        );
       }
     } catch (error) {
       console.error("Failed to pick post media", error);
@@ -1105,33 +1151,41 @@ export default function HomeScreen({ navigation }) {
       liked: false,
       comments: [],
     };
-    
+
     setPosts((prev) => [optimisticPost, ...prev]);
     setPostModalVisible(false);
     setNewPostText("");
     setNewPostImages([]);
     setNewPostMediaType("gradient");
     setNewPostBackgroundKey("aurora");
-    
+
     // Notify user of background upload
-    scheduleLocalNotification("Uploading Post...", "Your post is being sent to the server.", { seconds: 1 });
+    scheduleLocalNotification(
+      "Uploading Post...",
+      "Your post is being sent to the server.",
+      { seconds: 1 },
+    );
 
     try {
       // Save to local offline queue
       await savePendingPost(pendingPostId, newPostPayload);
-      
+
       // Trigger background sync
       await syncPendingPosts();
-      
+
       // Remove pending flag in UI
-      setPosts((prev) => prev.map((p) => p.id === pendingPostId ? { ...p, isPending: false } : p));
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === pendingPostId ? { ...p, isPending: false } : p,
+        ),
+      );
     } catch (error) {
       console.error("[HomeScreen] Failed to queue post:", error);
     }
   };
 
   const getAuthorAvatar = (authorName) => {
-    if(
+    if (
       authorName === currentUser.name ||
       authorName === "Amani User" ||
       authorName === "Me"
@@ -1339,14 +1393,14 @@ export default function HomeScreen({ navigation }) {
   });
 
   return (
-    <View style={[styles.container, { backgroundColor:colors.bg }]}>
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
       <SafeAreaView
         style={[
           styles.safeArea,
           {
             borderBottomWidth: 1,
-            borderBottomColor:colors.border,
-            backgroundColor:colors.cardBg,
+            borderBottomColor: colors.border,
+            backgroundColor: colors.cardBg,
           },
         ]}
         edges={["top", "left", "right"]}
@@ -1354,7 +1408,7 @@ export default function HomeScreen({ navigation }) {
         {/* Header bar */}
         <View style={styles.header}>
           <View>
-            <Text style={[styles.headerGreeting, { color:colors.text }]}>
+            <Text style={[styles.headerGreeting, { color: colors.text }]}>
               {activeTab === "chats"
                 ? "Chats"
                 : activeTab === "updates"
@@ -1363,7 +1417,7 @@ export default function HomeScreen({ navigation }) {
                     ? "Contacts"
                     : "Calls"}
             </Text>
-            <Text style={[styles.headerSubtitle, { color:colors.textMuted }]}>
+            <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
               {activeTab === "chats"
                 ? "You're ready to communicate instantly"
                 : activeTab === "updates"
@@ -1375,7 +1429,7 @@ export default function HomeScreen({ navigation }) {
           </View>
           {/* Menu Button (Three horizontal lines menu like WhatsApp) */}
           <TouchableOpacity
-            style={[styles.menuBtn, { backgroundColor:colors.border }]}
+            style={[styles.menuBtn, { backgroundColor: colors.border }]}
             onPress={handleOpenSettings}
             activeOpacity={0.7}
           >
@@ -1412,7 +1466,7 @@ export default function HomeScreen({ navigation }) {
                     styles.pulseRing,
                     {
                       borderWidth: 1.5,
-                      borderColor:colors.primary,
+                      borderColor: colors.primary,
                       backgroundColor: "transparent",
                       transform: [
                         {
@@ -1436,7 +1490,7 @@ export default function HomeScreen({ navigation }) {
                     styles.pulseRing,
                     {
                       borderWidth: 1.5,
-                      borderColor:colors.primary,
+                      borderColor: colors.primary,
                       backgroundColor: "transparent",
                       transform: [
                         {
@@ -1460,7 +1514,7 @@ export default function HomeScreen({ navigation }) {
                     styles.pulseRing,
                     {
                       borderWidth: 1.5,
-                      borderColor:colors.primary,
+                      borderColor: colors.primary,
                       backgroundColor: "transparent",
                       transform: [
                         {
@@ -1479,7 +1533,7 @@ export default function HomeScreen({ navigation }) {
                 />
 
                 <TouchableOpacity
-                  style={[styles.giantCta, { backgroundColor:colors.primary }]}
+                  style={[styles.giantCta, { backgroundColor: colors.primary }]}
                   onPress={handleStartConv}
                   activeOpacity={0.85}
                 >
@@ -1506,27 +1560,27 @@ export default function HomeScreen({ navigation }) {
                   </LinearGradient>
                 </TouchableOpacity>
               </View>
-              <Text style={[styles.ctaTitle, { color:colors.text }]}>
+              <Text style={[styles.ctaTitle, { color: colors.text }]}>
                 Start a Conversation
               </Text>
-              <Text style={[styles.ctaSubtitle, { color:colors.textMuted }]}>
+              <Text style={[styles.ctaSubtitle, { color: colors.textMuted }]}>
                 Tap to start new conversation
               </Text>
             </View>
 
-            <Text style={[styles.sectionTitle, { color:colors.textDimmed }]}>
+            <Text style={[styles.sectionTitle, { color: colors.textDimmed }]}>
               Recent Conversations
             </Text>
 
             <View
               style={[
                 styles.convList,
-                { backgroundColor:colors.cardBg, borderColor:colors.border },
+                { backgroundColor: colors.cardBg, borderColor: colors.border },
               ]}
             >
               {/* Unity AI Card */}
               <View
-                style={[styles.convCard, { borderBottomColor:colors.border }]}
+                style={[styles.convCard, { borderBottomColor: colors.border }]}
               >
                 <TouchableOpacity
                   activeOpacity={0.85}
@@ -1539,15 +1593,17 @@ export default function HomeScreen({ navigation }) {
                     style={styles.avatar}
                   />
                   <View
-                    style={[styles.flagBadge, { backgroundColor:colors.bg }]}
+                    style={[styles.flagBadge, { backgroundColor: colors.bg }]}
                   >
-                    {renderFlagOrEmoji(LANGS[currentUser.unityAILang]?.flag || "🌍")}
+                    {renderFlagOrEmoji(
+                      LANGS[currentUser.unityAILang]?.flag || "🌍",
+                    )}
                   </View>
                   {isOnlineStatus(INITIAL_CONTACTS[0].status) && (
                     <View
                       style={[
                         styles.onlineBadge,
-                        { borderColor:colors.cardBg },
+                        { borderColor: colors.cardBg },
                       ]}
                     />
                   )}
@@ -1562,7 +1618,7 @@ export default function HomeScreen({ navigation }) {
                       INITIAL_CONTACTS[0].id,
                       INITIAL_CONTACTS[0].status,
                       currentUser.unityAILang || "en",
-                      LANGS[currentUser.unityAILang]?.name || "English"
+                      LANGS[currentUser.unityAILang]?.name || "English",
                     )
                   }
                   style={styles.convBodyPress}
@@ -1570,18 +1626,21 @@ export default function HomeScreen({ navigation }) {
                   <View style={styles.convDetails}>
                     <View style={styles.convHeader}>
                       <Text
-                        style={[styles.partnerName, { color:colors.text, fontWeight: "700" }]}
+                        style={[
+                          styles.partnerName,
+                          { color: colors.text, fontWeight: "700" },
+                        ]}
                       >
                         {INITIAL_CONTACTS[0].name}
                       </Text>
                       <Text
-                        style={[styles.convTime, { color:colors.textDimmed }]}
+                        style={[styles.convTime, { color: colors.textDimmed }]}
                       >
                         Always Online
                       </Text>
                     </View>
                     <Text
-                      style={[styles.convPreview, { color:colors.primary }]}
+                      style={[styles.convPreview, { color: colors.primary }]}
                     >
                       AI is ready to chat!
                     </Text>
@@ -1605,7 +1664,7 @@ export default function HomeScreen({ navigation }) {
 
               {/* Partner Card 1 */}
               <View
-                style={[styles.convCard, { borderBottomColor:colors.border }]}
+                style={[styles.convCard, { borderBottomColor: colors.border }]}
               >
                 <TouchableOpacity
                   activeOpacity={0.85}
@@ -1629,7 +1688,7 @@ export default function HomeScreen({ navigation }) {
                     style={styles.avatar}
                   />
                   <View
-                    style={[styles.flagBadge, { backgroundColor:colors.bg }]}
+                    style={[styles.flagBadge, { backgroundColor: colors.bg }]}
                   >
                     {renderFlagOrEmoji("🇪🇸")}
                   </View>
@@ -1648,18 +1707,18 @@ export default function HomeScreen({ navigation }) {
                   <View style={styles.convDetails}>
                     <View style={styles.convHeader}>
                       <Text
-                        style={[styles.partnerName, { color:colors.text }]}
+                        style={[styles.partnerName, { color: colors.text }]}
                       >
                         Sophia Martinez
                       </Text>
                       <Text
-                        style={[styles.convTime, { color:colors.textDimmed }]}
+                        style={[styles.convTime, { color: colors.textDimmed }]}
                       >
                         2m ago
                       </Text>
                     </View>
                     <Text
-                      style={[styles.convPreview, { color:colors.textMuted }]}
+                      style={[styles.convPreview, { color: colors.textMuted }]}
                     >
                       English ⇄ Spanish (Active)
                     </Text>
@@ -1683,7 +1742,7 @@ export default function HomeScreen({ navigation }) {
 
               {/* Partner Card 2 */}
               <View
-                style={[styles.convCard, { borderBottomColor:colors.border }]}
+                style={[styles.convCard, { borderBottomColor: colors.border }]}
               >
                 <TouchableOpacity
                   activeOpacity={0.85}
@@ -1707,7 +1766,7 @@ export default function HomeScreen({ navigation }) {
                     style={styles.avatar}
                   />
                   <View
-                    style={[styles.flagBadge, { backgroundColor:colors.bg }]}
+                    style={[styles.flagBadge, { backgroundColor: colors.bg }]}
                   >
                     {renderFlagOrEmoji("🇯🇵")}
                   </View>
@@ -1726,18 +1785,18 @@ export default function HomeScreen({ navigation }) {
                   <View style={styles.convDetails}>
                     <View style={styles.convHeader}>
                       <Text
-                        style={[styles.partnerName, { color:colors.text }]}
+                        style={[styles.partnerName, { color: colors.text }]}
                       >
                         Kenji Sato
                       </Text>
                       <Text
-                        style={[styles.convTime, { color:colors.textDimmed }]}
+                        style={[styles.convTime, { color: colors.textDimmed }]}
                       >
                         1h ago
                       </Text>
                     </View>
                     <Text
-                      style={[styles.convPreview, { color:colors.textMuted }]}
+                      style={[styles.convPreview, { color: colors.textMuted }]}
                     >
                       English ⇄ Japanese
                     </Text>
@@ -1783,7 +1842,7 @@ export default function HomeScreen({ navigation }) {
                     style={styles.avatar}
                   />
                   <View
-                    style={[styles.flagBadge, { backgroundColor:colors.bg }]}
+                    style={[styles.flagBadge, { backgroundColor: colors.bg }]}
                   >
                     {renderFlagOrEmoji("🇰🇪")}
                   </View>
@@ -1802,18 +1861,18 @@ export default function HomeScreen({ navigation }) {
                   <View style={styles.convDetails}>
                     <View style={styles.convHeader}>
                       <Text
-                        style={[styles.partnerName, { color:colors.text }]}
+                        style={[styles.partnerName, { color: colors.text }]}
                       >
                         Amara Okoro
                       </Text>
                       <Text
-                        style={[styles.convTime, { color:colors.textDimmed }]}
+                        style={[styles.convTime, { color: colors.textDimmed }]}
                       >
                         Yesterday
                       </Text>
                     </View>
                     <Text
-                      style={[styles.convPreview, { color:colors.textMuted }]}
+                      style={[styles.convPreview, { color: colors.textMuted }]}
                     >
                       English ⇄ Swahili
                     </Text>
@@ -1846,12 +1905,12 @@ export default function HomeScreen({ navigation }) {
                   styles.filterChip,
                   contactsFilter === "my"
                     ? {
-                        backgroundColor:colors.primaryGlow,
-                        borderColor:colors.primary,
+                        backgroundColor: colors.primaryGlow,
+                        borderColor: colors.primary,
                       }
                     : {
-                        backgroundColor:colors.cardBg,
-                        borderColor:colors.border,
+                        backgroundColor: colors.cardBg,
+                        borderColor: colors.border,
                       },
                 ]}
                 activeOpacity={0.7}
@@ -1861,8 +1920,8 @@ export default function HomeScreen({ navigation }) {
                   style={[
                     styles.filterChipText,
                     contactsFilter === "my"
-                      ? { color:colors.primary, fontWeight: "600" }
-                      : { color:colors.textMuted },
+                      ? { color: colors.primary, fontWeight: "600" }
+                      : { color: colors.textMuted },
                   ]}
                 >
                   My Contacts
@@ -1874,12 +1933,12 @@ export default function HomeScreen({ navigation }) {
                   styles.filterChip,
                   contactsFilter === "explore"
                     ? {
-                        backgroundColor:colors.primaryGlow,
-                        borderColor:colors.primary,
+                        backgroundColor: colors.primaryGlow,
+                        borderColor: colors.primary,
                       }
                     : {
-                        backgroundColor:colors.cardBg,
-                        borderColor:colors.border,
+                        backgroundColor: colors.cardBg,
+                        borderColor: colors.border,
                       },
                 ]}
                 activeOpacity={0.7}
@@ -1889,8 +1948,8 @@ export default function HomeScreen({ navigation }) {
                   style={[
                     styles.filterChipText,
                     contactsFilter === "explore"
-                      ? { color:colors.primary, fontWeight: "600" }
-                      : { color:colors.textMuted },
+                      ? { color: colors.primary, fontWeight: "600" }
+                      : { color: colors.textMuted },
                   ]}
                 >
                   Explore People
@@ -1900,25 +1959,41 @@ export default function HomeScreen({ navigation }) {
 
             {contactsFilter === "my" && (
               <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
-                <View style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-                  borderWidth: 1,
-                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-                  borderRadius: 24,
-                  paddingHorizontal: 16,
-                  height: 48,
-                }}>
-                  <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 10 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.05)"
+                      : "rgba(0,0,0,0.03)",
+                    borderWidth: 1,
+                    borderColor: isDark
+                      ? "rgba(255,255,255,0.1)"
+                      : "rgba(0,0,0,0.05)",
+                    borderRadius: 14,
+                    paddingHorizontal: 14,
+                    height: 40,
+                  }}
+                >
+                  <Svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.textMuted}
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ marginRight: 8 }}
+                  >
                     <Circle cx="11" cy="11" r="8" />
                     <Path d="M21 21l-4.35-4.35" />
                   </Svg>
                   <TextInput
                     style={{
                       flex: 1,
-                      color:colors.text,
-                      fontSize: 16,
+                      color: colors.text,
+                      fontSize: 14,
                       outlineStyle: "none",
                     }}
                     placeholder="Search by name or UTID"
@@ -1928,14 +2003,13 @@ export default function HomeScreen({ navigation }) {
                   />
                 </View>
 
-
                 {true ? (
                   <TouchableOpacity
                     style={[
                       styles.importCard,
                       {
-                        backgroundColor:colors.cardBg,
-                        borderColor:colors.border,
+                        backgroundColor: colors.cardBg,
+                        borderColor: colors.border,
                       },
                     ]}
                     onPress={handleImportContacts}
@@ -1954,7 +2028,7 @@ export default function HomeScreen({ navigation }) {
                       <View
                         style={[
                           styles.importIconContainer,
-                          { backgroundColor:colors.primaryGlow },
+                          { backgroundColor: colors.primaryGlow },
                         ]}
                       >
                         {isImporting ? (
@@ -1979,14 +2053,14 @@ export default function HomeScreen({ navigation }) {
                       </View>
                       <View style={styles.importInfo}>
                         <Text
-                          style={[styles.importTitle, { color:colors.text }]}
+                          style={[styles.importTitle, { color: colors.text }]}
                         >
                           {isImporting ? "Syncing..." : "Sync Phone Contacts"}
                         </Text>
                         <Text
                           style={[
                             styles.importDesc,
-                            { color:colors.textMuted },
+                            { color: colors.textMuted },
                           ]}
                         >
                           {isImporting
@@ -1997,21 +2071,21 @@ export default function HomeScreen({ navigation }) {
                     </LinearGradient>
                   </TouchableOpacity>
                 ) : null}
-                
+
                 {showImportSuccess && syncedCount > 0 ? (
                   <View
                     style={[
                       styles.importSuccessCard,
                       {
-                        backgroundColor:colors.cardBg,
-                        borderColor:colors.border,
+                        backgroundColor: colors.cardBg,
+                        borderColor: colors.border,
                       },
                     ]}
                   >
                     <Text
                       style={[
                         styles.importSuccessText,
-                        { color:colors.accent },
+                        { color: colors.accent },
                       ]}
                     >
                       ✓ Successfully synced {syncedCount} phone contacts!
@@ -2022,7 +2096,7 @@ export default function HomeScreen({ navigation }) {
                 <Text
                   style={[
                     styles.sectionTitle,
-                    { color:colors.textDimmed, marginTop: 12 },
+                    { color: colors.textDimmed, marginTop: 12 },
                   ]}
                 >
                   My Address Book
@@ -2032,124 +2106,170 @@ export default function HomeScreen({ navigation }) {
                   style={[
                     styles.convList,
                     {
-                      backgroundColor:colors.cardBg,
-                      borderColor:colors.border,
+                      backgroundColor: colors.cardBg,
+                      borderColor: colors.border,
                     },
                   ]}
                 >
-                  {contacts.filter(c => {
-                    const q = contactSearchText.toLowerCase();
-                    return (c.name || "").toLowerCase().includes(q) || (c.id || "").toLowerCase().includes(q) || (c.uid || "").toLowerCase().includes(q);
-                  }).map((contact, index) => (
-                    <TouchableOpacity
-                      key={contact.id}
-                      style={[
-                        styles.convCard,
-                        index === contacts.length - 1
-                          ? { borderBottomWidth: 0 }
-                          : { borderBottomColor:colors.border },
-                      ]}
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        if (contact.isUnityUser === false) {
-                          const message = "Hey! I'm using Unity to translate my chats in real-time. Download it here: https://unity.app";
-                          const phone = (contact.phone || "").replace(/\D/g, "");
-                          Linking.openURL(`whatsapp://send?text=${encodeURIComponent(message)}&phone=${phone}`).catch(() => {
-                             Alert.alert("WhatsApp not found", "Could not open WhatsApp. Please make sure it is installed.");
-                          });
-                          return;
-                        }
-                        handlePartnerClick(
-                          contact.name,
-                          contact.avatar,
-                          contact.flag,
-                          contact.id,
-                        );
-                      }}
-                    >
-                      <View style={styles.avatarContainer}>
-                        <Image
-                          source={{ uri: contact.avatar }}
-                          style={styles.avatar}
-                        />
-                        {isOnlineContact(contact) && (
+                  {contacts
+                    .filter((c) => {
+                      const q = contactSearchText.toLowerCase();
+                      return (
+                        (c.name || "").toLowerCase().includes(q) ||
+                        (c.id || "").toLowerCase().includes(q) ||
+                        (c.uid || "").toLowerCase().includes(q)
+                      );
+                    })
+                    .map((contact, index) => (
+                      <TouchableOpacity
+                        key={contact.id}
+                        style={[
+                          styles.convCard,
+                          index === contacts.length - 1
+                            ? { borderBottomWidth: 0 }
+                            : { borderBottomColor: colors.border },
+                        ]}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          if (contact.isUnityUser === false) {
+                            const message =
+                              "Hey! I'm using Unity to translate my chats in real-time. Download it here: https://unity.app";
+                            const phone = (contact.phone || "").replace(
+                              /\D/g,
+                              "",
+                            );
+                            Linking.openURL(
+                              `whatsapp://send?text=${encodeURIComponent(message)}&phone=${phone}`,
+                            ).catch(() => {
+                              Alert.alert(
+                                "WhatsApp not found",
+                                "Could not open WhatsApp. Please make sure it is installed.",
+                              );
+                            });
+                            return;
+                          }
+                          handlePartnerClick(
+                            contact.name,
+                            contact.avatar,
+                            contact.flag,
+                            contact.id,
+                          );
+                        }}
+                      >
+                        <View style={styles.avatarContainer}>
+                          <Image
+                            source={{ uri: contact.avatar }}
+                            style={styles.avatar}
+                          />
+                          {isOnlineContact(contact) && (
+                            <View
+                              style={[
+                                styles.onlineBadge,
+                                { borderColor: colors.cardBg },
+                              ]}
+                            />
+                          )}
                           <View
                             style={[
-                              styles.onlineBadge,
-                              { borderColor:colors.cardBg },
+                              styles.flagBadge,
+                              { backgroundColor: colors.bg },
                             ]}
-                          />
-                        )}
-                        <View
-                          style={[
-                            styles.flagBadge,
-                            { backgroundColor:colors.bg },
-                          ]}
-                        >
-                          {renderFlagOrEmoji(contact.flag)}
-                        </View>
-                      </View>
-                      <View style={styles.convDetails}>
-                        <View style={styles.convHeader}>
-                          <Text
-                            style={[styles.partnerName, { color:colors.text }]}
                           >
-                            {contact.name}
-                          </Text>
-                          {contact.unreadCount > 0 && (
-                            <View style={{
-                              backgroundColor: '#EF4444',
-                              borderRadius: 12,
-                              minWidth: 20,
-                              height: 20,
-                              justifyContent: 'center',
-                              alignItems: 'center',
-                              marginLeft: 8,
-                              paddingHorizontal: 6,
-                            }}>
-                              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: 'bold' }}>{contact.unreadCount}</Text>
-                            </View>
-                          )}
+                            {renderFlagOrEmoji(contact.flag)}
+                          </View>
+                        </View>
+                        <View style={styles.convDetails}>
+                          <View style={styles.convHeader}>
+                            <Text
+                              style={[
+                                styles.partnerName,
+                                { color: colors.text },
+                              ]}
+                            >
+                              {contact.name}
+                            </Text>
+                            {contact.unreadCount > 0 && (
+                              <View
+                                style={{
+                                  backgroundColor: "#EF4444",
+                                  borderRadius: 12,
+                                  minWidth: 20,
+                                  height: 20,
+                                  justifyContent: "center",
+                                  alignItems: "center",
+                                  marginLeft: 8,
+                                  paddingHorizontal: 6,
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    color: "#FFFFFF",
+                                    fontSize: 12,
+                                    fontWeight: "bold",
+                                  }}
+                                >
+                                  {contact.unreadCount}
+                                </Text>
+                              </View>
+                            )}
+                            <Text
+                              style={[
+                                styles.contactStatus,
+                                {
+                                  color: colors.accent,
+                                  marginLeft: contact.unreadCount > 0 ? 8 : 0,
+                                },
+                              ]}
+                            >
+                              {contact.status}
+                            </Text>
+                          </View>
                           <Text
                             style={[
-                              styles.contactStatus,
-                              { color:colors.accent, marginLeft: contact.unreadCount > 0 ? 8 : 0 },
+                              styles.convPreview,
+                              { color: colors.textMuted },
                             ]}
                           >
-                            {contact.status}
+                            Native: {contact.langName}
                           </Text>
                         </View>
-                        <Text
-                          style={[
-                            styles.convPreview,
-                            { color:colors.textMuted },
-                          ]}
-                        >
-                          Native: {contact.langName}
-                        </Text>
-                      </View>
-                      <View style={styles.convArrow}>
-                        {contact.isUnityUser === false ? (
-                          <View style={{ backgroundColor:colors.border, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 }}>
-                            <Text style={{ color:colors.text, fontSize: 12, fontWeight: "600" }}>Invite</Text>
-                          </View>
-                        ) : (
-                          <Svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke={colors.textDimmed}
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <Path d="M9 18l6-6-6-6" />
-                          </Svg>
-                        )}
-                      </View>
-                    </TouchableOpacity>
-                  ))}
+                        <View style={styles.convArrow}>
+                          {contact.isUnityUser === false ? (
+                            <View
+                              style={{
+                                backgroundColor: colors.border,
+                                paddingHorizontal: 12,
+                                paddingVertical: 4,
+                                borderRadius: 12,
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: colors.text,
+                                  fontSize: 12,
+                                  fontWeight: "600",
+                                }}
+                              >
+                                Invite
+                              </Text>
+                            </View>
+                          ) : (
+                            <Svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke={colors.textDimmed}
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <Path d="M9 18l6-6-6-6" />
+                            </Svg>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    ))}
                 </View>
               </View>
             )}
@@ -2157,27 +2277,43 @@ export default function HomeScreen({ navigation }) {
             {contactsFilter === "explore" && (
               <View>
                 {/* Search Bar for Explore */}
-                <View style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-                  borderWidth: 1,
-                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-                  borderRadius: 24,
-                  paddingHorizontal: 16,
-                  height: 48,
-                  marginTop: 12,
-                  marginBottom: 16,
-                }}>
-                  <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 10 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.05)"
+                      : "rgba(0,0,0,0.03)",
+                    borderWidth: 1,
+                    borderColor: isDark
+                      ? "rgba(255,255,255,0.1)"
+                      : "rgba(0,0,0,0.05)",
+                    borderRadius: 14,
+                    paddingHorizontal: 14,
+                    height: 40,
+                    marginTop: 8,
+                    marginBottom: 16,
+                  }}
+                >
+                  <Svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.textMuted}
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ marginRight: 8 }}
+                  >
                     <Circle cx="11" cy="11" r="8" />
                     <Path d="M21 21l-4.35-4.35" />
                   </Svg>
                   <TextInput
                     style={{
                       flex: 1,
-                      color:colors.text,
-                      fontSize: 16,
+                      color: colors.text,
+                      fontSize: 14,
                       outlineStyle: "none",
                     }}
                     placeholder="Search by name or UTID"
@@ -2194,8 +2330,8 @@ export default function HomeScreen({ navigation }) {
                       style={[
                         styles.exploreCard,
                         {
-                          backgroundColor:colors.cardBg,
-                          borderColor:colors.border,
+                          backgroundColor: colors.cardBg,
+                          borderColor: colors.border,
                         },
                       ]}
                     >
@@ -2208,14 +2344,14 @@ export default function HomeScreen({ navigation }) {
                       <View
                         style={[
                           styles.exploreFlagBadge,
-                          { backgroundColor:colors.bg },
+                          { backgroundColor: colors.bg },
                         ]}
                       >
                         {renderFlagOrEmoji(person.flag)}
                       </View>
                       <View style={styles.exploreCardDetails}>
                         <Text
-                          style={[styles.exploreName, { color:colors.text }]}
+                          style={[styles.exploreName, { color: colors.text }]}
                           numberOfLines={1}
                         >
                           {person.name}
@@ -2223,7 +2359,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.exploreLang,
-                            { color:colors.primary },
+                            { color: colors.primary },
                           ]}
                           numberOfLines={1}
                         >
@@ -2232,7 +2368,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.exploreBio,
-                            { color:colors.textMuted },
+                            { color: colors.textMuted },
                           ]}
                           numberOfLines={2}
                         >
@@ -2241,7 +2377,7 @@ export default function HomeScreen({ navigation }) {
                         <TouchableOpacity
                           style={[
                             styles.exploreCta,
-                            { backgroundColor:colors.primary },
+                            { backgroundColor: colors.primary },
                           ]}
                           onPress={() =>
                             handlePartnerClick(
@@ -2273,30 +2409,65 @@ export default function HomeScreen({ navigation }) {
 
         {activeTab === "updates" && (
           <View style={styles.updatesContainer}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, marginBottom: 12 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingHorizontal: 20,
+                marginBottom: 12,
+              }}
+            >
               {!isPostSearchVisible ? (
-                <Text style={[styles.sectionTitle, { color:colors.textDimmed, margin: 0 }]}>
+                <Text
+                  style={[
+                    styles.sectionTitle,
+                    { color: colors.textDimmed, margin: 0 },
+                  ]}
+                >
                   Recent Updates
                 </Text>
               ) : (
-                <View style={{
-                  flex: 1,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-                  borderWidth: 1,
-                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-                  borderRadius: 24,
-                  paddingHorizontal: 16,
-                  height: 40,
-                  marginRight: 12,
-                }}>
-                  <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}>
+                <View
+                  style={{
+                    flex: 1,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.05)"
+                      : "rgba(0,0,0,0.03)",
+                    borderWidth: 1,
+                    borderColor: isDark
+                      ? "rgba(255,255,255,0.1)"
+                      : "rgba(0,0,0,0.05)",
+                    borderRadius: 24,
+                    paddingHorizontal: 16,
+                    height: 40,
+                    marginRight: 12,
+                  }}
+                >
+                  <Svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.textMuted}
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ marginRight: 8 }}
+                  >
                     <Circle cx="11" cy="11" r="8" />
                     <Path d="M21 21l-4.35-4.35" />
                   </Svg>
                   <TextInput
-                    style={{ flex: 1, color:colors.text, fontSize: 14, outlineStyle: 'none', borderWidth: 0 }}
+                    style={{
+                      flex: 1,
+                      color: colors.text,
+                      fontSize: 14,
+                      outlineStyle: "none",
+                      borderWidth: 0,
+                    }}
                     placeholder="Search posts, UTID..."
                     placeholderTextColor={colors.textMuted}
                     onChangeText={setPostSearchText}
@@ -2305,142 +2476,308 @@ export default function HomeScreen({ navigation }) {
                   />
                 </View>
               )}
-              <TouchableOpacity onPress={() => {
-                if (isPostSearchVisible) {
-                  setPostSearchText("");
-                }
-                setIsPostSearchVisible(!isPostSearchVisible);
-              }} activeOpacity={0.7} style={{ padding: 4 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  if (isPostSearchVisible) {
+                    setPostSearchText("");
+                  }
+                  setIsPostSearchVisible(!isPostSearchVisible);
+                }}
+                activeOpacity={0.7}
+                style={{ padding: 4 }}
+              >
                 {isPostSearchVisible ? (
-                  <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <Svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.textMuted}
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <Line x1="18" y1="6" x2="6" y2="18" />
                     <Line x1="6" y1="6" x2="18" y2="18" />
                   </Svg>
                 ) : (
-                  <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <Svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.textMuted}
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <Circle cx="11" cy="11" r="8" />
                     <Path d="M21 21l-4.35-4.35" />
                   </Svg>
                 )}
               </TouchableOpacity>
             </View>
-            
-            {posts.filter(post => {
-              if (!postSearchText) return true;
-              const q = postSearchText.toLowerCase();
-              return (post.authorName && post.authorName.toLowerCase().includes(q)) || 
-                     (post.content && post.content.toLowerCase().includes(q)) || 
-                     (post.description && post.description.toLowerCase().includes(q)) ||
-                     (post.authorEmail && post.authorEmail.toLowerCase().includes(q));
-            }).map((post) => {
-              return (
-                <View
-                  key={post.id}
-                  style={[
-                    styles.postCard,
-                    {
-                      backgroundColor:colors.cardBg,
-                      borderColor:colors.border,
-                      opacity: post.isPending ? 0.7 : 1,
-                    },
-                  ]}
-                >
-                  {/* Post Header */}
-                  <View style={styles.postHeader}>
-                    <View style={styles.avatarContainer}>
-                      <Image
-                        source={{ uri: post.avatar_local_path || post.avatar }}
-                        style={styles.postAvatar}
-                      />
-                      <View
-                        style={[
-                          styles.flagBadge,
-                          { backgroundColor:colors.bg },
-                        ]}
-                      >
-                        {renderFlagOrEmoji(post.flag)}
-                      </View>
-                    </View>
-                    <View style={[styles.postAuthorInfo, { flex: 1 }]}>
-                      <Text
-                        style={[styles.postAuthorName, { color:colors.text }]}
-                      >
-                        {post.authorName}
-                      </Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-                        <Text
+
+            {posts
+              .filter((post) => {
+                if (!postSearchText) return true;
+                const q = postSearchText.toLowerCase();
+                return (
+                  (post.authorName &&
+                    post.authorName.toLowerCase().includes(q)) ||
+                  (post.content && post.content.toLowerCase().includes(q)) ||
+                  (post.description &&
+                    post.description.toLowerCase().includes(q)) ||
+                  (post.authorEmail &&
+                    post.authorEmail.toLowerCase().includes(q))
+                );
+              })
+              .map((post) => {
+                return (
+                  <View
+                    key={post.id}
+                    style={[
+                      styles.postCard,
+                      {
+                        backgroundColor: colors.cardBg,
+                        borderColor: colors.border,
+                        opacity: post.isPending ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    {/* Post Header */}
+                    <View style={styles.postHeader}>
+                      <View style={styles.avatarContainer}>
+                        <Image
+                          source={{
+                            uri: post.avatar_local_path || post.avatar,
+                          }}
+                          style={styles.postAvatar}
+                        />
+                        <View
                           style={[
-                            styles.postTimeText,
-                            { color:colors.textDimmed },
+                            styles.flagBadge,
+                            { backgroundColor: colors.bg },
                           ]}
                         >
-                          {post.time}
+                          {renderFlagOrEmoji(post.flag)}
+                        </View>
+                      </View>
+                      <View style={[styles.postAuthorInfo, { flex: 1 }]}>
+                        <Text
+                          style={[
+                            styles.postAuthorName,
+                            { color: colors.text },
+                          ]}
+                        >
+                          {post.authorName}
                         </Text>
-                        {post.isPending && (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 6 }}>
-                            <Text style={{ color:colors.primary, fontSize: 12, marginRight: 4 }}>• Uploading</Text>
-                            <ActivityIndicator size="small" color={colors.primary} />
-                          </View>
-                        )}
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            marginTop: 2,
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.postTimeText,
+                              { color: colors.textDimmed },
+                            ]}
+                          >
+                            {post.time}
+                          </Text>
+                          {post.isPending && (
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                marginLeft: 6,
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: colors.primary,
+                                  fontSize: 12,
+                                  marginRight: 4,
+                                }}
+                              >
+                                • Uploading
+                              </Text>
+                              <ActivityIndicator
+                                size="small"
+                                color={colors.primary}
+                              />
+                            </View>
+                          )}
+                        </View>
+                      </View>
+
+                      {/* Header Action Icons: Chat + 3-Dot Options */}
+                      <View style={styles.postHeaderActions}>
+                        <TouchableOpacity
+                          onPress={() => handlePostMoreOptions(post)}
+                          style={styles.postHeaderActionBtn}
+                          activeOpacity={0.7}
+                        >
+                          <Svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke={colors.textMuted}
+                            strokeWidth="2.5"
+                          >
+                            <Circle cx="12" cy="12" r="1.5" />
+                            <Circle cx="6" cy="12" r="1.5" />
+                            <Circle cx="18" cy="12" r="1.5" />
+                          </Svg>
+                        </TouchableOpacity>
                       </View>
                     </View>
 
-                    {/* Header Action Icons: Chat + 3-Dot Options */}
-                    <View style={styles.postHeaderActions}>
+                    {/* Post Content */}
+                    {(() => {
+                      const fullPostText = (
+                        post.description ||
+                        post.content ||
+                        ""
+                      ).trim();
+                      const isExpanded = Boolean(expandedPosts[post.id]);
+                      const shouldTruncate =
+                        fullPostText.length > POST_DESCRIPTION_LIMIT;
+                      const previewText =
+                        shouldTruncate && !isExpanded
+                          ? `${fullPostText.slice(0, POST_DESCRIPTION_LIMIT).trimEnd()}...`
+                          : fullPostText;
+                      const translationText = postTranslations[post.id];
+                      const background = getPostBackgroundPreset(
+                        post.backgroundKey,
+                      );
+                      const showGradientCard =
+                        post.mediaType === "gradient" &&
+                        (!post.images || post.images.length === 0);
 
-                      <TouchableOpacity
-                        onPress={() => handlePostMoreOptions(post)}
-                        style={styles.postHeaderActionBtn}
-                        activeOpacity={0.7}
-                      >
-                        <Svg
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke={colors.textMuted}
-                          strokeWidth="2.5"
-                        >
-                          <Circle cx="12" cy="12" r="1.5" />
-                          <Circle cx="6" cy="12" r="1.5" />
-                          <Circle cx="18" cy="12" r="1.5" />
-                        </Svg>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
+                      if (showGradientCard) {
+                        return (
+                          <LinearGradient
+                            colors={background.colors}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={styles.postGradientCard}
+                          >
+                            <Text style={styles.postGradientText}>
+                              {previewText}
+                            </Text>
+                            {shouldTruncate && (
+                              <TouchableOpacity
+                                onPress={() =>
+                                  setExpandedPosts((prev) => ({
+                                    ...prev,
+                                    [post.id]: !prev[post.id],
+                                  }))
+                                }
+                                style={styles.postSeeMoreBtn}
+                                activeOpacity={0.75}
+                              >
+                                <Text style={styles.postSeeMoreText}>
+                                  {isExpanded ? "See less" : "See more"}
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                            {translationText ? (
+                              <Text style={styles.postTranslationText}>
+                                {translationText}
+                              </Text>
+                            ) : null}
+                          </LinearGradient>
+                        );
+                      }
 
-                  {/* Post Content */}
-                  {(() => {
-                    const fullPostText = (
-                      post.description ||
-                      post.content ||
-                      ""
-                    ).trim();
-                    const isExpanded = Boolean(expandedPosts[post.id]);
-                    const shouldTruncate =
-                      fullPostText.length > POST_DESCRIPTION_LIMIT;
-                    const previewText =
-                      shouldTruncate && !isExpanded
-                        ? `${fullPostText.slice(0, POST_DESCRIPTION_LIMIT).trimEnd()}...`
-                        : fullPostText;
-                    const translationText = postTranslations[post.id];
-                    const background = getPostBackgroundPreset(
-                      post.backgroundKey,
-                    );
-                    const showGradientCard =
-                      post.mediaType === "gradient" && (!post.images || post.images.length === 0);
-
-                    if (showGradientCard) {
                       return (
-                        <LinearGradient
-                          colors={background.colors}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={styles.postGradientCard}
-                        >
-                          <Text style={styles.postGradientText}>
+                        <>
+                          {post.images && post.images.length > 0 ? (
+                            post.mediaType === "video" ? (
+                              <View style={styles.postVideoPlaceholder}>
+                                <LinearGradient
+                                  colors={background.colors}
+                                  start={{ x: 0, y: 0 }}
+                                  end={{ x: 1, y: 1 }}
+                                  style={styles.postVideoGradient}
+                                >
+                                  <Text style={styles.postVideoBadge}>
+                                    VIDEO
+                                  </Text>
+                                  <Text style={styles.postVideoText}>
+                                    Tap to play after upload support is enabled.
+                                  </Text>
+                                </LinearGradient>
+                              </View>
+                            ) : (
+                              <View style={styles.postImageGrid}>
+                                {post.images
+                                  .slice(0, 4)
+                                  .map((imgUri, index) => {
+                                    const isLast = index === 3;
+                                    const extraCount = post.images.length - 4;
+                                    const localPath =
+                                      post.images_local_paths?.[index] ||
+                                      imgUri;
+                                    const numImages = Math.min(
+                                      post.images.length,
+                                      4,
+                                    );
+
+                                    // Simple grid logic
+                                    let itemStyle = styles.gridItemSingle;
+                                    if (numImages === 2)
+                                      itemStyle = styles.gridItemHalf;
+                                    else if (numImages === 3)
+                                      itemStyle =
+                                        index === 0
+                                          ? styles.gridItemFullTop
+                                          : styles.gridItemHalfBottom;
+                                    else if (numImages >= 4)
+                                      itemStyle = styles.gridItemQuarter;
+
+                                    return (
+                                      <View
+                                        key={index}
+                                        style={[
+                                          styles.gridImageWrapper,
+                                          itemStyle,
+                                        ]}
+                                      >
+                                        <Image
+                                          source={{ uri: localPath }}
+                                          style={styles.gridImage}
+                                          resizeMode="cover"
+                                        />
+                                        {isLast && extraCount > 0 && (
+                                          <View style={styles.gridOverlay}>
+                                            <Text
+                                              style={styles.gridOverlayText}
+                                            >
+                                              +{extraCount}
+                                            </Text>
+                                          </View>
+                                        )}
+                                      </View>
+                                    );
+                                  })}
+                              </View>
+                            )
+                          ) : null}
+
+                          <Text
+                            style={[
+                              styles.postContentText,
+                              { color: colors.text },
+                            ]}
+                          >
                             {previewText}
                           </Text>
+
                           {shouldTruncate && (
                             <TouchableOpacity
                               onPress={() =>
@@ -2457,190 +2794,106 @@ export default function HomeScreen({ navigation }) {
                               </Text>
                             </TouchableOpacity>
                           )}
+
                           {translationText ? (
                             <Text style={styles.postTranslationText}>
                               {translationText}
                             </Text>
                           ) : null}
-                        </LinearGradient>
+                        </>
                       );
-                    }
-
-                    return (
-                      <>
-                        {post.images && post.images.length > 0 ? (
-                          post.mediaType === "video" ? (
-                            <View style={styles.postVideoPlaceholder}>
-                              <LinearGradient
-                                colors={background.colors}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 1 }}
-                                style={styles.postVideoGradient}
-                              >
-                                <Text style={styles.postVideoBadge}>VIDEO</Text>
-                                <Text style={styles.postVideoText}>
-                                  Tap to play after upload support is enabled.
-                                </Text>
-                              </LinearGradient>
-                            </View>
-                          ) : (
-                            <View style={styles.postImageGrid}>
-                              {post.images.slice(0, 4).map((imgUri, index) => {
-                                const isLast = index === 3;
-                                const extraCount = post.images.length - 4;
-                                const localPath = post.images_local_paths?.[index] || imgUri;
-                                const numImages = Math.min(post.images.length, 4);
-                                
-                                // Simple grid logic
-                                let itemStyle = styles.gridItemSingle;
-                                if (numImages === 2) itemStyle = styles.gridItemHalf;
-                                else if (numImages === 3) itemStyle = index === 0 ? styles.gridItemFullTop : styles.gridItemHalfBottom;
-                                else if (numImages >= 4) itemStyle = styles.gridItemQuarter;
-
-                                return (
-                                  <View key={index} style={[styles.gridImageWrapper, itemStyle]}>
-                                    <Image
-                                      source={{ uri: localPath }}
-                                      style={styles.gridImage}
-                                      resizeMode="cover"
-                                    />
-                                    {isLast && extraCount > 0 && (
-                                      <View style={styles.gridOverlay}>
-                                        <Text style={styles.gridOverlayText}>+{extraCount}</Text>
-                                      </View>
-                                    )}
-                                  </View>
-                                );
-                              })}
-                            </View>
-                          )
-                        ) : null}
-
-                        <Text
-                          style={[
-                            styles.postContentText,
-                            { color:colors.text },
-                          ]}
-                        >
-                          {previewText}
-                        </Text>
-
-                        {shouldTruncate && (
-                          <TouchableOpacity
-                            onPress={() =>
-                              setExpandedPosts((prev) => ({
-                                ...prev,
-                                [post.id]: !prev[post.id],
-                              }))
-                            }
-                            style={styles.postSeeMoreBtn}
-                            activeOpacity={0.75}
-                          >
-                            <Text style={styles.postSeeMoreText}>
-                              {isExpanded ? "See less" : "See more"}
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-
-                        {translationText ? (
-                          <Text style={styles.postTranslationText}>
-                            {translationText}
-                          </Text>
-                        ) : null}
-                      </>
-                    );
-                  })()}
-                  {/* Post Stats */}
-                  <View
-                    style={[
-                      styles.postStatsRow,
-                      { borderBottomColor:colors.border },
-                    ]}
-                  >
-                    <Text
+                    })()}
+                    {/* Post Stats */}
+                    <View
                       style={[
-                        styles.postStatsText,
-                        { color:colors.textDimmed },
+                        styles.postStatsRow,
+                        { borderBottomColor: colors.border },
                       ]}
-                    >
-                      {post.likes} {post.likes === 1 ? "Like" : "Likes"}
-                    </Text>
-                    <TouchableOpacity
-                      onPress={() => handleOpenComments(post.id)}
                     >
                       <Text
                         style={[
                           styles.postStatsText,
-                          { color:colors.textDimmed },
+                          { color: colors.textDimmed },
                         ]}
                       >
-                        {post.comments?.length ?? 0}{" "}
-                        {(post.comments?.length ?? 0) === 1
-                          ? "Comment"
-                          : "Comments"}
+                        {post.likes} {post.likes === 1 ? "Like" : "Likes"}
                       </Text>
-                    </TouchableOpacity>
-                  </View>
+                      <TouchableOpacity
+                        onPress={() => handleOpenComments(post.id)}
+                      >
+                        <Text
+                          style={[
+                            styles.postStatsText,
+                            { color: colors.textDimmed },
+                          ]}
+                        >
+                          {post.comments?.length ?? 0}{" "}
+                          {(post.comments?.length ?? 0) === 1
+                            ? "Comment"
+                            : "Comments"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
 
-                  {/* Post Actions */}
-                  <View style={styles.postActionsRow}>
-                    <TouchableOpacity
-                      style={styles.postActionBtn}
-                      onPress={() => handleToggleLike(post.id)}
-                    >
-                      <Svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill={post.liked ?colors.danger : "none"}
-                        stroke={post.liked ?colors.danger :colors.textMuted}
-                        strokeWidth="2"
+                    {/* Post Actions */}
+                    <View style={styles.postActionsRow}>
+                      <TouchableOpacity
+                        style={styles.postActionBtn}
+                        onPress={() => handleToggleLike(post.id)}
                       >
-                        <Path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
-                      </Svg>
-                      <Text
-                        style={[
-                          styles.postActionText,
-                          {
-                            color: post.liked
-                              ?colors.danger
-                              :colors.textMuted,
-                          },
-                        ]}
-                      >
-                        Like
-                      </Text>
-                    </TouchableOpacity>
+                        <Svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill={post.liked ? colors.danger : "none"}
+                          stroke={post.liked ? colors.danger : colors.textMuted}
+                          strokeWidth="2"
+                        >
+                          <Path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+                        </Svg>
+                        <Text
+                          style={[
+                            styles.postActionText,
+                            {
+                              color: post.liked
+                                ? colors.danger
+                                : colors.textMuted,
+                            },
+                          ]}
+                        >
+                          Like
+                        </Text>
+                      </TouchableOpacity>
 
-                    <TouchableOpacity
-                      style={styles.postActionBtn}
-                      onPress={() => handleOpenComments(post.id)}
-                    >
-                      <Svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke={colors.textMuted}
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                      <TouchableOpacity
+                        style={styles.postActionBtn}
+                        onPress={() => handleOpenComments(post.id)}
                       >
-                        <Path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-                      </Svg>
-                      <Text
-                        style={[
-                          styles.postActionText,
-                          { color:colors.textMuted },
-                        ]}
-                      >
-                        Comment
-                      </Text>
-                    </TouchableOpacity>
+                        <Svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke={colors.textMuted}
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <Path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                        </Svg>
+                        <Text
+                          style={[
+                            styles.postActionText,
+                            { color: colors.textMuted },
+                          ]}
+                        >
+                          Comment
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                </View>
-              );
-            })}
+                );
+              })}
           </View>
         )}
 
@@ -2649,9 +2902,20 @@ export default function HomeScreen({ navigation }) {
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 12, gap: 10 }}
+              contentContainerStyle={{
+                paddingHorizontal: 20,
+                paddingVertical: 12,
+                gap: 10,
+              }}
             >
-              {["all", "missed", "contacts", "spam", "outgoing", "incoming"].map((filterItem) => (
+              {[
+                "all",
+                "missed",
+                "contacts",
+                "spam",
+                "outgoing",
+                "incoming",
+              ].map((filterItem) => (
                 <TouchableOpacity
                   key={filterItem}
                   onPress={() => setCallsFilter(filterItem)}
@@ -2660,15 +2924,22 @@ export default function HomeScreen({ navigation }) {
                       paddingHorizontal: 16,
                       paddingVertical: 8,
                       borderRadius: 20,
-                      backgroundColor: callsFilter === filterItem ?colors.primary : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'),
-                    }
+                      backgroundColor:
+                        callsFilter === filterItem
+                          ? colors.primary
+                          : isDark
+                            ? "rgba(255,255,255,0.05)"
+                            : "rgba(0,0,0,0.05)",
+                    },
                   ]}
                 >
-                  <Text style={{
-                    color: callsFilter === filterItem ? '#fff' :colors.text,
-                    fontWeight: callsFilter === filterItem ? '600' : '500',
-                    textTransform: 'capitalize'
-                  }}>
+                  <Text
+                    style={{
+                      color: callsFilter === filterItem ? "#fff" : colors.text,
+                      fontWeight: callsFilter === filterItem ? "600" : "500",
+                      textTransform: "capitalize",
+                    }}
+                  >
                     {filterItem}
                   </Text>
                 </TouchableOpacity>
@@ -2678,11 +2949,11 @@ export default function HomeScreen({ navigation }) {
             <View
               style={[
                 styles.convList,
-                { backgroundColor:colors.cardBg, borderColor:colors.border },
+                { backgroundColor: colors.cardBg, borderColor: colors.border },
               ]}
             >
               <View
-                style={[styles.convCard, { borderBottomColor:colors.border }]}
+                style={[styles.convCard, { borderBottomColor: colors.border }]}
               >
                 <View style={styles.avatarContainer}>
                   <Image
@@ -2702,17 +2973,17 @@ export default function HomeScreen({ navigation }) {
                 </View>
                 <View style={styles.convDetails}>
                   <View style={styles.convHeader}>
-                    <Text style={[styles.partnerName, { color:colors.text }]}>
+                    <Text style={[styles.partnerName, { color: colors.text }]}>
                       Sophia Martinez
                     </Text>
                     <Text
-                      style={[styles.convTime, { color:colors.textDimmed }]}
+                      style={[styles.convTime, { color: colors.textDimmed }]}
                     >
                       10m ago
                     </Text>
                   </View>
                   <Text
-                    style={[styles.convPreview, { color:colors.textMuted }]}
+                    style={[styles.convPreview, { color: colors.textMuted }]}
                   >
                     Outgoing translation call • 4m 12s
                   </Text>
@@ -2738,17 +3009,17 @@ export default function HomeScreen({ navigation }) {
                 </View>
                 <View style={styles.convDetails}>
                   <View style={styles.convHeader}>
-                    <Text style={[styles.partnerName, { color:colors.text }]}>
+                    <Text style={[styles.partnerName, { color: colors.text }]}>
                       Kenji Sato
                     </Text>
                     <Text
-                      style={[styles.convTime, { color:colors.textDimmed }]}
+                      style={[styles.convTime, { color: colors.textDimmed }]}
                     >
                       Yesterday
                     </Text>
                   </View>
                   <Text
-                    style={[styles.convPreview, { color:colors.textMuted }]}
+                    style={[styles.convPreview, { color: colors.textMuted }]}
                   >
                     Incoming translation call • 12m 40s
                   </Text>
@@ -2781,8 +3052,8 @@ export default function HomeScreen({ navigation }) {
               style={[
                 styles.onboardingCard,
                 {
-                  backgroundColor:colors.cardBg,
-                  borderColor:colors.border,
+                  backgroundColor: colors.cardBg,
+                  borderColor: colors.border,
                 },
               ]}
             >
@@ -2790,7 +3061,7 @@ export default function HomeScreen({ navigation }) {
                 <View
                   style={[
                     styles.promptIcon,
-                    { backgroundColor:colors.primaryGlow },
+                    { backgroundColor: colors.primaryGlow },
                   ]}
                 >
                   <Svg
@@ -2805,13 +3076,13 @@ export default function HomeScreen({ navigation }) {
                   </Svg>
                 </View>
                 <View style={styles.promptDetails}>
-                  <Text style={[styles.promptTitle, { color:colors.text }]}>
+                  <Text style={[styles.promptTitle, { color: colors.text }]}>
                     Complete your profile
                   </Text>
                   <Text
                     style={[
                       styles.promptProgressText,
-                      { color:colors.textMuted },
+                      { color: colors.textMuted },
                     ]}
                   >
                     {onboardingPct}% completed
@@ -2822,7 +3093,7 @@ export default function HomeScreen({ navigation }) {
                   style={styles.closeMiniBtn}
                 >
                   <Text
-                    style={[styles.closeMiniText, { color:colors.textDimmed }]}
+                    style={[styles.closeMiniText, { color: colors.textDimmed }]}
                   >
                     &times;
                   </Text>
@@ -2849,10 +3120,10 @@ export default function HomeScreen({ navigation }) {
                   >
                     <LinearGradient
                       colors={[
-                       colors.primary,
+                        colors.primary,
                         "#EC4899",
-                       colors.accent,
-                       colors.primary,
+                        colors.accent,
+                        colors.primary,
                       ]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
@@ -2873,8 +3144,13 @@ export default function HomeScreen({ navigation }) {
                         task.isCompleted
                           ? styles.pillCompleted
                           : {
-                              backgroundColor:colors.bg,
-                              borderColor:colors.border,
+                              backgroundColor: task.highlight
+                                ? colors.primary + "20"
+                                : colors.bg,
+                              borderColor: task.highlight
+                                ? colors.primary
+                                : colors.border,
+                              borderWidth: task.highlight ? 2 : 1,
                             },
                       ]}
                       disabled={task.isCompleted}
@@ -2885,7 +3161,12 @@ export default function HomeScreen({ navigation }) {
                           styles.pillLabel,
                           task.isCompleted
                             ? styles.pillLabelCompleted
-                            : { color:colors.textMuted },
+                            : {
+                                color: task.highlight
+                                  ? colors.primary
+                                  : colors.textMuted,
+                                fontWeight: task.highlight ? "700" : "500",
+                              },
                         ]}
                       >
                         {task.isCompleted
@@ -2899,7 +3180,7 @@ export default function HomeScreen({ navigation }) {
                 <View style={styles.shoutoutContainer}>
                   <Text style={styles.shoutoutTitle}>🎉 Profile Complete!</Text>
                   <Text
-                    style={[styles.shoutoutText, { color:colors.textDimmed }]}
+                    style={[styles.shoutoutText, { color: colors.textDimmed }]}
                   >
                     {
                       "You're all set! You can customize settings in the settings menu."
@@ -2920,14 +3201,14 @@ export default function HomeScreen({ navigation }) {
           onPress={handleStartConv}
         >
           <LinearGradient
-            colors={["#0D9488", "#059669"]}
+            colors={[colors.primary, "#6D28D9"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.fabGradient}
           >
             <Svg
-              width="24"
-              height="24"
+              width="16"
+              height="16"
               viewBox="0 0 24 24"
               fill="none"
               stroke="white"
@@ -2962,8 +3243,8 @@ export default function HomeScreen({ navigation }) {
             style={styles.fabGradient}
           >
             <Svg
-              width="24"
-              height="24"
+              width="16"
+              height="16"
               viewBox="0 0 24 24"
               fill="none"
               stroke="white"
@@ -2983,8 +3264,8 @@ export default function HomeScreen({ navigation }) {
         style={[
           styles.tabBar,
           {
-            backgroundColor:colors.cardBg,
-            borderColor:colors.border,
+            backgroundColor: colors.cardBg,
+            borderColor: colors.border,
             paddingBottom: insets.bottom > 0 ? insets.bottom : 10,
             height: 66 + (insets.bottom > 0 ? insets.bottom : 10),
           },
@@ -2997,7 +3278,7 @@ export default function HomeScreen({ navigation }) {
           <View
             style={[
               styles.tabIconBg,
-              activeTab === "chats" && { backgroundColor:colors.primaryGlow },
+              activeTab === "chats" && { backgroundColor: colors.primaryGlow },
             ]}
           >
             <Svg
@@ -3006,7 +3287,7 @@ export default function HomeScreen({ navigation }) {
               viewBox="0 0 24 24"
               fill="none"
               stroke={
-                activeTab === "chats" ?colors.primary :colors.textDimmed
+                activeTab === "chats" ? colors.primary : colors.textDimmed
               }
               strokeWidth="2.2"
             >
@@ -3018,7 +3299,7 @@ export default function HomeScreen({ navigation }) {
               styles.tabBarLabel,
               {
                 color:
-                  activeTab === "chats" ?colors.primary :colors.textDimmed,
+                  activeTab === "chats" ? colors.primary : colors.textDimmed,
                 fontWeight: activeTab === "chats" ? "600" : "500",
               },
             ]}
@@ -3035,7 +3316,7 @@ export default function HomeScreen({ navigation }) {
             style={[
               styles.tabIconBg,
               activeTab === "contacts" && {
-                backgroundColor:colors.primaryGlow,
+                backgroundColor: colors.primaryGlow,
               },
             ]}
           >
@@ -3045,7 +3326,7 @@ export default function HomeScreen({ navigation }) {
               viewBox="0 0 24 24"
               fill="none"
               stroke={
-                activeTab === "contacts" ?colors.primary :colors.textDimmed
+                activeTab === "contacts" ? colors.primary : colors.textDimmed
               }
               strokeWidth="2.2"
             >
@@ -3060,7 +3341,7 @@ export default function HomeScreen({ navigation }) {
               styles.tabBarLabel,
               {
                 color:
-                  activeTab === "contacts" ?colors.primary :colors.textDimmed,
+                  activeTab === "contacts" ? colors.primary : colors.textDimmed,
                 fontWeight: activeTab === "contacts" ? "600" : "500",
               },
             ]}
@@ -3076,7 +3357,7 @@ export default function HomeScreen({ navigation }) {
           <View
             style={[
               styles.tabIconBg,
-              activeTab === "calls" && { backgroundColor:colors.primaryGlow },
+              activeTab === "calls" && { backgroundColor: colors.primaryGlow },
             ]}
           >
             <Svg
@@ -3085,7 +3366,7 @@ export default function HomeScreen({ navigation }) {
               viewBox="0 0 24 24"
               fill="none"
               stroke={
-                activeTab === "calls" ?colors.primary :colors.textDimmed
+                activeTab === "calls" ? colors.primary : colors.textDimmed
               }
               strokeWidth="2.2"
             >
@@ -3097,7 +3378,7 @@ export default function HomeScreen({ navigation }) {
               styles.tabBarLabel,
               {
                 color:
-                  activeTab === "calls" ?colors.primary :colors.textDimmed,
+                  activeTab === "calls" ? colors.primary : colors.textDimmed,
                 fontWeight: activeTab === "calls" ? "600" : "500",
               },
             ]}
@@ -3114,7 +3395,7 @@ export default function HomeScreen({ navigation }) {
             style={[
               styles.tabIconBg,
               activeTab === "updates" && {
-                backgroundColor:colors.primaryGlow,
+                backgroundColor: colors.primaryGlow,
               },
             ]}
           >
@@ -3124,7 +3405,7 @@ export default function HomeScreen({ navigation }) {
               viewBox="0 0 24 24"
               fill="none"
               stroke={
-                activeTab === "updates" ?colors.primary :colors.textDimmed
+                activeTab === "updates" ? colors.primary : colors.textDimmed
               }
               strokeWidth="2.2"
               strokeLinecap="round"
@@ -3139,7 +3420,7 @@ export default function HomeScreen({ navigation }) {
               styles.tabBarLabel,
               {
                 color:
-                  activeTab === "updates" ?colors.primary :colors.textDimmed,
+                  activeTab === "updates" ? colors.primary : colors.textDimmed,
                 fontWeight: activeTab === "updates" ? "600" : "500",
               },
             ]}
@@ -3164,8 +3445,8 @@ export default function HomeScreen({ navigation }) {
             style={[
               styles.createPostModalContent,
               {
-                backgroundColor:colors.cardBg,
-                borderColor:colors.border,
+                backgroundColor: colors.cardBg,
+                borderColor: colors.border,
                 maxHeight: height - Math.max(insets.top, 24) - 12,
                 paddingBottom: Math.max(insets.bottom, 16) + 16,
               },
@@ -3175,7 +3456,7 @@ export default function HomeScreen({ navigation }) {
             <View
               style={[
                 styles.createPostHeader,
-                { borderBottomColor:colors.border },
+                { borderBottomColor: colors.border },
               ]}
             >
               <TouchableOpacity
@@ -3190,12 +3471,12 @@ export default function HomeScreen({ navigation }) {
                 ]}
               >
                 <Text
-                  style={[styles.createPostCloseText, { color:colors.text }]}
+                  style={[styles.createPostCloseText, { color: colors.text }]}
                 >
                   &times;
                 </Text>
               </TouchableOpacity>
-              <Text style={[styles.createPostTitle, { color:colors.text }]}>
+              <Text style={[styles.createPostTitle, { color: colors.text }]}>
                 Create Update
               </Text>
               <TouchableOpacity
@@ -3203,8 +3484,8 @@ export default function HomeScreen({ navigation }) {
                   styles.createPostSubmitBtn,
                   {
                     backgroundColor: newPostText.trim()
-                      ?colors.primary
-                      :colors.border,
+                      ? colors.primary
+                      : colors.border,
                   },
                 ]}
                 onPress={handleCreatePost}
@@ -3213,7 +3494,7 @@ export default function HomeScreen({ navigation }) {
                 <Text
                   style={[
                     styles.createPostSubmitBtnText,
-                    { color: newPostText.trim() ? "white" :colors.textDimmed },
+                    { color: newPostText.trim() ? "white" : colors.textDimmed },
                   ]}
                 >
                   Post
@@ -3239,7 +3520,7 @@ export default function HomeScreen({ navigation }) {
                 />
                 <View style={styles.createPostUserInfo}>
                   <Text
-                    style={[styles.createPostUserName, { color:colors.text }]}
+                    style={[styles.createPostUserName, { color: colors.text }]}
                   >
                     {currentUser.name || "Amani User"}
                   </Text>
@@ -3247,7 +3528,7 @@ export default function HomeScreen({ navigation }) {
                     <Text
                       style={[
                         styles.postLanguageBadgeText,
-                        { color:colors.primary },
+                        { color: colors.primary },
                       ]}
                     >
                       {getLangDetails(currentUser.nativeLang || "en").flag ||
@@ -3263,7 +3544,7 @@ export default function HomeScreen({ navigation }) {
               <TextInput
                 style={[
                   styles.createPostInput,
-                  { color:colors.text, borderColor:colors.border },
+                  { color: colors.text, borderColor: colors.border },
                 ]}
                 placeholder="What's on your mind? Share an update..."
                 placeholderTextColor={colors.textDimmed}
@@ -3301,7 +3582,7 @@ export default function HomeScreen({ navigation }) {
                       <Text
                         style={[
                           styles.postGradientChipLabel,
-                          { color:colors.text },
+                          { color: colors.text },
                         ]}
                       >
                         {preset.label}
@@ -3315,18 +3596,32 @@ export default function HomeScreen({ navigation }) {
                 <TouchableOpacity
                   style={[
                     styles.pickPhotoBtn,
-                    { borderColor:colors.primary, backgroundColor: isDark ? "rgba(168,85,247,0.1)" : "rgba(168,85,247,0.05)" },
+                    {
+                      borderColor: colors.primary,
+                      backgroundColor: isDark
+                        ? "rgba(168,85,247,0.1)"
+                        : "rgba(168,85,247,0.05)",
+                    },
                   ]}
                   onPress={handlePickPostImage}
                   activeOpacity={0.8}
                 >
-                  <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <Svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.primary}
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <Rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
                     <Circle cx="8.5" cy="8.5" r="1.5" />
                     <Polyline points="21 15 16 10 5 21" />
                   </Svg>
                   <Text
-                    style={[styles.pickPhotoBtnText, { color:colors.primary }]}
+                    style={[styles.pickPhotoBtnText, { color: colors.primary }]}
                   >
                     Add Photos or Video
                   </Text>
@@ -3334,9 +3629,19 @@ export default function HomeScreen({ navigation }) {
               </View>
 
               {newPostImages.length > 0 && newPostMediaType === "image" && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ marginTop: 10 }}
+                >
                   {newPostImages.map((uri, index) => (
-                    <View key={index} style={[styles.createPostImgPreviewContainer, { marginRight: 10 }]}>
+                    <View
+                      key={index}
+                      style={[
+                        styles.createPostImgPreviewContainer,
+                        { marginRight: 10 },
+                      ]}
+                    >
                       <Image
                         source={{ uri }}
                         style={styles.createPostImgPreview}
@@ -3344,12 +3649,13 @@ export default function HomeScreen({ navigation }) {
                       <TouchableOpacity
                         style={[
                           styles.deleteImgBtn,
-                          { backgroundColor:colors.danger },
+                          { backgroundColor: colors.danger },
                         ]}
                         onPress={() => {
-                          setNewPostImages(prev => {
+                          setNewPostImages((prev) => {
                             const next = prev.filter((_, i) => i !== index);
-                            if (next.length === 0) setNewPostMediaType("gradient");
+                            if (next.length === 0)
+                              setNewPostMediaType("gradient");
                             return next;
                           });
                         }}
@@ -3378,7 +3684,7 @@ export default function HomeScreen({ navigation }) {
                     <TouchableOpacity
                       style={[
                         styles.deleteImgBtn,
-                        { backgroundColor:colors.danger },
+                        { backgroundColor: colors.danger },
                       ]}
                       onPress={() => {
                         setNewPostImages([]);
@@ -3411,7 +3717,7 @@ export default function HomeScreen({ navigation }) {
           <View
             style={[
               styles.optionsSheetContent,
-              { backgroundColor:colors.cardBg, borderColor:colors.border },
+              { backgroundColor: colors.cardBg, borderColor: colors.border },
             ]}
           >
             <View
@@ -3432,7 +3738,7 @@ export default function HomeScreen({ navigation }) {
                   <TouchableOpacity
                     style={[
                       styles.optionsSheetItem,
-                      { borderBottomColor:colors.border },
+                      { borderBottomColor: colors.border },
                     ]}
                     onPress={() => handleSharePost(optionsPost)}
                     activeOpacity={0.7}
@@ -3452,7 +3758,7 @@ export default function HomeScreen({ navigation }) {
                     <Text
                       style={[
                         styles.optionsSheetItemText,
-                        { color:colors.text },
+                        { color: colors.text },
                       ]}
                     >
                       Share Update
@@ -3463,7 +3769,7 @@ export default function HomeScreen({ navigation }) {
                   <TouchableOpacity
                     style={[
                       styles.optionsSheetItem,
-                      { borderBottomColor:colors.border },
+                      { borderBottomColor: colors.border },
                     ]}
                     onPress={handleCopyLink}
                     activeOpacity={0.7}
@@ -3482,7 +3788,7 @@ export default function HomeScreen({ navigation }) {
                     <Text
                       style={[
                         styles.optionsSheetItemText,
-                        { color:colors.text },
+                        { color: colors.text },
                       ]}
                     >
                       Copy Link
@@ -3525,7 +3831,7 @@ export default function HomeScreen({ navigation }) {
                       <TouchableOpacity
                         style={[
                           styles.optionsSheetItem,
-                          { borderBottomColor:colors.border },
+                          { borderBottomColor: colors.border },
                         ]}
                         onPress={() => handleReportPost(optionsPost)}
                         activeOpacity={0.7}
@@ -3569,7 +3875,7 @@ export default function HomeScreen({ navigation }) {
               activeOpacity={0.7}
             >
               <Text
-                style={[styles.optionsSheetCancelText, { color:colors.text }]}
+                style={[styles.optionsSheetCancelText, { color: colors.text }]}
               >
                 Cancel
               </Text>
@@ -3598,7 +3904,7 @@ export default function HomeScreen({ navigation }) {
           <View
             style={[
               styles.bottomSheetContent,
-              { backgroundColor:colors.cardBg, borderColor:colors.border },
+              { backgroundColor: colors.cardBg, borderColor: colors.border },
             ]}
           >
             {/* Grabber Handle */}
@@ -3617,10 +3923,10 @@ export default function HomeScreen({ navigation }) {
             <View
               style={[
                 styles.bottomSheetHeader,
-                { borderBottomColor:colors.border },
+                { borderBottomColor: colors.border },
               ]}
             >
-              <Text style={[styles.bottomSheetTitle, { color:colors.text }]}>
+              <Text style={[styles.bottomSheetTitle, { color: colors.text }]}>
                 Comments ({activePost ? (activePost.comments?.length ?? 0) : 0})
               </Text>
               <TouchableOpacity
@@ -3635,7 +3941,7 @@ export default function HomeScreen({ navigation }) {
                 ]}
               >
                 <Text
-                  style={[styles.bottomSheetCloseText, { color:colors.text }]}
+                  style={[styles.bottomSheetCloseText, { color: colors.text }]}
                 >
                   &times;
                 </Text>
@@ -3666,7 +3972,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.bottomSheetCommentAuthor,
-                            { color:colors.text },
+                            { color: colors.text },
                           ]}
                         >
                           {comment.author}
@@ -3674,7 +3980,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.bottomSheetCommentText,
-                            { color:colors.text },
+                            { color: colors.text },
                           ]}
                         >
                           {comment.content}
@@ -3686,7 +3992,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.bottomSheetCommentActionText,
-                            { color:colors.textDimmed },
+                            { color: colors.textDimmed },
                           ]}
                         >
                           Just now
@@ -3694,7 +4000,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.bottomSheetCommentActionBullet,
-                            { color:colors.textDimmed },
+                            { color: colors.textDimmed },
                           ]}
                         >
                           •
@@ -3703,7 +4009,7 @@ export default function HomeScreen({ navigation }) {
                           <Text
                             style={[
                               styles.bottomSheetCommentActionBtnText,
-                              { color:colors.textMuted },
+                              { color: colors.textMuted },
                             ]}
                           >
                             Like
@@ -3712,7 +4018,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.bottomSheetCommentActionBullet,
-                            { color:colors.textDimmed },
+                            { color: colors.textDimmed },
                           ]}
                         >
                           •
@@ -3721,7 +4027,7 @@ export default function HomeScreen({ navigation }) {
                           <Text
                             style={[
                               styles.bottomSheetCommentActionBtnText,
-                              { color:colors.textMuted },
+                              { color: colors.textMuted },
                             ]}
                           >
                             Reply
@@ -3736,7 +4042,7 @@ export default function HomeScreen({ navigation }) {
                   <Text
                     style={[
                       styles.noCommentsText,
-                      { color:colors.textDimmed },
+                      { color: colors.textDimmed },
                     ]}
                   >
                     No comments yet. Be the first to comment!
@@ -3749,7 +4055,7 @@ export default function HomeScreen({ navigation }) {
             <View
               style={[
                 styles.bottomSheetInputRow,
-                { borderTopColor:colors.border },
+                { borderTopColor: colors.border },
               ]}
             >
               <View style={styles.bottomSheetInputActionsLeft}>
@@ -3775,8 +4081,8 @@ export default function HomeScreen({ navigation }) {
                   styles.bottomSheetInput,
                   {
                     backgroundColor: isDark ? "#1E1636" : "#F1F5F9",
-                    color:colors.text,
-                    borderColor:colors.border,
+                    color: colors.text,
+                    borderColor: colors.border,
                   },
                 ]}
                 placeholder="Write a comment..."
@@ -3790,7 +4096,7 @@ export default function HomeScreen({ navigation }) {
                   styles.bottomSheetSendBtn,
                   {
                     backgroundColor: newCommentText.trim()
-                      ?colors.primary
+                      ? colors.primary
                       : isDark
                         ? "rgba(255,255,255,0.05)"
                         : "rgba(0,0,0,0.05)",
@@ -3804,7 +4110,7 @@ export default function HomeScreen({ navigation }) {
                   height="18"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke={newCommentText.trim() ? "white" :colors.textDimmed}
+                  stroke={newCommentText.trim() ? "white" : colors.textDimmed}
                   strokeWidth="2.5"
                 >
                   <Line x1="22" y1="2" x2="11" y2="13" />
@@ -3827,22 +4133,22 @@ export default function HomeScreen({ navigation }) {
           <View
             style={[
               styles.startConvModalContent,
-              { backgroundColor:colors.cardBg, borderColor:colors.border },
+              { backgroundColor: colors.cardBg, borderColor: colors.border },
             ]}
           >
             {/* Modal Header */}
             <View style={styles.modalHeaderRow}>
-              <Text style={[styles.modalTitleText, { color:colors.text }]}>
+              <Text style={[styles.modalTitleText, { color: colors.text }]}>
                 Start Translation Chat
               </Text>
               <TouchableOpacity
                 onPress={() => setStartConvModalVisible(false)}
-                style={[styles.modalCloseBtn, { backgroundColor:colors.bg }]}
+                style={[styles.modalCloseBtn, { backgroundColor: colors.bg }]}
               >
                 <Text
                   style={[
                     styles.modalCloseBtnText,
-                    { color:colors.textDimmed },
+                    { color: colors.textDimmed },
                   ]}
                 >
                   &times;
@@ -3855,7 +4161,7 @@ export default function HomeScreen({ navigation }) {
             <View
               style={[
                 styles.modalSearchBox,
-                { backgroundColor:colors.bg, borderColor:colors.border },
+                { backgroundColor: colors.bg, borderColor: colors.border },
               ]}
             >
               <Svg
@@ -3871,7 +4177,7 @@ export default function HomeScreen({ navigation }) {
                 <Line x1="21" y1="21" x2="16.65" y2="16.65" />
               </Svg>
               <TextInput
-                style={[styles.modalSearchInput, { color:colors.text }]}
+                style={[styles.modalSearchInput, { color: colors.text }]}
                 placeholder="Search by name or UID"
                 placeholderTextColor={colors.textDimmed}
                 value={startConvSearch}
@@ -3906,7 +4212,7 @@ export default function HomeScreen({ navigation }) {
                       <Text
                         style={[
                           styles.modalEmptyText,
-                          { color:colors.textDimmed, marginBottom: 16 },
+                          { color: colors.textDimmed, marginBottom: 16 },
                         ]}
                       >
                         {`No partners found matching "${startConvSearch}"`}
@@ -3916,7 +4222,7 @@ export default function HomeScreen({ navigation }) {
                           <TouchableOpacity
                             style={[
                               styles.modalAddContactCard,
-                              { borderColor:colors.border },
+                              { borderColor: colors.border },
                             ]}
                             onPress={() =>
                               handleConfirmAddContact(startConvSearch.trim())
@@ -3926,7 +4232,7 @@ export default function HomeScreen({ navigation }) {
                             <View
                               style={[
                                 styles.modalAddContactIconBg,
-                                { backgroundColor:colors.primaryGlow },
+                                { backgroundColor: colors.primaryGlow },
                               ]}
                             >
                               <Svg
@@ -3947,14 +4253,14 @@ export default function HomeScreen({ navigation }) {
                               <Text
                                 style={[
                                   styles.modalAddContactText,
-                                  { color:colors.text },
+                                  { color: colors.text },
                                 ]}
                               >
                                 {`Add "${startConvSearch.trim()}" to Contacts`}
                               </Text>
                               <Text
                                 style={{
-                                  color:colors.textDimmed,
+                                  color: colors.textDimmed,
                                   fontSize: 11,
                                   marginTop: 2,
                                 }}
@@ -3973,14 +4279,20 @@ export default function HomeScreen({ navigation }) {
                     key={item.id}
                     style={[
                       styles.modalPartnerCard,
-                      { borderBottomColor:colors.border },
+                      { borderBottomColor: colors.border },
                     ]}
                     onPress={() => {
                       if (item.isUnityUser === false) {
-                        const message = "Hey! I'm using Unity to translate my chats in real-time. Download it here: https://unity.app";
+                        const message =
+                          "Hey! I'm using Unity to translate my chats in real-time. Download it here: https://unity.app";
                         const phone = (item.phone || "").replace(/\D/g, "");
-                        Linking.openURL(`whatsapp://send?text=${encodeURIComponent(message)}&phone=${phone}`).catch(() => {
-                           Alert.alert("WhatsApp not found", "Could not open WhatsApp. Please make sure it is installed.");
+                        Linking.openURL(
+                          `whatsapp://send?text=${encodeURIComponent(message)}&phone=${phone}`,
+                        ).catch(() => {
+                          Alert.alert(
+                            "WhatsApp not found",
+                            "Could not open WhatsApp. Please make sure it is installed.",
+                          );
                         });
                         return;
                       }
@@ -4003,14 +4315,14 @@ export default function HomeScreen({ navigation }) {
                         <View
                           style={[
                             styles.onlineBadge,
-                            { borderColor:colors.cardBg },
+                            { borderColor: colors.cardBg },
                           ]}
                         />
                       )}
                       <View
                         style={[
                           styles.modalFlagBadge,
-                          { backgroundColor:colors.bg },
+                          { backgroundColor: colors.bg },
                         ]}
                       >
                         {renderFlagOrEmoji(item.flag)}
@@ -4021,7 +4333,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.modalPartnerName,
-                            { color:colors.text },
+                            { color: colors.text },
                           ]}
                         >
                           {item.name}
@@ -4029,7 +4341,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.modalPartnerUid,
-                            { color:colors.textDimmed },
+                            { color: colors.textDimmed },
                           ]}
                         >
                           #{item.id}
@@ -4038,7 +4350,7 @@ export default function HomeScreen({ navigation }) {
                       <Text
                         style={[
                           styles.modalPartnerLang,
-                          { color:colors.primary },
+                          { color: colors.primary },
                         ]}
                       >
                         {item.langName}
@@ -4047,7 +4359,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.modalPartnerBio,
-                            { color:colors.textMuted },
+                            { color: colors.textMuted },
                           ]}
                           numberOfLines={1}
                         >
@@ -4057,7 +4369,7 @@ export default function HomeScreen({ navigation }) {
                         <Text
                           style={[
                             styles.modalPartnerBio,
-                            { color:colors.textMuted },
+                            { color: colors.textMuted },
                           ]}
                           numberOfLines={1}
                         >
@@ -4068,13 +4380,23 @@ export default function HomeScreen({ navigation }) {
                     <View
                       style={[
                         styles.modalPartnerCta,
-                        { backgroundColor: item.isUnityUser === false ?colors.border :colors.primaryGlow },
+                        {
+                          backgroundColor:
+                            item.isUnityUser === false
+                              ? colors.border
+                              : colors.primaryGlow,
+                        },
                       ]}
                     >
                       <Text
                         style={[
                           styles.modalPartnerCtaText,
-                          { color: item.isUnityUser === false ?colors.text :colors.primary },
+                          {
+                            color:
+                              item.isUnityUser === false
+                                ? colors.text
+                                : colors.primary,
+                          },
                         ]}
                       >
                         {item.isUnityUser === false ? "Invite" : "Chat"}
@@ -4810,15 +5132,15 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 24,
     bottom: 96,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     ...Platform.select({
       web: {
-        boxShadow: "0px 4px 6px rgba(13,148,136,0.3)",
+        boxShadow: "0px 4px 6px rgba(79,70,229,0.3)",
       },
       default: {
-        shadowColor: "#0D9488",
+        shadowColor: "#4F46E5",
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 6,
@@ -4831,7 +5153,7 @@ const styles = StyleSheet.create({
     flex: 1,
     width: "100%",
     height: "100%",
-    borderRadius: 28,
+    borderRadius: 14,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -4856,9 +5178,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   filterChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
     borderWidth: 1,
   },
   filterChipText: {
@@ -4937,7 +5259,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     borderRadius: 14,
-    borderWidth: 1,
+    borderWidth: 0,
     paddingHorizontal: 12,
     height: 44,
     marginBottom: 16,
@@ -4947,6 +5269,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     height: "100%",
     padding: 0,
+    outlineStyle: "none",
   },
   modalScrollList: {
     flex: 1,

@@ -115,18 +115,21 @@ export default function UserProfilePopup({
               style={styles.heroWrap}
             >
               <Image source={{ uri: avatarUri }} style={styles.heroAvatar} />
-              {profile?.status && /online|available|ready to chat|connected|active/.test(profile.status.trim().toLowerCase()) && (
-                <View
-                  style={[
-                    styles.onlineBadge,
-                    { borderColor: colors.cardBg },
-                  ]}
-                />
-              )}
+              {profile?.status &&
+                /online|available|ready to chat|connected|active/.test(
+                  profile.status.trim().toLowerCase(),
+                ) && (
+                  <View
+                    style={[styles.onlineBadge, { borderColor: colors.cardBg }]}
+                  />
+                )}
               <View
                 style={[
                   styles.heroBadge,
-                  { backgroundColor: colors.primary, borderColor: colors.cardBg },
+                  {
+                    backgroundColor: colors.primary,
+                    borderColor: colors.cardBg,
+                  },
                 ]}
               >
                 <Text style={styles.heroBadgeText}>Show in full</Text>
@@ -138,23 +141,47 @@ export default function UserProfilePopup({
             </Text>
 
             <View style={styles.infoGrid}>
-              <View style={[styles.infoCard, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-                <Text style={[styles.infoLabel, { color: colors.textDimmed }]}>Country</Text>
+              <View
+                style={[
+                  styles.infoCard,
+                  { backgroundColor: colors.bg, borderColor: colors.border },
+                ]}
+              >
+                <Text style={[styles.infoLabel, { color: colors.textDimmed }]}>
+                  Country
+                </Text>
                 <Text style={[styles.infoValue, { color: colors.text }]}>
                   {resolvedProfile.country || "Unknown"}
                 </Text>
               </View>
 
-              <View style={[styles.infoCard, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-                <Text style={[styles.infoLabel, { color: colors.textDimmed }]}>Language</Text>
+              <View
+                style={[
+                  styles.infoCard,
+                  { backgroundColor: colors.bg, borderColor: colors.border },
+                ]}
+              >
+                <Text style={[styles.infoLabel, { color: colors.textDimmed }]}>
+                  Language
+                </Text>
                 <Text style={[styles.infoValue, { color: colors.text }]}>
                   {resolvedProfile.language}
                 </Text>
               </View>
 
-              <View style={[styles.infoCard, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-                <Text style={[styles.infoLabel, { color: colors.textDimmed }]}>Unity ID</Text>
-                <Text style={[styles.infoValue, { color: colors.text }]} numberOfLines={1}>
+              <View
+                style={[
+                  styles.infoCard,
+                  { backgroundColor: colors.bg, borderColor: colors.border },
+                ]}
+              >
+                <Text style={[styles.infoLabel, { color: colors.textDimmed }]}>
+                  unity ID
+                </Text>
+                <Text
+                  style={[styles.infoValue, { color: colors.text }]}
+                  numberOfLines={1}
+                >
                   {resolvedProfile.uid}
                 </Text>
               </View>
@@ -320,4 +347,3 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
 });
-

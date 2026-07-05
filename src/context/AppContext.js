@@ -28,6 +28,7 @@ const DEFAULT_USER = {
   isRealUser: false,
   email: '',
   phone: '',
+  gender: '',
   unityAILang: 'es'
 };
 

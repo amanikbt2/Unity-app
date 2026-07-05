@@ -152,7 +152,7 @@ export default function AuthScreen({ navigation }) {
             />
           </View>
 
-          <Text style={styles.appTitle}>Unity</Text>
+          <Text style={styles.appTitle}>unity</Text>
           <Text style={styles.appTagline}>
             Talk to anyone, in any language instantly
           </Text>

@@ -17,9 +17,17 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Path, Line, Circle, Rect, Polyline, Polygon } from "react-native-svg";
+import Svg, {
+  Path,
+  Line,
+  Circle,
+  Rect,
+  Polyline,
+  Polygon,
+} from "react-native-svg";
 import { AppContext } from "../context/AppContext";
 import UserProfilePopup from "../components/UserProfilePopup";
+import customJson from "../customJson.json";
 import {
   getStorageStats,
   runSmartStorageCleanup,
@@ -35,6 +43,7 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
+import * as Speech from "expo-speech";
 
 const { width, height } = Dimensions.get("window");
 
@@ -65,12 +74,96 @@ const MIC_TEST_AUDIO_OPTIONS = {
   isMeteringEnabled: true,
 };
 
+const getAssetUri = (asset) =>
+  Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
+
 const AVATAR_PRESETS = [
-  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
-  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80",
-  "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=150&h=150&q=80",
-  "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=150&h=150&q=80",
+  getAssetUri(require("../../assets/avatars/avatar_1.jpg")),
+  getAssetUri(require("../../assets/avatars/avatar_2.jpg")),
+  getAssetUri(require("../../assets/avatars/avatar_3.jpg")),
+  getAssetUri(require("../../assets/avatars/avatar_4.jpg")),
 ];
+
+const MicLevelMeter = React.memo(
+  ({ isTestingMic, micTestRecorder, isDark, colors, styles }) => {
+    const micRecorderState = useAudioRecorderState(micTestRecorder, 30);
+
+    const totalBars = 40;
+    const bars = [];
+    const metering = micRecorderState.metering;
+
+    // OBS usually tracks from -70dB (silence) to 0dB (clipping).
+    const hasMetering =
+      isTestingMic && metering !== undefined && Number.isFinite(metering);
+
+    // Increase sensitivity significantly to catch small whispers
+    const minDb = -70;
+    const maxDb = 0;
+    const range = maxDb - minDb;
+
+    // Direct linear mapping for real-time responsiveness without sluggish easing
+    const gatedDb = hasMetering
+      ? Math.max(minDb, Math.min(maxDb, metering))
+      : minDb;
+
+    // Create an active "breathing" noise floor using time and subtle randomness
+    const now = Date.now();
+    const idleNoise = isTestingMic
+      ? 0.1 + Math.sin(now / 100) * 0.015 + Math.random() * 0.015
+      : 0;
+
+    // Set the dynamic baseline when testing so it looks active
+    const liveLevel = isTestingMic
+      ? Math.max(idleNoise, (gatedDb - minDb) / range)
+      : 0;
+
+    for (let i = 0; i < totalBars; i++) {
+      const threshold = i / totalBars;
+      const isOn = isTestingMic && liveLevel > threshold;
+
+      // OBS Colors: 0-65% Green, 65-85% Yellow, 85-100% Red
+      const isHot = threshold >= 0.85;
+      const isWarm = threshold >= 0.65;
+
+      const activeColor = isHot
+        ? colors.danger
+        : isWarm
+          ? colors.warning
+          : colors.success;
+
+      const idleColor = isDark
+        ? "rgba(255, 255, 255, 0.05)"
+        : "rgba(15, 23, 42, 0.05)";
+
+      bars.push(
+        <View
+          key={i}
+          style={{
+            flex: 1,
+            height: 14, // Fixed height for the horizontal bar
+            backgroundColor: isOn ? activeColor : idleColor,
+            marginHorizontal: 0.5,
+            borderRadius: 1,
+          }}
+        />,
+      );
+    }
+
+    return (
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          flex: 1,
+          height: 42,
+          paddingLeft: 12,
+        }}
+      >
+        {bars}
+      </View>
+    );
+  },
+);
 
 export default function ProfileScreen({ route, navigation }) {
   const {
@@ -105,6 +198,8 @@ export default function ProfileScreen({ route, navigation }) {
   const [trainingStep, setTrainingStep] = useState(0);
   const [trainingProgress, setTrainingProgress] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
+  const [wordCount, setWordCount] = useState(0);
+  const [isCurrentlyLoud, setIsCurrentlyLoud] = useState(false);
 
   // Voice AI Testing state
   const [playingLang, setPlayingLang] = useState(null);
@@ -229,10 +324,10 @@ export default function ProfileScreen({ route, navigation }) {
 
   const openDeletionEmail = async (code) => {
     const subject = encodeURIComponent(
-      "Unity account deletion confirmation code",
+      "unity account deletion confirmation code",
     );
     const body = encodeURIComponent(
-      `Your Unity deletion confirmation code is: ${code}\n\nIf you did not request this, you can ignore this email.`,
+      `Your unity deletion confirmation code is: ${code}\n\nIf you did not request this, you can ignore this email.`,
     );
     const mailtoUrl = `mailto:${currentUser.email}?subject=${subject}&body=${body}`;
 
@@ -351,20 +446,51 @@ export default function ProfileScreen({ route, navigation }) {
         // Trigger blinking yellow glow
         setGlowTarget(highlightTarget);
         glowAnim.setValue(0);
-        
+
         Animated.sequence([
           // 3 Rapid Blinks
-          Animated.timing(glowAnim, { toValue: 1, duration: 150, useNativeDriver: false }),
-          Animated.timing(glowAnim, { toValue: 0, duration: 150, useNativeDriver: false }),
-          Animated.timing(glowAnim, { toValue: 1, duration: 150, useNativeDriver: false }),
-          Animated.timing(glowAnim, { toValue: 0, duration: 150, useNativeDriver: false }),
-          Animated.timing(glowAnim, { toValue: 1, duration: 150, useNativeDriver: false }),
-          Animated.timing(glowAnim, { toValue: 0, duration: 150, useNativeDriver: false }),
+          Animated.timing(glowAnim, {
+            toValue: 1,
+            duration: 150,
+            useNativeDriver: false,
+          }),
+          Animated.timing(glowAnim, {
+            toValue: 0,
+            duration: 150,
+            useNativeDriver: false,
+          }),
+          Animated.timing(glowAnim, {
+            toValue: 1,
+            duration: 150,
+            useNativeDriver: false,
+          }),
+          Animated.timing(glowAnim, {
+            toValue: 0,
+            duration: 150,
+            useNativeDriver: false,
+          }),
+          Animated.timing(glowAnim, {
+            toValue: 1,
+            duration: 150,
+            useNativeDriver: false,
+          }),
+          Animated.timing(glowAnim, {
+            toValue: 0,
+            duration: 150,
+            useNativeDriver: false,
+          }),
           // 1 Slow Blink
-          Animated.timing(glowAnim, { toValue: 1, duration: 500, useNativeDriver: false }),
-          Animated.timing(glowAnim, { toValue: 0, duration: 1000, useNativeDriver: false })
+          Animated.timing(glowAnim, {
+            toValue: 1,
+            duration: 500,
+            useNativeDriver: false,
+          }),
+          Animated.timing(glowAnim, {
+            toValue: 0,
+            duration: 1000,
+            useNativeDriver: false,
+          }),
         ]).start(() => setGlowTarget(null));
-
       }, 400); // 400ms delay to ensure component layout coordinates are fully ready
 
       return () => clearTimeout(scrollTimer);
@@ -373,7 +499,6 @@ export default function ProfileScreen({ route, navigation }) {
 
   const micTestTimeoutRef = useRef(null);
   const micTestRecorder = useAudioRecorder(MIC_TEST_AUDIO_OPTIONS);
-  const micRecorderState = useAudioRecorderState(micTestRecorder, 80);
 
   useEffect(() => {
     return () => {
@@ -383,56 +508,124 @@ export default function ProfileScreen({ route, navigation }) {
     };
   }, []);
 
-  // Simulated recording/training progress increments
-  useEffect(() => {
-    let timer;
-    if (isRecording) {
-      timer = setInterval(() => {
-        setTrainingProgress((prev) => {
-          if (prev >= 100) {
-            clearInterval(timer);
-            setIsRecording(false);
-            // Completed current sentence, transition to next
-            setTimeout(() => {
-              if (trainingStep < trainingSentences.length - 1) {
-                setTrainingStep((s) => s + 1);
-                setTrainingProgress(0);
-              } else {
-                setTrainingProgress(100);
-                handleAutoSave({ voiceAITrained: true });
-              }
-            }, 600);
-            return 100;
-          }
-          return prev + 5; // Takes 2 seconds
-        });
-      }, 100);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [isRecording, trainingStep]);
+  // Real-time metering for Voice AI Training to calculate smart pitch/rate
+  const [accumulatedMetering, setAccumulatedMetering] = useState([]);
 
-  // Simulated test playback progress
+  // Use the same micTestRecorder to passively listen while training
+  const trainingRecorderState = useAudioRecorderState(micTestRecorder, 30);
+
+  const isCurrentlyLoudRef = useRef(false);
+
+  // Peak/Word detection logic
+  useEffect(() => {
+    if (isRecording && trainingRecorderState.metering !== undefined) {
+      const currentLevel = trainingRecorderState.metering;
+      setAccumulatedMetering((prev) => [...prev, currentLevel]);
+
+      // Smart "Word" Detection based on microphone metering peaks
+      // A word is roughly a spike above a threshold (-20dB) followed by a dip below it.
+      const volumeThreshold = -25;
+      if (currentLevel > volumeThreshold && !isCurrentlyLoudRef.current) {
+        isCurrentlyLoudRef.current = true;
+      } else if (
+        currentLevel < volumeThreshold - 5 &&
+        isCurrentlyLoudRef.current
+      ) {
+        isCurrentlyLoudRef.current = false;
+        setWordCount((c) => c + 1);
+      }
+    }
+  }, [trainingRecorderState.metering, isRecording]);
+
+  // Smart word-based progress tracking
+  useEffect(() => {
+    if (isRecording) {
+      // 1 word = 33%, 2 words = 66%, 3 words = 100%
+      let newProgress = Math.min(100, Math.floor((wordCount / 3) * 100));
+
+      setTrainingProgress(newProgress);
+
+      if (newProgress >= 100) {
+        // We reached 3 words! Stop recording and advance
+        setIsRecording(false);
+
+        // Stop audio system
+        if (micTestRecorder.isRecording) {
+          micTestRecorder.stop().catch(() => {});
+        }
+        AudioModule.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        }).catch(() => {});
+
+        setTimeout(() => {
+          if (trainingStep < trainingSentences.length - 1) {
+            setTrainingStep((s) => s + 1);
+            setTrainingProgress(0);
+            setWordCount(0); // Reset for next sentence
+          } else {
+            setTrainingProgress(100);
+
+            let avgDb = -35; // default fallback
+            if (accumulatedMetering.length > 0) {
+              const sum = accumulatedMetering.reduce((a, b) => a + b, 0);
+              avgDb = sum / accumulatedMetering.length;
+            }
+
+            const normalizedVolume = Math.max(
+              0,
+              Math.min(1, (avgDb + 60) / 60),
+            );
+            const randomJitterPitch = Math.random() * 0.04 - 0.02;
+            const randomJitterRate = Math.random() * 0.04 - 0.02;
+
+            const computedPitch = parseFloat(
+              (0.85 + normalizedVolume * 0.3 + randomJitterPitch).toFixed(2),
+            );
+            const computedRate = parseFloat(
+              (0.85 + normalizedVolume * 0.3 + randomJitterRate).toFixed(2),
+            );
+            const computedGender = computedPitch < 1.0 ? "male" : "female";
+
+            handleAutoSave({
+              voiceAITrained: true,
+              aiVoicePitch: computedPitch,
+              aiVoiceRate: computedRate,
+              gender: computedGender,
+            });
+          }
+        }, 600);
+      }
+    }
+  }, [
+    wordCount,
+    isRecording,
+    trainingStep,
+    accumulatedMetering,
+    micTestRecorder,
+  ]);
+
+  // Test playback with actual TTS and progress simulation
   useEffect(() => {
     let timer;
     if (playingLang) {
+      // Start fake progress bar that caps at 95% until TTS finishes
       timer = setInterval(() => {
-        setPlayProgress((prev) => {
-          if (prev >= 100) {
-            clearInterval(timer);
-            setPlayingLang(null);
-            setPlayProgress(0);
-            return 100;
-          }
-          return prev + 10; // Takes 3 seconds
-        });
+        setPlayProgress((prev) => Math.min(95, prev + 10));
       }, 300);
     }
     return () => {
       if (timer) clearInterval(timer);
     };
   }, [playingLang]);
+
+  // Pre-warm the TTS engine in the background when the modal is opened
+  // This prevents the OS from delaying the first spoken sentence when "Play" is clicked.
+  useEffect(() => {
+    if (isTestingModalVisible) {
+      Speech.speak("\u200B", { rate: 2.0 }); // Zero-width space to silently initialize TTS
+    }
+  }, [isTestingModalVisible]);
 
   // Auto-saving configuration
   function handleAutoSave(newSettings) {
@@ -631,19 +824,83 @@ export default function ProfileScreen({ route, navigation }) {
     setIsTrainingModalVisible(true);
   };
 
-  const startRecording = () => {
+  const startRecording = async () => {
     if (trainingProgress >= 100) return;
-    setIsRecording(true);
+    try {
+      await AudioModule.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      await micTestRecorder.prepareToRecordAsync();
+      micTestRecorder.record();
+      setWordCount(0);
+      setIsCurrentlyLoud(false);
+      setAccumulatedMetering([]);
+      setIsRecording(true);
+    } catch (err) {
+      console.warn("Training start recording error", err);
+    }
   };
 
-  const stopRecording = () => {
+  const stopRecording = async () => {
     setIsRecording(false);
+    try {
+      if (micTestRecorder.isRecording) {
+        await micTestRecorder.stop();
+      }
+    } catch (err) {}
+    await AudioModule.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+    }).catch(() => {});
   };
 
-  const handlePlayVoice = (langCode) => {
-    if (playingLang) return; // already playing
+  const handlePlayVoice = async (langCode) => {
+    if (playingLang) {
+      Speech.stop();
+      setPlayingLang(null);
+      setPlayProgress(0);
+      return;
+    }
+
     setPlayingLang(langCode);
     setPlayProgress(0);
+
+    const sampleTexts = {
+      en: "Hello, this is my AI voice clone.",
+      es: "Hola, este es mi clon de voz de inteligencia artificial.",
+      fr: "Bonjour, c'est mon clone vocal d'intelligence artificielle.",
+      zh: "你好，这是我的人工智能声音克隆。",
+      ja: "こんにちは、これは私のAIボイスクローンです。",
+      hi: "नमस्ते, यह मेरा एआई वॉयस क्लोन है।",
+      ar: "مرحباً، هذا هو استنساخ صوتي بالذكاء الاصطناعي.",
+    };
+
+    const textToSpeak = sampleTexts[langCode] || sampleTexts.en;
+    const isMale = currentUser.gender === "male";
+    const pitch = currentUser.aiVoicePitch || (isMale ? 0.9 : 1.1);
+    const rate = currentUser.aiVoiceRate || 1.0;
+
+    Speech.speak(textToSpeak, {
+      language: langCode,
+      pitch: pitch,
+      rate: rate,
+      onDone: () => {
+        setPlayProgress(100);
+        setTimeout(() => {
+          setPlayingLang(null);
+          setPlayProgress(0);
+        }, 500);
+      },
+      onError: () => {
+        setPlayingLang(null);
+        setPlayProgress(0);
+        Alert.alert(
+          "TTS Error",
+          "Could not play text-to-speech for this language. Please check your device TTS settings.",
+        );
+      },
+    });
   };
 
   const isDark = currentUser.prefDarkTheme;
@@ -663,65 +920,15 @@ export default function ProfileScreen({ route, navigation }) {
   };
 
   const renderMicLevelMeter = () => {
-    const totalBars = 24;
-    const bars = [];
-    const metering = micRecorderState.metering;
-    const hasMetering =
-      isTestingMic && metering !== undefined && Number.isFinite(metering);
-    const gatedDb = hasMetering ? Math.max(-56, Math.min(-4, metering)) : -56;
-    const normalized = Math.max(0, Math.min(1, (gatedDb + 56) / 52));
-    const liveLevel =
-      hasMetering && normalized >= 0.04 ? Math.pow(normalized, 0.72) : 0;
-    const peakLevel = liveLevel;
-
-    for (let i = 0; i < totalBars; i++) {
-      const threshold = (i + 1) / totalBars;
-      const energy = isTestingMic
-        ? Math.max(0, Math.min(1, (liveLevel - threshold + 0.22) / 0.22))
-        : 0;
-      const peakEnergy = isTestingMic
-        ? Math.max(0, Math.min(1, (peakLevel - threshold + 0.08) / 0.08))
-        : 0;
-      const maxHeight = 18 + (i % 5) * 3;
-      const idleHeight = 5 + (i % 4);
-      const height = Math.round(idleHeight + energy * maxHeight);
-      const isHot = i >= 19;
-      const isWarm = i >= 15;
-      const activeColor = isHot
-        ? colors.danger
-        : isWarm
-          ? colors.warning
-          : colors.success;
-      const idleColor = isDark
-        ? "rgba(255, 255, 255, 0.1)"
-        : "rgba(15, 23, 42, 0.1)";
-
-      bars.push(
-        <View key={i} style={styles.micLevelTrack}>
-          <View
-            style={[
-              styles.micPeakDot,
-              {
-                opacity: peakEnergy > 0 ? 0.35 + peakEnergy * 0.55 : 0,
-                backgroundColor: activeColor,
-              },
-            ]}
-          />
-          <View
-            style={[
-              styles.micLevelBox,
-              {
-                height,
-                opacity: isTestingMic ? 0.45 + energy * 0.55 : 0.35,
-                backgroundColor: energy > 0 ? activeColor : idleColor,
-              },
-            ]}
-          />
-        </View>,
-      );
-    }
-
-    return <View style={styles.micLevelMeterContainer}>{bars}</View>;
+    return (
+      <MicLevelMeter
+        isTestingMic={isTestingMic}
+        micTestRecorder={micTestRecorder}
+        isDark={isDark}
+        colors={colors}
+        styles={styles}
+      />
+    );
   };
 
   return (
@@ -914,13 +1121,30 @@ export default function ProfileScreen({ route, navigation }) {
                 borderBottomWidth: 1,
                 borderBottomColor: colors.border,
                 paddingVertical: 8,
-                ...(glowTarget === "username" ? { 
-                  backgroundColor: glowAnim.interpolate({ inputRange: [0, 1], outputRange: ["transparent", colors.primaryGlow] }), 
-                  borderRadius: 8, paddingHorizontal: 8, marginHorizontal: -8 
-                } : {})
+                ...(glowTarget === "username"
+                  ? {
+                      backgroundColor: glowAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ["transparent", colors.primaryGlow],
+                      }),
+                      borderRadius: 8,
+                      paddingHorizontal: 8,
+                      marginHorizontal: -8,
+                    }
+                  : {}),
               }}
             >
-              <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 12 }}>
+              <Svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={colors.textMuted}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ marginRight: 12 }}
+              >
                 <Path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                 <Circle cx="12" cy="7" r="4" />
               </Svg>
@@ -947,13 +1171,30 @@ export default function ProfileScreen({ route, navigation }) {
                 flexDirection: "row",
                 alignItems: "center",
                 paddingVertical: 8,
-                ...(glowTarget === "phone" ? { 
-                  backgroundColor: glowAnim.interpolate({ inputRange: [0, 1], outputRange: ["transparent", colors.primaryGlow] }), 
-                  borderRadius: 8, paddingHorizontal: 8, marginHorizontal: -8 
-                } : {})
+                ...(glowTarget === "phone"
+                  ? {
+                      backgroundColor: glowAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ["transparent", colors.primaryGlow],
+                      }),
+                      borderRadius: 8,
+                      paddingHorizontal: 8,
+                      marginHorizontal: -8,
+                    }
+                  : {}),
               }}
             >
-              <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 12 }}>
+              <Svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={colors.textMuted}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ marginRight: 12 }}
+              >
                 <Path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
               </Svg>
               <TextInput
@@ -1000,31 +1241,75 @@ export default function ProfileScreen({ route, navigation }) {
                 borderBottomWidth: 1,
                 borderBottomColor: colors.border,
                 paddingBottom: 16,
-                ...(glowTarget === "nativeLang" ? { 
-                  backgroundColor: glowAnim.interpolate({ inputRange: [0, 1], outputRange: ["transparent", colors.primaryGlow] }), 
-                  borderRadius: 8, padding: 8, marginHorizontal: -8 
-                } : {})
+                ...(glowTarget === "nativeLang"
+                  ? {
+                      backgroundColor: glowAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ["transparent", colors.primaryGlow],
+                      }),
+                      borderRadius: 8,
+                      padding: 8,
+                      marginHorizontal: -8,
+                    }
+                  : {}),
               }}
             >
               <View>
-                <Text style={{ fontSize: 15, fontWeight: "500", color: colors.text }}>Native Language</Text>
-                <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>Your primary spoken language</Text>
+                <Text
+                  style={{
+                    fontSize: 15,
+                    fontWeight: "400",
+                    color: colors.text,
+                  }}
+                >
+                  Native Language
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: colors.textMuted,
+                    marginTop: 2,
+                  }}
+                >
+                  Your primary spoken language
+                </Text>
               </View>
               <TouchableOpacity
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
-                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  borderRadius: 20,
+                  backgroundColor: isDark
+                    ? "rgba(255,255,255,0.05)"
+                    : "rgba(0,0,0,0.03)",
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 14,
                 }}
                 onPress={() => setIsNativeLangModalVisible(true)}
               >
-                <Text style={{ fontSize: 15, fontWeight: "600", color: colors.text, marginRight: 4 }}>
-                  {LANGS[currentUser.nativeLang]?.flag || "🌍"} {LANGS[currentUser.nativeLang]?.name || "Select"}
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "500",
+                    color: colors.text,
+                    marginRight: 4,
+                  }}
+                >
+                  {LANGS[currentUser.nativeLang]?.flag || "🌍"}{" "}
+                  {LANGS[currentUser.nativeLang]?.name || "Select"}
                 </Text>
-                <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Polyline points="6 9 12 15 18 9" /></Svg>
+                <Svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={colors.textMuted}
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <Polyline points="6 9 12 15 18 9" />
+                </Svg>
               </TouchableOpacity>
             </Animated.View>
 
@@ -1040,26 +1325,61 @@ export default function ProfileScreen({ route, navigation }) {
               }}
             >
               <View>
-                <Text style={{ fontSize: 15, fontWeight: "500", color: colors.text }}>AI Companion</Text>
-                <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>Target translation language</Text>
+                <Text
+                  style={{
+                    fontSize: 15,
+                    fontWeight: "400",
+                    color: colors.text,
+                  }}
+                >
+                  AI Companion
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: colors.textMuted,
+                    marginTop: 2,
+                  }}
+                >
+                  Target translation language
+                </Text>
               </View>
               <TouchableOpacity
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
                   backgroundColor: colors.primaryGlow,
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  borderRadius: 20,
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 14,
                   borderWidth: 1,
-                  borderColor: colors.primary + '50',
+                  borderColor: colors.primary + "30",
                 }}
                 onPress={() => setIsUnityAILangModalVisible(true)}
               >
-                <Text style={{ fontSize: 15, fontWeight: "600", color: colors.primary, marginRight: 4 }}>
-                  {LANGS[currentUser.unityAILang]?.flag || "🌍"} {LANGS[currentUser.unityAILang]?.name || "Select"}
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "500",
+                    color: colors.primary,
+                    marginRight: 4,
+                  }}
+                >
+                  {LANGS[currentUser.unityAILang]?.flag || "🌍"}{" "}
+                  {LANGS[currentUser.unityAILang]?.name || "Select"}
                 </Text>
-                <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Polyline points="6 9 12 15 18 9" /></Svg>
+                <Svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={colors.primary}
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <Polyline points="6 9 12 15 18 9" />
+                </Svg>
               </TouchableOpacity>
             </View>
 
@@ -1069,16 +1389,44 @@ export default function ProfileScreen({ route, navigation }) {
                 layoutOffsets.current.voice = e.nativeEvent.layout.y;
               }}
               style={{
-                ...(glowTarget === "voice" ? { 
-                  backgroundColor: glowAnim.interpolate({ inputRange: [0, 1], outputRange: ["transparent", colors.primaryGlow] }), 
-                  borderRadius: 8, padding: 8, marginHorizontal: -8 
-                } : {})
+                ...(glowTarget === "voice"
+                  ? {
+                      backgroundColor: glowAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ["transparent", colors.primaryGlow],
+                      }),
+                      borderRadius: 8,
+                      padding: 8,
+                      marginHorizontal: -8,
+                    }
+                  : {}),
               }}
             >
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                }}
+              >
                 <View style={{ flex: 1, paddingRight: 12 }}>
-                  <Text style={{ fontSize: 15, fontWeight: "500", color: colors.text }}>Voice AI Profile</Text>
-                  <Text style={{ fontSize: 13, color: colors.textMuted, marginTop: 4, lineHeight: 18 }}>
+                  <Text
+                    style={{
+                      fontSize: 15,
+                      fontWeight: "400",
+                      color: colors.text,
+                    }}
+                  >
+                    Voice AI Profile
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      color: colors.textMuted,
+                      marginTop: 4,
+                      lineHeight: 16,
+                    }}
+                  >
                     {currentUser.voiceAITrained
                       ? "Your speech model is active! Translate spoken audio using your own cloned voice."
                       : "Clone your voice to speak translations in your own vocal print instead of robotic TTS."}
@@ -1087,25 +1435,35 @@ export default function ProfileScreen({ route, navigation }) {
                 {currentUser.voiceAITrained && (
                   <TouchableOpacity
                     style={{
-                      backgroundColor: colors.accent + '20',
+                      backgroundColor: colors.accent + "20",
                       paddingHorizontal: 16,
                       paddingVertical: 8,
                       borderRadius: 20,
                     }}
                     onPress={() => setIsTestingModalVisible(true)}
                   >
-                    <Text style={{ color: colors.accent, fontWeight: "700", fontSize: 14 }}>Test AI</Text>
+                    <Text
+                      style={{
+                        color: colors.accent,
+                        fontWeight: "700",
+                        fontSize: 14,
+                      }}
+                    >
+                      Test AI
+                    </Text>
                   </TouchableOpacity>
                 )}
               </View>
-              
+
               <TouchableOpacity
                 style={{
                   marginTop: 12,
                   flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: currentUser.voiceAITrained ? 'transparent' : colors.primary,
+                  backgroundColor: currentUser.voiceAITrained
+                    ? "transparent"
+                    : colors.primary,
                   borderWidth: currentUser.voiceAITrained ? 1 : 0,
                   borderColor: colors.border,
                   paddingVertical: 12,
@@ -1114,16 +1472,45 @@ export default function ProfileScreen({ route, navigation }) {
                 onPress={startVoiceTraining}
               >
                 {currentUser.voiceAITrained ? (
-                  <Text style={{ color: colors.text, fontWeight: "600", fontSize: 15 }}>Retrain Voice Model</Text>
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontWeight: "600",
+                      fontSize: 15,
+                    }}
+                  >
+                    Retrain Voice Model
+                  </Text>
                 ) : (
                   <>
-                    <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}><Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><Path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></Svg>
-                    <Text style={{ color: "white", fontWeight: "600", fontSize: 15 }}>Train Your Voice AI</Text>
+                    <Svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="white"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{ marginRight: 8 }}
+                    >
+                      <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                      <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" x2="12" y1="19" y2="22" />
+                    </Svg>
+                    <Text
+                      style={{
+                        color: "white",
+                        fontWeight: "600",
+                        fontSize: 15,
+                      }}
+                    >
+                      Train Your Voice AI
+                    </Text>
                   </>
                 )}
               </TouchableOpacity>
             </Animated.View>
-
           </View>
         </View>
 
@@ -1149,29 +1536,59 @@ export default function ProfileScreen({ route, navigation }) {
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
-                  backgroundColor: isTestingMic ? colors.danger + '20' : colors.primaryGlow,
+                  backgroundColor: isTestingMic
+                    ? colors.danger + "20"
+                    : colors.primaryGlow,
                   paddingHorizontal: 16,
                   paddingVertical: 10,
                   borderRadius: 24,
                   alignSelf: "flex-start",
                   borderWidth: 1,
-                  borderColor: isTestingMic ? colors.danger + '50' : colors.primary + '50',
+                  borderColor: isTestingMic
+                    ? colors.danger + "50"
+                    : colors.primary + "50",
                 }}
                 onPress={toggleMicTest}
               >
-                <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isTestingMic ? colors.danger : colors.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8 }}><Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><Path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></Svg>
-                <Text style={{ color: isTestingMic ? colors.danger : colors.primary, fontWeight: "600", fontSize: 14 }}>
-                  {isTestingMic ? "Stop Test" : micTestStatus === "checking" ? "Checking..." : "Test Mic"}
+                <Svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={isTestingMic ? colors.danger : colors.primary}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ marginRight: 8 }}
+                >
+                  <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" x2="12" y1="19" y2="22" />
+                </Svg>
+                <Text
+                  style={{
+                    color: isTestingMic ? colors.danger : colors.primary,
+                    fontWeight: "600",
+                    fontSize: 14,
+                  }}
+                >
+                  {isTestingMic
+                    ? "Stop Test"
+                    : micTestStatus === "checking"
+                      ? "Checking..."
+                      : "Test Mic"}
                 </Text>
               </TouchableOpacity>
-              <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 8 }}>
-                {isTestingMic ? "Meter shows live input" : "Tap to run hardware test"}
+              <Text
+                style={{ fontSize: 12, color: colors.textMuted, marginTop: 8 }}
+              >
+                {isTestingMic
+                  ? "Meter shows live input"
+                  : "Tap to run hardware test"}
               </Text>
             </View>
 
-            <View style={{ width: 120 }}>
-              {renderMicLevelMeter()}
-            </View>
+            <View style={{ width: 120 }}>{renderMicLevelMeter()}</View>
           </View>
         </View>
 
@@ -1190,58 +1607,264 @@ export default function ProfileScreen({ route, navigation }) {
             }}
           >
             {/* Dark Theme */}
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingVertical: 12,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+              }}
+            >
               <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 6, borderRadius: 8, marginRight: 12 }}>
-                  <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></Svg>
+                <View
+                  style={{
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.05)"
+                      : "rgba(0,0,0,0.03)",
+                    padding: 6,
+                    borderRadius: 8,
+                    marginRight: 12,
+                  }}
+                >
+                  <Svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.text}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <Path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                  </Svg>
                 </View>
-                <Text style={{ fontSize: 15, color: colors.text, fontWeight: "500" }}>Dark Theme</Text>
+                <Text
+                  style={{
+                    fontSize: 15,
+                    color: colors.text,
+                    fontWeight: "500",
+                  }}
+                >
+                  Dark Theme
+                </Text>
               </View>
-              <Switch value={currentUser.prefDarkTheme} onValueChange={() => handleTogglePref("prefDarkTheme")} trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }} />
+              <Switch
+                value={currentUser.prefDarkTheme}
+                onValueChange={() => handleTogglePref("prefDarkTheme")}
+                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
+              />
             </View>
 
             {/* Auto Translate */}
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingVertical: 12,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+              }}
+            >
               <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 6, borderRadius: 8, marginRight: 12 }}>
-                  <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Circle cx="12" cy="12" r="10" /><Line x1="2" y1="12" x2="22" y2="12" /><Path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></Svg>
+                <View
+                  style={{
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.05)"
+                      : "rgba(0,0,0,0.03)",
+                    padding: 6,
+                    borderRadius: 8,
+                    marginRight: 12,
+                  }}
+                >
+                  <Svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.text}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <Circle cx="12" cy="12" r="10" />
+                    <Line x1="2" y1="12" x2="22" y2="12" />
+                    <Path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                  </Svg>
                 </View>
-                <Text style={{ fontSize: 15, color: colors.text, fontWeight: "500" }}>Auto-Translate Audio</Text>
+                <Text
+                  style={{
+                    fontSize: 15,
+                    color: colors.text,
+                    fontWeight: "500",
+                  }}
+                >
+                  Auto-Translate Audio
+                </Text>
               </View>
-              <Switch value={currentUser.prefAutoTrans} onValueChange={() => handleTogglePref("prefAutoTrans")} trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }} />
+              <Switch
+                value={currentUser.prefAutoTrans}
+                onValueChange={() => handleTogglePref("prefAutoTrans")}
+                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
+              />
             </View>
 
             {/* Haptics */}
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingVertical: 12,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+              }}
+            >
               <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 6, borderRadius: 8, marginRight: 12 }}>
-                  <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Rect x="5" y="2" width="14" height="20" rx="2" ry="2" /><Line x1="12" y1="18" x2="12.01" y2="18" /></Svg>
+                <View
+                  style={{
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.05)"
+                      : "rgba(0,0,0,0.03)",
+                    padding: 6,
+                    borderRadius: 8,
+                    marginRight: 12,
+                  }}
+                >
+                  <Svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.text}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <Rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+                    <Line x1="12" y1="18" x2="12.01" y2="18" />
+                  </Svg>
                 </View>
-                <Text style={{ fontSize: 15, color: colors.text, fontWeight: "500" }}>Haptic Feedback</Text>
+                <Text
+                  style={{
+                    fontSize: 15,
+                    color: colors.text,
+                    fontWeight: "500",
+                  }}
+                >
+                  Haptic Feedback
+                </Text>
               </View>
-              <Switch value={currentUser.prefHaptics} onValueChange={() => handleTogglePref("prefHaptics")} trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }} />
+              <Switch
+                value={currentUser.prefHaptics}
+                onValueChange={() => handleTogglePref("prefHaptics")}
+                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
+              />
             </View>
 
             {/* VAD */}
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingVertical: 12,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+              }}
+            >
               <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 6, borderRadius: 8, marginRight: 12 }}>
-                  <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Path d="M2 12h4l2-9 5 18 3-9h6" /></Svg>
+                <View
+                  style={{
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.05)"
+                      : "rgba(0,0,0,0.03)",
+                    padding: 6,
+                    borderRadius: 8,
+                    marginRight: 12,
+                  }}
+                >
+                  <Svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.text}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <Path d="M2 12h4l2-9 5 18 3-9h6" />
+                  </Svg>
                 </View>
-                <Text style={{ fontSize: 15, color: colors.text, fontWeight: "500" }}>Voice Activity Detection</Text>
+                <Text
+                  style={{
+                    fontSize: 15,
+                    color: colors.text,
+                    fontWeight: "500",
+                  }}
+                >
+                  Voice Activity Detection
+                </Text>
               </View>
-              <Switch value={currentUser.prefVad} onValueChange={() => handleTogglePref("prefVad")} trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }} />
+              <Switch
+                value={currentUser.prefVad}
+                onValueChange={() => handleTogglePref("prefVad")}
+                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
+              />
             </View>
 
             {/* Transcripts */}
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingVertical: 12,
+              }}
+            >
               <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 6, borderRadius: 8, marginRight: 12 }}>
-                  <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></Svg>
+                <View
+                  style={{
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.05)"
+                      : "rgba(0,0,0,0.03)",
+                    padding: 6,
+                    borderRadius: 8,
+                    marginRight: 12,
+                  }}
+                >
+                  <Svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.text}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </Svg>
                 </View>
-                <Text style={{ fontSize: 15, color: colors.text, fontWeight: "500" }}>Show Transcripts</Text>
+                <Text
+                  style={{
+                    fontSize: 15,
+                    color: colors.text,
+                    fontWeight: "500",
+                  }}
+                >
+                  Show Transcripts
+                </Text>
               </View>
-              <Switch value={currentUser.prefShowTranscripts} onValueChange={() => handleTogglePref("prefShowTranscripts")} trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }} />
+              <Switch
+                value={currentUser.prefShowTranscripts}
+                onValueChange={() => handleTogglePref("prefShowTranscripts")}
+                trackColor={{ false: "rgba(0,0,0,0.1)", true: colors.primary }}
+              />
             </View>
           </View>
         </View>
@@ -1264,42 +1887,225 @@ export default function ProfileScreen({ route, navigation }) {
             ]}
           >
             {/* Storage Grid */}
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-              <View style={{ width: '48%', marginBottom: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border }}>
-                <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 8 }}><Rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><Circle cx="8.5" cy="8.5" r="1.5" /><Polyline points="21 15 16 10 5 21" /></Svg>
-                <Text style={{ fontSize: 13, color: colors.textMuted, fontWeight: '500' }}>Images</Text>
-                <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text, marginTop: 4 }}>{storageStats.imagesSize} MB</Text>
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                justifyContent: "space-between",
+              }}
+            >
+              <View
+                style={{
+                  width: "48%",
+                  marginBottom: 12,
+                  backgroundColor: isDark
+                    ? "rgba(255,255,255,0.05)"
+                    : "rgba(0,0,0,0.03)",
+                  padding: 12,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={colors.primary}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ marginBottom: 8 }}
+                >
+                  <Rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <Circle cx="8.5" cy="8.5" r="1.5" />
+                  <Polyline points="21 15 16 10 5 21" />
+                </Svg>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: colors.textMuted,
+                    fontWeight: "500",
+                  }}
+                >
+                  Images
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "400",
+                    color: colors.text,
+                    marginTop: 4,
+                  }}
+                >
+                  {storageStats.imagesSize} MB
+                </Text>
               </View>
 
-              <View style={{ width: '48%', marginBottom: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border }}>
-                <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 8 }}><Path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><Circle cx="12" cy="7" r="4" /></Svg>
-                <Text style={{ fontSize: 13, color: colors.textMuted, fontWeight: '500' }}>Avatars</Text>
-                <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text, marginTop: 4 }}>{storageStats.avatarsSize} MB</Text>
+              <View
+                style={{
+                  width: "48%",
+                  marginBottom: 12,
+                  backgroundColor: isDark
+                    ? "rgba(255,255,255,0.05)"
+                    : "rgba(0,0,0,0.03)",
+                  padding: 12,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={colors.primary}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ marginBottom: 8 }}
+                >
+                  <Path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <Circle cx="12" cy="7" r="4" />
+                </Svg>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: colors.textMuted,
+                    fontWeight: "500",
+                  }}
+                >
+                  Avatars
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "400",
+                    color: colors.text,
+                    marginTop: 4,
+                  }}
+                >
+                  {storageStats.avatarsSize} MB
+                </Text>
               </View>
 
-              <View style={{ width: '48%', marginBottom: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border }}>
-                <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 8 }}><Polygon points="23 7 16 12 23 17 23 7" /><Rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></Svg>
-                <Text style={{ fontSize: 13, color: colors.textMuted, fontWeight: '500' }}>Videos</Text>
-                <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text, marginTop: 4 }}>{storageStats.videosSize} MB</Text>
+              <View
+                style={{
+                  width: "48%",
+                  marginBottom: 12,
+                  backgroundColor: isDark
+                    ? "rgba(255,255,255,0.05)"
+                    : "rgba(0,0,0,0.03)",
+                  padding: 12,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={colors.primary}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ marginBottom: 8 }}
+                >
+                  <Polygon points="23 7 16 12 23 17 23 7" />
+                  <Rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                </Svg>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: colors.textMuted,
+                    fontWeight: "500",
+                  }}
+                >
+                  Videos
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "400",
+                    color: colors.text,
+                    marginTop: 4,
+                  }}
+                >
+                  {storageStats.videosSize} MB
+                </Text>
               </View>
 
-              <View style={{ width: '48%', marginBottom: 12, backgroundColor: colors.primaryGlow, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.primary + '40' }}>
-                <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 8 }}><Line x1="22" y1="12" x2="2" y2="12" /><Path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /><Line x1="6" y1="16" x2="6.01" y2="16" /><Line x1="10" y1="16" x2="10.01" y2="16" /></Svg>
-                <Text style={{ fontSize: 13, color: colors.primary, fontWeight: '600' }}>Total Cache</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: colors.primary, marginTop: 2 }}>{storageStats.totalSize} MB</Text>
+              <View
+                style={{
+                  width: "48%",
+                  marginBottom: 12,
+                  backgroundColor: colors.primaryGlow,
+                  padding: 12,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: colors.primary + "40",
+                }}
+              >
+                <Svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={colors.primary}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ marginBottom: 8 }}
+                >
+                  <Line x1="22" y1="12" x2="2" y2="12" />
+                  <Path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+                  <Line x1="6" y1="16" x2="6.01" y2="16" />
+                  <Line x1="10" y1="16" x2="10.01" y2="16" />
+                </Svg>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: colors.primary,
+                    fontWeight: "600",
+                  }}
+                >
+                  Total Cache
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 14,
+                    fontWeight: "500",
+                    color: colors.primary,
+                    marginTop: 2,
+                  }}
+                >
+                  {storageStats.totalSize} MB
+                </Text>
               </View>
             </View>
 
             {/* Actions Row */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                marginTop: 8,
+              }}
+            >
               {/* Cleanup */}
-              <View style={{ alignItems: 'center', width: '22%' }}>
+              <View style={{ alignItems: "center", width: "22%" }}>
                 <TouchableOpacity
                   style={{
                     width: 48,
                     height: 48,
                     borderRadius: 24,
-                    backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.1)"
+                      : "rgba(0,0,0,0.05)",
                     justifyContent: "center",
                     alignItems: "center",
                     marginBottom: 6,
@@ -1310,14 +2116,35 @@ export default function ProfileScreen({ route, navigation }) {
                   {isCleaning ? (
                     <ActivityIndicator size="small" color={colors.primary} />
                   ) : (
-                    <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Path d="M3 6h18" /><Path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></Svg>
+                    <Svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={colors.text}
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <Path d="M3 6h18" />
+                      <Path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    </Svg>
                   )}
                 </TouchableOpacity>
-                <Text style={{ fontSize: 11, color: colors.textMuted, textAlign: 'center', fontWeight: '500' }}>Cleanup</Text>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: colors.textMuted,
+                    textAlign: "center",
+                    fontWeight: "500",
+                  }}
+                >
+                  Cleanup
+                </Text>
               </View>
 
               {/* Backup */}
-              <View style={{ alignItems: 'center', width: '22%' }}>
+              <View style={{ alignItems: "center", width: "22%" }}>
                 <TouchableOpacity
                   style={{
                     width: 48,
@@ -1334,61 +2161,142 @@ export default function ProfileScreen({ route, navigation }) {
                   {isBackingUp ? (
                     <ActivityIndicator size="small" color="#FFF" />
                   ) : (
-                    <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><Polyline points="17 8 12 3 7 8" /><Line x1="12" y1="3" x2="12" y2="15" /></Svg>
+                    <Svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#FFF"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <Path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <Polyline points="17 8 12 3 7 8" />
+                      <Line x1="12" y1="3" x2="12" y2="15" />
+                    </Svg>
                   )}
                 </TouchableOpacity>
-                <Text style={{ fontSize: 11, color: colors.text, textAlign: 'center', fontWeight: '600' }}>Backup</Text>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: colors.text,
+                    textAlign: "center",
+                    fontWeight: "600",
+                  }}
+                >
+                  Backup
+                </Text>
               </View>
 
               {/* Wipe */}
-              <View style={{ alignItems: 'center', width: '22%' }}>
+              <View style={{ alignItems: "center", width: "22%" }}>
                 <TouchableOpacity
                   style={{
                     width: 48,
                     height: 48,
                     borderRadius: 24,
-                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    backgroundColor: "rgba(239, 68, 68, 0.1)",
                     justifyContent: "center",
                     alignItems: "center",
                     marginBottom: 6,
                   }}
                   onPress={handleClearAll}
                 >
-                  <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z" /><Line x1="18" y1="9" x2="12" y2="15" /><Line x1="12" y1="9" x2="18" y2="15" /></Svg>
+                  <Svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#EF4444"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <Path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z" />
+                    <Line x1="18" y1="9" x2="12" y2="15" />
+                    <Line x1="12" y1="9" x2="18" y2="15" />
+                  </Svg>
                 </TouchableOpacity>
-                <Text style={{ fontSize: 11, color: '#EF4444', textAlign: 'center', fontWeight: '500' }}>Wipe Data</Text>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: "#EF4444",
+                    textAlign: "center",
+                    fontWeight: "500",
+                  }}
+                >
+                  Wipe Data
+                </Text>
               </View>
 
               {/* Log Out */}
-              <View style={{ alignItems: 'center', width: '22%' }}>
+              <View style={{ alignItems: "center", width: "22%" }}>
                 <TouchableOpacity
                   style={{
                     width: 48,
                     height: 48,
                     borderRadius: 24,
-                    backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.1)"
+                      : "rgba(0,0,0,0.05)",
                     justifyContent: "center",
                     alignItems: "center",
                     marginBottom: 6,
                   }}
                   onPress={logoutUser}
                 >
-                  <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><Path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><Polyline points="16 17 21 12 16 7" /><Line x1="21" y1="12" x2="9" y2="12" /></Svg>
+                  <Svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.text}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <Path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <Polyline points="16 17 21 12 16 7" />
+                    <Line x1="21" y1="12" x2="9" y2="12" />
+                  </Svg>
                 </TouchableOpacity>
-                <Text style={{ fontSize: 11, color: colors.textMuted, textAlign: 'center', fontWeight: '500' }}>Log Out</Text>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: colors.textMuted,
+                    textAlign: "center",
+                    fontWeight: "500",
+                  }}
+                >
+                  Log Out
+                </Text>
               </View>
             </View>
 
             {/* Delete Account Link at the bottom center */}
-            <TouchableOpacity onPress={handleStartDeleteAccount} style={{ marginTop: 12, alignItems: 'center', paddingVertical: 8 }}>
-               <Text style={{ color: '#EF4444', fontSize: 13, fontWeight: '600' }}>Delete Account</Text>
+            <TouchableOpacity
+              onPress={handleStartDeleteAccount}
+              style={{
+                marginTop: 12,
+                alignItems: "center",
+                paddingVertical: 8,
+              }}
+            >
+              <Text
+                style={{ color: "#EF4444", fontSize: 13, fontWeight: "600" }}
+              >
+                Delete Account
+              </Text>
             </TouchableOpacity>
-
           </View>
         </View>
 
         <Text style={[styles.footerText, { color: colors.success }]}>
           All changes are saved automatically
+        </Text>
+        <Text style={[styles.footerText, { color: colors.textDimmed, fontSize: 10, marginTop: 4, fontWeight: '400' }]}>
+          xayLite v {customJson.version}
         </Text>
       </ScrollView>
 
@@ -1804,7 +2712,15 @@ export default function ProfileScreen({ route, navigation }) {
                       Recording Speech
                     </Text>
                     <Text
-                      style={[styles.progressPct, { color: colors.primary }]}
+                      style={[
+                        styles.progressPct,
+                        {
+                          color:
+                            trainingProgress === 100
+                              ? colors.success
+                              : colors.primary,
+                        },
+                      ]}
                     >
                       {trainingProgress}%
                     </Text>
@@ -1823,7 +2739,10 @@ export default function ProfileScreen({ route, navigation }) {
                       style={[
                         styles.progressBarFill,
                         {
-                          backgroundColor: colors.primary,
+                          backgroundColor:
+                            trainingProgress === 100
+                              ? colors.success
+                              : colors.primary,
                           width: `${trainingProgress}%`,
                         },
                       ]}
@@ -2264,9 +3183,9 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "500",
     textTransform: "uppercase",
-    letterSpacing: 1,
+    letterSpacing: 1.5,
   },
   inputField: {
     width: "100%",
