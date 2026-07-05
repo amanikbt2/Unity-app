@@ -1,5 +1,11 @@
 /* eslint-disable react-hooks/immutability */
-import React, { useState, useEffect, useRef, useContext } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useContext,
+  useCallback,
+} from "react";
 import {
   StyleSheet,
   Text,
@@ -34,7 +40,7 @@ import {
   IOSOutputFormat,
 } from "expo-audio";
 import * as Speech from "expo-speech";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { trackEvent } from "../utils/Analytics";
 import {
   translateText,
@@ -119,10 +125,23 @@ const COMPRESSED_AUDIO_OPTIONS = {
   isMeteringEnabled: true,
 };
 
+const Dot = ({ anim, color }) => (
+  <RNAnimated.View
+    style={{
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: color || "#9CA3AF",
+      marginHorizontal: 3,
+      transform: [{ translateY: anim }],
+    }}
+  />
+);
+
 const TypingIndicator = ({ color }) => {
-  const dot1 = useRef(new RNAnimated.Value(0)).current;
-  const dot2 = useRef(new RNAnimated.Value(0)).current;
-  const dot3 = useRef(new RNAnimated.Value(0)).current;
+  const [dot1] = useState(() => new RNAnimated.Value(0));
+  const [dot2] = useState(() => new RNAnimated.Value(0));
+  const [dot3] = useState(() => new RNAnimated.Value(0));
 
   useEffect(() => {
     const animateDot = (dot) => {
@@ -140,27 +159,17 @@ const TypingIndicator = ({ color }) => {
       ]);
     };
 
-    RNAnimated.loop(
+    const animation = RNAnimated.loop(
       RNAnimated.stagger(150, [
         animateDot(dot1),
         animateDot(dot2),
         animateDot(dot3),
       ]),
-    ).start();
-  }, []);
+    );
 
-  const Dot = ({ anim }) => (
-    <RNAnimated.View
-      style={{
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: color || "#9CA3AF",
-        marginHorizontal: 3,
-        transform: [{ translateY: anim }],
-      }}
-    />
-  );
+    animation.start();
+    return () => animation.stop();
+  }, [dot1, dot2, dot3]);
 
   return (
     <View
@@ -171,9 +180,9 @@ const TypingIndicator = ({ color }) => {
         paddingVertical: 12,
       }}
     >
-      <Dot anim={dot1} />
-      <Dot anim={dot2} />
-      <Dot anim={dot3} />
+      <Dot anim={dot1} color={color} />
+      <Dot anim={dot2} color={color} />
+      <Dot anim={dot3} color={color} />
     </View>
   );
 };
@@ -207,7 +216,7 @@ export default function ConversationScreen({ route, navigation }) {
   const [subtitleReceived, setSubtitleReceived] = useState(
     "Waiting for speech...",
   );
-  const [subtitleUser, setSubtitleUser] = useState("Hold mic to start talking");
+  const [subtitleUser, setSubtitleUser] = useState("Tap mic to start talking");
   const [profilePopupVisible, setProfilePopupVisible] = useState(false);
   const [profilePopupData, setProfilePopupData] = useState(null);
 
@@ -218,75 +227,84 @@ export default function ConversationScreen({ route, navigation }) {
   const waveRotate1 = useSharedValue(0);
   const waveRotate2 = useSharedValue(0);
 
-  const onRecordingStatusUpdate = (status) => {
-    if (status.metering !== undefined) {
-      const db = status.metering;
+  const onRecordingStatusUpdate = useCallback(
+    (status) => {
+      if (status.metering !== undefined) {
+        const db = status.metering;
 
-      // Smart dynamic calibration
-      // Update noise floor
-      if (db < noiseFloorRef.current) {
-        noiseFloorRef.current = db; // Snap instantly to new quietest sound
-      } else {
-        noiseFloorRef.current += 0.05; // Slowly drift up (0.5 dB/sec) to adapt to noisy rooms
-      }
-
-      // Update speech peak
-      if (db > speechPeakRef.current) {
-        speechPeakRef.current = db; // Snap instantly to new loudest sound
-      } else {
-        speechPeakRef.current -= 0.1; // Slowly drift down (1 dB/sec)
-      }
-
-      // Enforce a minimum dynamic range so thresholding doesn't break in absolute silence
-      if (speechPeakRef.current - noiseFloorRef.current < 15) {
-        speechPeakRef.current = noiseFloorRef.current + 15;
-      }
-
-      const currentNoiseFloor = noiseFloorRef.current;
-      const currentPeak = speechPeakRef.current;
-      const range = currentPeak - currentNoiseFloor;
-
-      // Map db to 0-1 range dynamically
-      let normalized = Math.max(0, (db - currentNoiseFloor) / range);
-      normalized = Math.pow(normalized, 2.5); // Apply exponential curve for punchiness
-
-      orbScale.value = withTiming(1.0 + normalized * 0.45, { duration: 100 });
-      glow1Opacity.value = withTiming(0.1 + normalized * 0.5, {
-        duration: 100,
-      });
-      glow2Opacity.value = withTiming(0.2 + normalized * 0.6, {
-        duration: 100,
-      });
-
-      if (handsFreeActiveRef.current) {
-        // Dynamic speech threshold is 35% above the noise floor
-        const dynamicThreshold = currentNoiseFloor + range * 0.35;
-
-        if (db > dynamicThreshold) {
-          if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
-            silenceTimerRef.current = null;
-          }
-          if (!isSpeakingRef.current) {
-            isSpeakingRef.current = true;
-            setSubtitleUser("Speaking...");
-            Speech.stop();
-          }
+        // Smart dynamic calibration
+        // Update noise floor
+        if (db < noiseFloorRef.current) {
+          noiseFloorRef.current = db; // Snap instantly to new quietest sound
         } else {
-          if (isSpeakingRef.current) {
-            setSubtitleUser("Silent... waiting");
-            if (!silenceTimerRef.current) {
-              silenceTimerRef.current = setTimeout(async () => {
-                isSpeakingRef.current = false;
-                silenceTimerRef.current = null;
-                await processSmartRecording();
-              }, 2500);
+          noiseFloorRef.current += 0.05; // Slowly drift up (0.5 dB/sec) to adapt to noisy rooms
+        }
+
+        // Update speech peak
+        if (db > speechPeakRef.current) {
+          speechPeakRef.current = db; // Snap instantly to new loudest sound
+        } else {
+          speechPeakRef.current -= 0.1; // Slowly drift down (1 dB/sec)
+        }
+
+        // Enforce a minimum dynamic range so thresholding doesn't break in absolute silence
+        if (speechPeakRef.current - noiseFloorRef.current < 15) {
+          speechPeakRef.current = noiseFloorRef.current + 15;
+        }
+
+        const currentNoiseFloor = noiseFloorRef.current;
+        const currentPeak = speechPeakRef.current;
+        const range = currentPeak - currentNoiseFloor;
+
+        // Map db to 0-1 range dynamically
+        let normalized = Math.max(0, (db - currentNoiseFloor) / range);
+        normalized = Math.pow(normalized, 2.5); // Apply exponential curve for punchiness
+
+        orbScale.value = withTiming(1.0 + normalized * 0.45, { duration: 100 });
+        glow1Opacity.value = withTiming(0.1 + normalized * 0.5, {
+          duration: 100,
+        });
+        glow2Opacity.value = withTiming(0.2 + normalized * 0.6, {
+          duration: 100,
+        });
+
+        if (handsFreeActiveRef.current) {
+          // Dynamic speech threshold is 35% above the noise floor
+          const dynamicThreshold = currentNoiseFloor + range * 0.35;
+
+          if (db > dynamicThreshold) {
+            if (silenceTimerRef.current) {
+              clearTimeout(silenceTimerRef.current);
+              silenceTimerRef.current = null;
+            }
+            if (!isSpeakingRef.current) {
+              isSpeakingRef.current = true;
+              setSubtitleUser("Speaking...");
+              Speech.stop();
+            }
+          } else {
+            if (isSpeakingRef.current) {
+              setSubtitleUser("Silent... waiting");
+              if (!silenceTimerRef.current) {
+                silenceTimerRef.current = setTimeout(async () => {
+                  isSpeakingRef.current = false;
+                  silenceTimerRef.current = null;
+                  await processSmartRecording();
+                }, 2500);
+              }
             }
           }
         }
       }
-    }
-  };
+    },
+    [
+      glow1Opacity,
+      glow2Opacity,
+      orbScale,
+      setSubtitleUser,
+      processSmartRecording,
+    ],
+  );
 
   const processSmartRecording = async () => {
     setSubtitleUser("Processing voice...");
@@ -324,7 +342,7 @@ export default function ConversationScreen({ route, navigation }) {
     if (recorderState) {
       onRecordingStatusUpdate(recorderState);
     }
-  }, [recorderState]);
+  }, [onRecordingStatusUpdate, recorderState]);
 
   const [isRecording, setIsRecording] = useState(false);
   const [handsFreeActive, setHandsFreeActive] = useState(false);
@@ -388,15 +406,18 @@ export default function ConversationScreen({ route, navigation }) {
     fetchVoices();
   }, []);
 
-  const getLangCodeFromFlag = (flagEmoji) => {
-    if (!LANGS) return "en";
-    for (const [code, details] of Object.entries(LANGS)) {
-      if (details.flag === flagEmoji) {
-        return code;
+  const getLangCodeFromFlag = useCallback(
+    (flagEmoji) => {
+      if (!LANGS) return "en";
+      for (const [code, details] of Object.entries(LANGS)) {
+        if (details.flag === flagEmoji) {
+          return code;
+        }
       }
-    }
-    return "en";
-  };
+      return "en";
+    },
+    [LANGS],
+  );
 
   const openProfilePopup = (profile) => {
     setProfilePopupData(profile);
@@ -404,8 +425,6 @@ export default function ConversationScreen({ route, navigation }) {
   };
 
   const chatScrollViewRef = useRef();
-  const isPreparingRef = useRef(false);
-  const shouldStopAfterPrepareRef = useRef(false);
 
   // Clean up recording on unmount
   useEffect(() => {
@@ -434,7 +453,7 @@ export default function ConversationScreen({ route, navigation }) {
     );
     animation.start();
     return () => animation.stop();
-  }, []);
+  }, [shimmerAnim]);
 
   // Set up breathing & fluid animations for the center orb
   useEffect(() => {
@@ -450,7 +469,7 @@ export default function ConversationScreen({ route, navigation }) {
       -1,
       false,
     );
-  }, []);
+  }, [waveRotate1, waveRotate2]);
 
   // Update orb pulse animation based on recording status
   useEffect(() => {
@@ -490,7 +509,7 @@ export default function ConversationScreen({ route, navigation }) {
         true,
       );
     }
-  }, [isRecording]);
+  }, [isRecording, orbScale, glow1Opacity, glow2Opacity]);
 
   // Animated styles
   const animatedOrbStyle = useAnimatedStyle(() => ({
@@ -643,7 +662,14 @@ export default function ConversationScreen({ route, navigation }) {
       unsubscribe();
       clearContactUnread(partnerId);
     };
-  }, [partnerId]);
+  }, [
+    partnerId,
+    currentUser.avatar,
+    currentUser.nativeLang,
+    getLangCodeFromFlag,
+    getLangDetails,
+    partnerFlag,
+  ]);
 
   // Scroll to bottom helper
   useEffect(() => {
@@ -660,7 +686,7 @@ export default function ConversationScreen({ route, navigation }) {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (recorder.isRecording) recorder.stop();
     };
-  }, []);
+  }, [recorder]);
 
   const toggleHandsFree = async () => {
     if (handsFreeActive) {
@@ -681,7 +707,9 @@ export default function ConversationScreen({ route, navigation }) {
           allowsRecordingIOS: false,
           playsInSilentModeIOS: true,
         });
-      } catch (e) {}
+      } catch (error) {
+        console.warn("Failed to stop hands-free recording", error);
+      }
     } else {
       setHandsFreeActive(true);
       handsFreeActiveRef.current = true;

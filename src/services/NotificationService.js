@@ -1,6 +1,7 @@
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
+import Constants from "expo-constants";
 import notifee, {
   AndroidStyle,
   AndroidImportance,
@@ -45,7 +46,7 @@ export async function registerForPushNotificationsAsync() {
     try {
       token = (
         await Notifications.getExpoPushTokenAsync({
-          projectId: "your-project-id", // Replace with real ID if using EAS
+          projectId: Constants.expoConfig?.extra?.eas?.projectId || "fad38d9d-1186-4f85-b710-c5a580465b71",
         })
       ).data;
       console.log("Expo Push Token:", token);
@@ -60,13 +61,25 @@ export async function registerForPushNotificationsAsync() {
 }
 
 export async function scheduleLocalNotification(title, body, trigger = null) {
+  // Normalize trigger for Expo Notifications SDK 56+
+  let normalizedTrigger = null;
+  if (trigger && trigger.seconds) {
+    normalizedTrigger = {
+      type: 'timeInterval',
+      seconds: trigger.seconds,
+      repeats: trigger.repeats || false,
+    };
+  } else if (trigger) {
+    normalizedTrigger = trigger;
+  }
+
   await Notifications.scheduleNotificationAsync({
     content: {
       title,
       body,
       sound: true,
     },
-    trigger, // e.g. { seconds: 120 } for 2 minutes from now, or null for immediate
+    trigger: normalizedTrigger,
   });
 }
 

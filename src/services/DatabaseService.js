@@ -1,6 +1,122 @@
 import * as SQLite from "expo-sqlite";
+import { Platform } from "react-native";
 
 let dbInstance = null;
+
+class MockDatabase {
+  async execAsync(sql) {
+    return;
+  }
+  async runAsync(sql, params) {
+    return { lastInsertRowId: 0, changes: 0 };
+  }
+  async getFirstAsync(sql, params) {
+    return null;
+  }
+  async getAllAsync(sql, params) {
+    return [];
+  }
+}
+
+function sanitizeParams(params) {
+  if (!params) return [];
+  return params.map(val => (val === undefined ? null : val));
+}
+
+async function dbRunAsync(sql, params) {
+  const sanitized = sanitizeParams(params);
+  try {
+    const db = await getDatabase();
+    return await db.runAsync(sql, sanitized);
+  } catch (error) {
+    if (error.message && (error.message.includes("NullPointerException") || error.message.includes("released") || error.message.includes("closed"))) {
+      try { if (dbInstance && dbInstance.closeAsync) await dbInstance.closeAsync(); } catch (_) {}
+      dbInstance = null;
+      const db = await getDatabase();
+      return await db.runAsync(sql, sanitized);
+    }
+    throw error;
+  }
+}
+
+async function dbGetFirstAsync(sql, params) {
+  const sanitized = sanitizeParams(params);
+  try {
+    const db = await getDatabase();
+    return await db.getFirstAsync(sql, sanitized);
+  } catch (error) {
+    if (error.message && (error.message.includes("NullPointerException") || error.message.includes("released") || error.message.includes("closed"))) {
+      try { if (dbInstance && dbInstance.closeAsync) await dbInstance.closeAsync(); } catch (_) {}
+      dbInstance = null;
+      const db = await getDatabase();
+      return await db.getFirstAsync(sql, sanitized);
+    }
+    throw error;
+  }
+}
+
+async function dbGetAllAsync(sql, params) {
+  const sanitized = sanitizeParams(params);
+  try {
+    const db = await getDatabase();
+    return await db.getAllAsync(sql, sanitized);
+  } catch (error) {
+    if (error.message && (error.message.includes("NullPointerException") || error.message.includes("released") || error.message.includes("closed"))) {
+      try { if (dbInstance && dbInstance.closeAsync) await dbInstance.closeAsync(); } catch (_) {}
+      dbInstance = null;
+      const db = await getDatabase();
+      return await db.getAllAsync(sql, sanitized);
+    }
+    throw error;
+  }
+}
+
+async function dbExecAsync(sql) {
+  try {
+    const db = await getDatabase();
+    return await db.execAsync(sql);
+  } catch (error) {
+    if (error.message && (error.message.includes("NullPointerException") || error.message.includes("released") || error.message.includes("closed"))) {
+      try { if (dbInstance && dbInstance.closeAsync) await dbInstance.closeAsync(); } catch (_) {}
+      dbInstance = null;
+      const db = await getDatabase();
+      return await db.execAsync(sql);
+    }
+    throw error;
+  }
+}
+
+
+let dbInitializing = null;
+
+/**
+ * Initializes and retrieves the local SQLite database instance.
+ */
+export async function getDatabase() {
+  if (dbInstance) return dbInstance;
+
+  // Prevent concurrent initialization race conditions
+  if (dbInitializing) return dbInitializing;
+
+  dbInitializing = (async () => {
+    try {
+      if (Platform.OS === "web") {
+        dbInstance = new MockDatabase();
+      } else {
+        dbInstance = await SQLite.openDatabaseAsync("unity_offline.db");
+      }
+      return dbInstance;
+    } catch (error) {
+      console.warn("[Database] Failed to open SQLite database, falling back to mock database:", error);
+      dbInstance = new MockDatabase();
+      return dbInstance;
+    } finally {
+      dbInitializing = null;
+    }
+  })();
+
+  return dbInitializing;
+}
 
 const POSTS_SCHEMA_COLUMNS = {
   author_email: "TEXT",
@@ -87,25 +203,15 @@ function normalizeExploreRow(row) {
   };
 }
 
-/**
- * Initializes and retrieves the local SQLite database instance.
- */
-export async function getDatabase() {
-  if (!dbInstance) {
-    dbInstance = await SQLite.openDatabaseAsync("unity_offline.db");
-  }
-  return dbInstance;
-}
+
 
 /**
  * Initializes database tables.
  */
 export async function initDatabase() {
   try {
-    const db = await getDatabase();
-
     // Create contacts table
-    await db.execAsync(`
+    await dbExecAsync(`
       CREATE TABLE IF NOT EXISTS contacts (
         id TEXT PRIMARY KEY,
         name TEXT,
@@ -122,22 +228,22 @@ export async function initDatabase() {
     `);
 
     try {
-      const contactColumns = await db.getAllAsync("PRAGMA table_info(contacts);");
+      const contactColumns = await dbGetAllAsync("PRAGMA table_info(contacts);");
       const existingContactColumns = new Set(
         contactColumns.map((column) => column.name),
       );
       if (!existingContactColumns.has("is_unity_user")) {
-        await db.runAsync(
+        await dbRunAsync(
           "ALTER TABLE contacts ADD COLUMN is_unity_user INTEGER DEFAULT 0;",
         );
       }
       if (!existingContactColumns.has("unread_count")) {
-        await db.runAsync(
+        await dbRunAsync(
           "ALTER TABLE contacts ADD COLUMN unread_count INTEGER DEFAULT 0;",
         );
       }
       if (!existingContactColumns.has("last_message_time")) {
-        await db.runAsync(
+        await dbRunAsync(
           "ALTER TABLE contacts ADD COLUMN last_message_time INTEGER DEFAULT 0;",
         );
       }
@@ -146,7 +252,7 @@ export async function initDatabase() {
     }
 
     // Create chats table (stores only text translations, not raw voice files)
-    await db.execAsync(`
+    await dbExecAsync(`
       CREATE TABLE IF NOT EXISTS chats (
         id TEXT PRIMARY KEY,
         partner_id TEXT,
@@ -160,7 +266,7 @@ export async function initDatabase() {
     `);
 
     // Create posts table for TikTok-style offline scrolling feed
-    await db.execAsync(`
+    await dbExecAsync(`
       CREATE TABLE IF NOT EXISTS posts (
         id TEXT PRIMARY KEY,
         author_name TEXT,
@@ -185,7 +291,7 @@ export async function initDatabase() {
     `);
 
     try {
-      const postColumns = await db.getAllAsync("PRAGMA table_info(posts);");
+      const postColumns = await dbGetAllAsync("PRAGMA table_info(posts);");
       const existingPostColumns = new Set(
         postColumns.map((column) => column.name),
       );
@@ -193,7 +299,7 @@ export async function initDatabase() {
         POSTS_SCHEMA_COLUMNS,
       )) {
         if (!existingPostColumns.has(columnName)) {
-          await db.runAsync(
+          await dbRunAsync(
             `ALTER TABLE posts ADD COLUMN ${columnName} ${columnType};`,
           );
         }
@@ -203,7 +309,7 @@ export async function initDatabase() {
     }
 
     // Create explore_profiles table
-    await db.execAsync(`
+    await dbExecAsync(`
       CREATE TABLE IF NOT EXISTS explore_profiles (
         id TEXT PRIMARY KEY,
         name TEXT,
@@ -215,7 +321,7 @@ export async function initDatabase() {
     `);
 
     // Create pending_posts table for offline queue
-    await db.execAsync(`
+    await dbExecAsync(`
       CREATE TABLE IF NOT EXISTS pending_posts (
         id TEXT PRIMARY KEY,
         payload TEXT,
@@ -237,8 +343,7 @@ export async function initDatabase() {
 
 export async function getContacts() {
   try {
-    const db = await getDatabase();
-    const rows = await db.getAllAsync(
+    const rows = await dbGetAllAsync(
       "SELECT * FROM contacts ORDER BY last_message_time DESC, name ASC;",
     );
     return rows.map(normalizeContactRow).filter(Boolean);
@@ -250,17 +355,17 @@ export async function getContacts() {
 
 export async function saveContacts(contactsArray) {
   try {
-    const db = await getDatabase();
     for (const contact of contactsArray) {
+      const contactId = contact.id || "";
       // Preserve existing unread_count and last_message_time if they exist in DB
-      const existing = await db.getFirstAsync("SELECT unread_count, last_message_time FROM contacts WHERE id = ?;", [contact.id]);
+      const existing = await dbGetFirstAsync("SELECT unread_count, last_message_time FROM contacts WHERE id = ?;", [contactId]);
       
-      await db.runAsync(
+      await dbRunAsync(
         `INSERT OR REPLACE INTO contacts (id, name, phone, email, flag, status, is_synced, avatar, is_unity_user, unread_count, last_message_time) 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
         [
-          contact.id,
-          contact.name,
+          contactId,
+          contact.name || "",
           contact.phone || "",
           contact.email || "",
           contact.flag || "🌍",
@@ -286,8 +391,7 @@ export async function saveContacts(contactsArray) {
  */
 export async function hasUnsyncedContacts() {
   try {
-    const db = await getDatabase();
-    const result = await db.getFirstAsync(
+    const result = await dbGetFirstAsync(
       "SELECT COUNT(*) as count FROM contacts WHERE is_synced = 0;",
     );
     return result && result.count > 0;
@@ -302,8 +406,7 @@ export async function hasUnsyncedContacts() {
  */
 export async function getUnsyncedContactsCount() {
   try {
-    const db = await getDatabase();
-    const result = await db.getFirstAsync(
+    const result = await dbGetFirstAsync(
       "SELECT COUNT(*) as count FROM contacts WHERE is_synced = 0;",
     );
     return result ? result.count : 0;
@@ -315,8 +418,7 @@ export async function getUnsyncedContactsCount() {
 
 export async function clearContactUnread(contactId) {
   try {
-    const db = await getDatabase();
-    await db.runAsync("UPDATE contacts SET unread_count = 0 WHERE id = ?;", [contactId]);
+    await dbRunAsync("UPDATE contacts SET unread_count = 0 WHERE id = ?;", [contactId]);
     return true;
   } catch (error) {
     console.error("[Database] clearContactUnread error:", error);
@@ -326,8 +428,7 @@ export async function clearContactUnread(contactId) {
 
 export async function incrementContactUnread(contactId, lastMessageTime) {
   try {
-    const db = await getDatabase();
-    await db.runAsync(
+    await dbRunAsync(
       "UPDATE contacts SET unread_count = unread_count + 1, last_message_time = ? WHERE id = ?;",
       [lastMessageTime || Date.now(), contactId]
     );
@@ -340,8 +441,7 @@ export async function incrementContactUnread(contactId, lastMessageTime) {
 
 export async function updateContactLastMessageTime(contactId, lastMessageTime) {
   try {
-    const db = await getDatabase();
-    await db.runAsync(
+    await dbRunAsync(
       "UPDATE contacts SET last_message_time = ? WHERE id = ?;",
       [lastMessageTime || Date.now(), contactId]
     );
@@ -358,8 +458,7 @@ export async function updateContactLastMessageTime(contactId, lastMessageTime) {
 
 export async function getChats(partnerId) {
   try {
-    const db = await getDatabase();
-    return await db.getAllAsync(
+    return await dbGetAllAsync(
       "SELECT * FROM chats WHERE partner_id = ? ORDER BY timestamp ASC;",
       [partnerId],
     );
@@ -371,16 +470,15 @@ export async function getChats(partnerId) {
 
 export async function saveChat(chatBubble) {
   try {
-    const db = await getDatabase();
-    await db.runAsync(
+    await dbRunAsync(
       `INSERT OR REPLACE INTO chats (id, partner_id, text, trans_text, sender, orig_lang, trans_lang, timestamp) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
       [
-        chatBubble.id,
-        chatBubble.partner_id,
-        chatBubble.text,
+        chatBubble.id || "",
+        chatBubble.partner_id || "",
+        chatBubble.text || "",
         chatBubble.trans_text || "",
-        chatBubble.sender, // 'user' or 'partner'
+        chatBubble.sender || "user",
         chatBubble.orig_lang || "",
         chatBubble.trans_lang || "",
         chatBubble.timestamp || Date.now(),
@@ -399,8 +497,7 @@ export async function saveChat(chatBubble) {
 
 export async function getPosts() {
   try {
-    const db = await getDatabase();
-    const rows = await db.getAllAsync(
+    const rows = await dbGetAllAsync(
       "SELECT * FROM posts ORDER BY timestamp DESC;",
     );
     return rows.map(normalizePostRow).filter(Boolean);
@@ -412,13 +509,12 @@ export async function getPosts() {
 
 export async function savePosts(postsArray) {
   try {
-    const db = await getDatabase();
     for (const post of postsArray) {
-      await db.runAsync(
+      await dbRunAsync(
         `INSERT OR REPLACE INTO posts (id, author_name, author_email, author_avatar, author_flag, author_native_lang, content, flag, time, image_local_path, image_url, media_type, background_key, description, avatar_local_path, likes, liked, comments, timestamp) 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
         [
-          post.id,
+          post.id || "",
           post.authorName || "",
           post.authorEmail || "",
           post.authorAvatar || "",
@@ -452,10 +548,9 @@ export async function savePosts(postsArray) {
 
 export async function savePendingPost(id, payload) {
   try {
-    const db = await getDatabase();
-    await db.runAsync(
+    await dbRunAsync(
       `INSERT OR REPLACE INTO pending_posts (id, payload, timestamp) VALUES (?, ?, ?);`,
-      [id, JSON.stringify(payload), Date.now()]
+      [id || "", JSON.stringify(payload || {}), Date.now()]
     );
     return true;
   } catch (error) {
@@ -466,8 +561,7 @@ export async function savePendingPost(id, payload) {
 
 export async function getPendingPosts() {
   try {
-    const db = await getDatabase();
-    const rows = await db.getAllAsync("SELECT * FROM pending_posts ORDER BY timestamp ASC;");
+    const rows = await dbGetAllAsync("SELECT * FROM pending_posts ORDER BY timestamp ASC;");
     return rows.map(r => ({ id: r.id, payload: JSON.parse(r.payload), timestamp: r.timestamp }));
   } catch (error) {
     console.error("[Database] getPendingPosts error:", error);
@@ -477,8 +571,7 @@ export async function getPendingPosts() {
 
 export async function deletePendingPost(id) {
   try {
-    const db = await getDatabase();
-    await db.runAsync(`DELETE FROM pending_posts WHERE id = ?;`, [id]);
+    await dbRunAsync(`DELETE FROM pending_posts WHERE id = ?;`, [id]);
     return true;
   } catch (error) {
     console.error("[Database] deletePendingPost error:", error);
@@ -492,8 +585,7 @@ export async function deletePendingPost(id) {
 
 export async function getExploreProfiles() {
   try {
-    const db = await getDatabase();
-    const rows = await db.getAllAsync(
+    const rows = await dbGetAllAsync(
       "SELECT * FROM explore_profiles ORDER BY name ASC;",
     );
     return rows.map(normalizeExploreRow).filter(Boolean);
@@ -505,14 +597,13 @@ export async function getExploreProfiles() {
 
 export async function saveExploreProfiles(profilesArray) {
   try {
-    const db = await getDatabase();
     for (const profile of profilesArray) {
-      await db.runAsync(
+      await dbRunAsync(
         `INSERT OR REPLACE INTO explore_profiles (id, name, flag, lang_name, bio, avatar_local_path) 
          VALUES (?, ?, ?, ?, ?, ?);`,
         [
-          profile.id,
-          profile.name,
+          profile.id || "",
+          profile.name || "",
           profile.flag || "🌍",
           profile.langName || "",
           profile.bio || "",
@@ -533,11 +624,10 @@ export async function saveExploreProfiles(profilesArray) {
 
 export async function clearDatabase() {
   try {
-    const db = await getDatabase();
-    await db.execAsync("DELETE FROM chats;");
-    await db.execAsync("DELETE FROM contacts;");
-    await db.execAsync("DELETE FROM posts;");
-    await db.execAsync("DELETE FROM explore_profiles;");
+    await dbExecAsync("DELETE FROM chats;");
+    await dbExecAsync("DELETE FROM contacts;");
+    await dbExecAsync("DELETE FROM posts;");
+    await dbExecAsync("DELETE FROM explore_profiles;");
     console.log("[Database] Database tables cleared.");
     return true;
   } catch (error) {

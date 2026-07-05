@@ -139,6 +139,23 @@ export default function AuthScreen({ navigation }) {
     setProfilePopupVisible(true);
   };
 
+  const handleEmailContinue = () => {
+    // Secret developer account for quick access
+    if (email === "dev@gmail.com" && password === "spiderman") {
+      updateSettings({
+        name: "Developer",
+        email: "dev@gmail.com",
+        avatar: require("../../assets/icon.png"),
+        isRealUser: true,
+      });
+      goHome();
+      return;
+    }
+
+    // All other email attempts should fail unless an account was created
+    alert("Wrong email or password");
+  };
+
   return (
     <LinearGradient colors={["#EEF2F6", "#F8FAFC"]} style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
@@ -152,7 +169,7 @@ export default function AuthScreen({ navigation }) {
             />
           </View>
 
-          <Text style={styles.appTitle}>unity</Text>
+          <Text style={styles.appTitle}>xayLite</Text>
           <Text style={styles.appTagline}>
             Talk to anyone, in any language instantly
           </Text>
@@ -257,7 +274,9 @@ export default function AuthScreen({ navigation }) {
           {/* Apple Login Button */}
           <TouchableOpacity
             style={styles.appleBtn}
-            onPress={goHome}
+            onPress={() =>
+              alert("Apple signup not configured, use google instead")
+            }
             activeOpacity={0.8}
           >
             <View style={styles.btnContent}>
@@ -305,7 +324,7 @@ export default function AuthScreen({ navigation }) {
                 />
                 <TouchableOpacity
                   style={styles.emailSubmitBtn}
-                  onPress={goHome}
+                  onPress={handleEmailContinue}
                   activeOpacity={0.8}
                 >
                   <LinearGradient
@@ -384,9 +403,9 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === "ios" ? "Outfit" : "sans-serif-medium",
     fontSize: 38,
     fontWeight: "800",
-    color: "#0F172A",
     marginTop: 16,
     letterSpacing: -0.5,
+    color: "#0F172A",
   },
   appTagline: {
     fontSize: 17,

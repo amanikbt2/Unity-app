@@ -69,6 +69,23 @@ import UserProfilePopup from "../components/UserProfilePopup";
 
 const { width, height } = Dimensions.get("window");
 
+const getAssetUri = (asset) =>
+  Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
+
+const DEFAULT_AVATARS = [
+  getAssetUri(require("../../assets/default-avatar-1.jpg")),
+  getAssetUri(require("../../assets/default-avatar-2.jpg")),
+  getAssetUri(require("../../assets/default-avatar-3.jpg")),
+];
+
+const getDefaultAvatar = (seed) => {
+  const idx =
+    typeof seed === "string"
+      ? seed.length % DEFAULT_AVATARS.length
+      : Math.floor(Math.random() * DEFAULT_AVATARS.length);
+  return DEFAULT_AVATARS[idx];
+};
+
 // Helper to convert flag emoji to lowercase 2-letter country code
 function getCountryCodeFromFlag(flagEmoji) {
   if (!flagEmoji || typeof flagEmoji !== "string") return null;
@@ -812,7 +829,7 @@ export default function HomeScreen({ navigation }) {
         profile.avatar_local_path ||
         profile.avatar ||
         profile.authorAvatar ||
-        "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80",
+        getDefaultAvatar(profile.name || profile.authorName || "user"),
       flag,
       langName:
         profile.langName ||
@@ -981,7 +998,7 @@ export default function HomeScreen({ navigation }) {
             if (item.image && item.image.uri) {
               localAvatar = await cacheRemoteImage(item.image.uri, "avatar");
             } else {
-              localAvatar = `https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80`;
+              localAvatar = getDefaultAvatar(item.name || `user_${idx}`);
             }
 
             return {
@@ -1205,7 +1222,7 @@ export default function HomeScreen({ navigation }) {
     if (contactWithAuthor) return contactWithAuthor.avatar;
 
     // Fallback
-    return "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&h=100&q=80";
+    return getDefaultAvatar(authorName || "user");
   };
 
   const handlePostChat = (post) => {
@@ -2133,7 +2150,7 @@ export default function HomeScreen({ navigation }) {
                         onPress={() => {
                           if (contact.isUnityUser === false) {
                             const message =
-                              "Hey! I'm using Unity to translate my chats in real-time. Download it here: https://unity.app";
+                              "🤯 I'm talking to people in different languages with XayLite, even animals. You should try it too! Download: https://keysire.com";
                             const phone = (contact.phone || "").replace(
                               /\D/g,
                               "",
@@ -4206,6 +4223,13 @@ export default function HomeScreen({ navigation }) {
                       .includes(startConvSearch.toLowerCase()),
                 );
 
+                // Unity AI always first
+                filtered.sort((a, b) => {
+                  if (a.id === "unity_ai") return -1;
+                  if (b.id === "unity_ai") return 1;
+                  return 0;
+                });
+
                 if (filtered.length === 0) {
                   return (
                     <View style={styles.modalEmptyState}>
@@ -5131,10 +5155,10 @@ const styles = StyleSheet.create({
   fab: {
     position: "absolute",
     right: 24,
-    bottom: 96,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    bottom: 70,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     ...Platform.select({
       web: {
         boxShadow: "0px 4px 6px rgba(79,70,229,0.3)",

@@ -14,9 +14,11 @@ import {
   Alert,
   Linking,
   Animated,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
+import Constants from "expo-constants";
 import Svg, {
   Path,
   Line,
@@ -216,6 +218,12 @@ export default function ProfileScreen({ route, navigation }) {
     videosSize: "0.00",
     totalSize: "0.00",
   });
+  const [communityStats, setCommunityStats] = useState({
+    totalOnline: 0,
+    totalRegistered: 0,
+  });
+  const [communityStatsLoading, setCommunityStatsLoading] = useState(true);
+  const [communityStatsError, setCommunityStatsError] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
@@ -236,7 +244,8 @@ export default function ProfileScreen({ route, navigation }) {
 
   useEffect(() => {
     let active = true;
-    const fetchStats = async () => {
+
+    const fetchStorageStats = async () => {
       try {
         const stats = await getStorageStats();
         if (active) {
@@ -246,7 +255,50 @@ export default function ProfileScreen({ route, navigation }) {
         console.error(e);
       }
     };
-    fetchStats();
+
+    const fetchCommunityStats = async () => {
+      try {
+        setCommunityStatsLoading(true);
+        setCommunityStatsError(false);
+
+        let BASE_URL =
+          process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+        if (
+          Platform.OS !== "web" &&
+          BASE_URL.includes("localhost") &&
+          Constants.expoConfig?.hostUri
+        ) {
+          const hostIp = Constants.expoConfig.hostUri.split(":")[0];
+          BASE_URL = `http://${hostIp}:3000`;
+        }
+
+        const response = await fetch(`${BASE_URL}/api/admin/stats`);
+        if (!response.ok) {
+          throw new Error(`Stats request failed with ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (active) {
+          setCommunityStats({
+            totalOnline: Number(data?.totalOnline ?? 0),
+            totalRegistered: Number(data?.totalRegistered ?? 0),
+          });
+        }
+      } catch (e) {
+        console.error("Failed to load community stats", e);
+        if (active) {
+          setCommunityStatsError(true);
+        }
+      } finally {
+        if (active) {
+          setCommunityStatsLoading(false);
+        }
+      }
+    };
+
+    fetchStorageStats();
+    fetchCommunityStats();
+
     return () => {
       active = false;
     };
@@ -1214,6 +1266,8 @@ export default function ProfileScreen({ route, navigation }) {
           </View>
         </View>
 
+        {/* Admin / community stats removed per user request */}
+
         {/* Language & AI Section */}
         <View style={styles.formGroup}>
           <Text style={[styles.label, { color: colors.textMuted }]}>
@@ -1496,7 +1550,7 @@ export default function ProfileScreen({ route, navigation }) {
                     >
                       <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                       <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                      <line x1="12" x2="12" y1="19" y2="22" />
+                      <Line x1="12" x2="12" y1="19" y2="22" />
                     </Svg>
                     <Text
                       style={{
@@ -1563,7 +1617,7 @@ export default function ProfileScreen({ route, navigation }) {
                 >
                   <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                   <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                  <line x1="12" x2="12" y1="19" y2="22" />
+                  <Line x1="12" x2="12" y1="19" y2="22" />
                 </Svg>
                 <Text
                   style={{
@@ -2295,7 +2349,17 @@ export default function ProfileScreen({ route, navigation }) {
         <Text style={[styles.footerText, { color: colors.success }]}>
           All changes are saved automatically
         </Text>
-        <Text style={[styles.footerText, { color: colors.textDimmed, fontSize: 10, marginTop: 4, fontWeight: '400' }]}>
+        <Text
+          style={[
+            styles.footerText,
+            {
+              color: colors.textDimmed,
+              fontSize: 10,
+              marginTop: 4,
+              fontWeight: "400",
+            },
+          ]}
+        >
           xayLite v {customJson.version}
         </Text>
       </ScrollView>
@@ -3180,6 +3244,27 @@ const styles = StyleSheet.create({
   formGroup: {
     marginBottom: 24,
     gap: 8,
+  },
+  statsGrid: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    minHeight: 92,
+    justifyContent: "center",
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: "700",
+  },
+  statLabel: {
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: "500",
   },
   label: {
     fontSize: 12,
