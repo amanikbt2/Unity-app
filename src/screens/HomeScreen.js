@@ -243,7 +243,7 @@ const normalizePost = (post) => {
   const authorName = post?.authorName || "user";
   const avatar =
     post?.avatar_local_path ||
-    (post?.avatar && !post.avatar.includes("unsplash.com")
+    (post?.avatar && typeof post.avatar === "string" && !post.avatar.includes("unsplash.com")
       ? post.avatar
       : getDefaultAvatar(authorName));
   return {
@@ -650,12 +650,16 @@ export default function HomeScreen({ navigation }) {
       isCompleted:
         currentUser.avatarSlots &&
         ((currentUser.avatarSlots[0] &&
+          typeof currentUser.avatarSlots[0] === "string" &&
           !currentUser.avatarSlots[0].includes("avatar_1.jpg")) ||
           (currentUser.avatarSlots[1] &&
+            typeof currentUser.avatarSlots[1] === "string" &&
             !currentUser.avatarSlots[1].includes("avatar_2.jpg")) ||
           (currentUser.avatarSlots[2] &&
+            typeof currentUser.avatarSlots[2] === "string" &&
             !currentUser.avatarSlots[2].includes("avatar_3.jpg")) ||
           (currentUser.avatarSlots[3] &&
+            typeof currentUser.avatarSlots[3] === "string" &&
             !currentUser.avatarSlots[3].includes("avatar_4.jpg"))),
       uncompletedLabel: "Add profile picture",
       completedLabel: "✓ Profile picture added",
