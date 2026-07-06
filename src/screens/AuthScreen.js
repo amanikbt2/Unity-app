@@ -22,6 +22,11 @@ import {
 import { AppContext } from "../context/AppContext";
 import UserProfilePopup from "../components/UserProfilePopup";
 
+const getAssetUri = (asset) =>
+  Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
+
+const DEFAULT_AVATAR = getAssetUri(require("../../assets/default-avatar-2.jpg"));
+
 // Enable layout animation on Android
 if (
   Platform.OS === "android" &&
@@ -72,7 +77,7 @@ export default function AuthScreen({ navigation }) {
           name: "Real User",
           email: "realuser@example.com",
           avatar:
-            "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80",
+            DEFAULT_AVATAR,
           isRealUser: true,
         });
         setGoogleLoading(false);
@@ -103,7 +108,7 @@ export default function AuthScreen({ navigation }) {
         email: user.email,
         avatar:
           user.photo ||
-          "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80",
+          DEFAULT_AVATAR,
         isRealUser: true,
       });
       goHome();

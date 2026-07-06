@@ -61,6 +61,11 @@ import { messageQueue } from "../services/MessageQueue";
 
 const { width } = Dimensions.get("window");
 
+const getAssetUri = (asset) =>
+  Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
+
+const DEFAULT_AVATAR = getAssetUri(require("../../assets/default-avatar-2.jpg"));
+
 // Helper to convert flag emoji to lowercase 2-letter country code
 function getCountryCodeFromFlag(flagEmoji) {
   if (!flagEmoji || typeof flagEmoji !== "string") return null;
@@ -192,7 +197,7 @@ export default function ConversationScreen({ route, navigation }) {
     route.params || {
       partnerName: "unity Translation AI",
       partnerAvatar:
-        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+        DEFAULT_AVATAR,
       partnerFlag: "🌍",
       partnerId: "unity Translation AI",
     };
