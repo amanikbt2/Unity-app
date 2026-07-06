@@ -145,7 +145,7 @@ const INITIAL_CONTACTS = [
     id: "c1",
     name: "Marcus Sterling",
     avatar:
-      "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&h=150&q=80",
+      getAssetUri(require("../../assets/default-avatar-1.jpg")),
     flag: "🇺🇸",
     langName: "English (US)",
     status: "Busy",
@@ -155,7 +155,7 @@ const INITIAL_CONTACTS = [
     id: "c2",
     name: "Yuki Tanaka",
     avatar:
-      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+      getAssetUri(require("../../assets/default-avatar-2.jpg")),
     flag: "🇯🇵",
     langName: "Japanese",
     status: "Available",
@@ -168,7 +168,7 @@ const EXPLORE_PEOPLE = [
     id: "e1",
     name: "Amélie Dubois",
     avatar:
-      "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=300&h=300&q=80",
+      getAssetUri(require("../../assets/default-avatar-3.jpg")),
     flag: "🇫🇷",
     langName: "French (France)",
     bio: "Hi! I am a culinary chef in Paris. Let's exchange recipes!",
@@ -177,7 +177,7 @@ const EXPLORE_PEOPLE = [
     id: "e2",
     name: "Hiroshi Sato",
     avatar:
-      "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=300&h=300&q=80",
+      getAssetUri(require("../../assets/default-avatar-1.jpg")),
     flag: "🇯🇵",
     langName: "Japanese (Japan)",
     bio: "Tech enthusiast and history buff. Happy to translate and chat!",
@@ -189,7 +189,7 @@ const INITIAL_POSTS = [
     id: "p1",
     authorName: "Sarah Jenkins",
     avatar:
-      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&h=150&q=80",
+      getAssetUri(require("../../assets/default-avatar-1.jpg")),
     flag: "🇺🇸",
     time: "2 hours ago",
     content:
@@ -218,7 +218,7 @@ const INITIAL_POSTS = [
     id: "p2",
     authorName: "Carlos Gomez",
     avatar:
-      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80",
+      getAssetUri(require("../../assets/default-avatar-2.jpg")),
     flag: "🇪🇸",
     time: "4 hours ago",
     content:
@@ -239,22 +239,31 @@ const INITIAL_POSTS = [
 const SERVER_URL =
   process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
 
-const normalizePost = (post) => ({
-  ...post,
-  likes: typeof post?.likes === "number" ? post.likes : 0,
-  liked: Boolean(post?.liked),
-  comments: Array.isArray(post?.comments) ? post.comments : [],
-  images: Array.isArray(post?.images)
-    ? post.images
-    : Array.isArray(post?.imageUrls)
-      ? post.imageUrls
-      : post?.image
-        ? [post.image]
-        : [],
-  images_local_paths: Array.isArray(post?.images_local_paths)
-    ? post.images_local_paths
-    : [],
-});
+const normalizePost = (post) => {
+  const authorName = post?.authorName || "user";
+  const avatar =
+    post?.avatar_local_path ||
+    (post?.avatar && !post.avatar.includes("unsplash.com")
+      ? post.avatar
+      : getDefaultAvatar(authorName));
+  return {
+    ...post,
+    avatar,
+    likes: typeof post?.likes === "number" ? post.likes : 0,
+    liked: Boolean(post?.liked),
+    comments: Array.isArray(post?.comments) ? post.comments : [],
+    images: Array.isArray(post?.images)
+      ? post.images
+      : Array.isArray(post?.imageUrls)
+        ? post.imageUrls
+        : post?.image
+          ? [post.image]
+          : [],
+    images_local_paths: Array.isArray(post?.images_local_paths)
+      ? post.images_local_paths
+      : [],
+  };
+};
 
 const normalizePosts = (posts) =>
   Array.isArray(posts) ? posts.map(normalizePost) : [];
