@@ -104,13 +104,13 @@ const WebPromoModal = () => {
     >
       <View style={webModalStyles.overlay}>
         <View style={webModalStyles.container}>
-          <Text style={webModalStyles.title}>✨ Better Experience on Mobile</Text>
+          <Text style={webModalStyles.title}>⚠️ You're Using a Demo</Text>
           <Text style={webModalStyles.message}>
-            Please install the Android app for a faster, native, and smoother translation experience!
+            You're currently using example images and a virtual account. Install the app for a real account and full functionality!
           </Text>
           
           <TouchableOpacity style={webModalStyles.button} onPress={handleDownload} activeOpacity={0.8}>
-            <Text style={webModalStyles.buttonText}>Download Android App</Text>
+            <Text style={webModalStyles.buttonText}>Install the App</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={webModalStyles.closeButton} onPress={() => setVisible(false)} activeOpacity={0.7}>
