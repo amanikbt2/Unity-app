@@ -21,6 +21,12 @@ import {
 } from "@react-native-google-signin/google-signin";
 import { AppContext } from "../context/AppContext";
 import UserProfilePopup from "../components/UserProfilePopup";
+import {
+  logAppOpen,
+  logLoginClick,
+  logLoginSuccess,
+  logLoginFail,
+} from "../services/LogService";
 
 const getAssetUri = (asset) =>
   Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
@@ -63,10 +69,18 @@ export default function AuthScreen({ navigation }) {
         process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "YOUR_WEB_CLIENT_ID",
       offlineAccess: true,
     });
+
+    // Log app open — include name if a saved account exists
+    const knownName =
+      savedAccounts && savedAccounts.length > 0
+        ? savedAccounts[0].name
+        : null;
+    logAppOpen(knownName);
   }, []);
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
+    logLoginClick('google');
     if (
       !process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID &&
       !process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID
@@ -80,6 +94,7 @@ export default function AuthScreen({ navigation }) {
             DEFAULT_AVATAR,
           isRealUser: true,
         });
+        logLoginSuccess('google_mock', 'Real User', 'realuser@example.com');
         setGoogleLoading(false);
         goHome();
       }, 900);
@@ -111,23 +126,28 @@ export default function AuthScreen({ navigation }) {
           DEFAULT_AVATAR,
         isRealUser: true,
       });
+      logLoginSuccess('google', user.name || 'Google User', user.email);
       goHome();
     } catch (error) {
       if (error.code === statusCodes.SIGN_IN_CANCELLED) {
         console.log("User cancelled the login flow");
+        logLoginFail('google', 'cancelled');
       } else if (error.code === statusCodes.IN_PROGRESS) {
         console.log("Signing in");
       } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
         console.log("Play services not available or outdated");
         alert("Play services not available on this device.");
+        logLoginFail('google', 'play_services_unavailable');
       } else if (error.code === "10" || error.code === "DEVELOPER_ERROR") {
         console.error("Google Auth configuration error: ", error);
         alert(
-          "Google Sign-In is not configured for this APK. Check that the Android OAuth client uses package com.amanikbt1.unityapp and this build's SHA-1 signing certificate.",
+          "Google Sign-In is not configured for this APK. Check that the Android OAuth client uses package com.amanikbt1.xaylite and this build's SHA-1 signing certificate.",
         );
+        logLoginFail('google', `DEVELOPER_ERROR: ${error.message}`);
       } else {
         console.error("Google Auth Error: ", error);
         alert("Sign in failed: " + (error?.message || String(error)));
+        logLoginFail('google', error?.message || String(error));
       }
     } finally {
       setGoogleLoading(false);
@@ -145,6 +165,7 @@ export default function AuthScreen({ navigation }) {
   };
 
   const handleEmailContinue = () => {
+    logLoginClick('email');
     // Secret developer account for quick access
     if (email === "dev@gmail.com" && password === "spiderman") {
       updateSettings({
@@ -153,11 +174,13 @@ export default function AuthScreen({ navigation }) {
         avatar: require("../../assets/icon.png"),
         isRealUser: true,
       });
+      logLoginSuccess('email', 'Developer', 'dev@gmail.com');
       goHome();
       return;
     }
 
     // All other email attempts should fail unless an account was created
+    logLoginFail('email', 'wrong_credentials');
     alert("Wrong email or password");
   };
 
@@ -194,8 +217,10 @@ export default function AuthScreen({ navigation }) {
                     key={account.email || index.toString()}
                     style={styles.savedAccountItem}
                     onPress={async () => {
+                      logLoginClick('saved_profile');
                       setGoogleLoading(true);
                       await loginAsSavedProfile(account);
+                      logLoginSuccess('saved_profile', account.name, account.email);
                       setGoogleLoading(false);
                       goHome();
                     }}
