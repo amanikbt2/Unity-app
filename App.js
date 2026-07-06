@@ -21,7 +21,7 @@ import HomeScreen from "./src/screens/HomeScreen";
 import ConversationScreen from "./src/screens/ConversationScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import AppAnnouncerModal from "./src/components/AppAnnouncerModal";
-import { initGlobalErrorHandler } from "./src/services/LogService";
+import { initGlobalErrorHandler, trackEvent } from "./src/services/LogService";
 
 // Start catching uncaught app errors as early as possible
 initGlobalErrorHandler();
@@ -39,7 +39,8 @@ const AppContent = () => {
     );
   }
 
-  const initialRoute = currentUser?.isRealUser ? "Home" : "Auth";
+  const initialRoute =
+    Platform.OS === "web" || currentUser?.isRealUser ? "Home" : "Auth";
 
   return (
     <SafeAreaProvider>
@@ -71,27 +72,36 @@ const AppContent = () => {
 const WebPromoModal = () => {
   if (Platform.OS !== "web") return null;
 
+  const { currentUser } = useContext(AppContext);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     // Show first time after 30 seconds
     const initialTimer = setTimeout(() => {
       setVisible(true);
+      trackEvent("(web) promo_popup_shown", currentUser);
     }, 30000);
 
     // Show every 2 minutes (120,000ms)
     const intervalTimer = setInterval(() => {
       setVisible(true);
+      trackEvent("(web) promo_popup_shown", currentUser);
     }, 120000);
 
     return () => {
       clearTimeout(initialTimer);
       clearInterval(intervalTimer);
     };
-  }, []);
+  }, [currentUser]);
 
   const handleDownload = () => {
+    trackEvent("(web) promo_download_click", currentUser);
     Linking.openURL("https://keysire.com/download-app");
+    setVisible(false);
+  };
+
+  const handleClose = () => {
+    trackEvent("(web) promo_close_click", currentUser);
     setVisible(false);
   };
 
@@ -100,7 +110,7 @@ const WebPromoModal = () => {
       transparent
       visible={visible}
       animationType="fade"
-      onRequestClose={() => setVisible(false)}
+      onRequestClose={handleClose}
     >
       <View style={webModalStyles.overlay}>
         <View style={webModalStyles.container}>
@@ -113,7 +123,7 @@ const WebPromoModal = () => {
             <Text style={webModalStyles.buttonText}>Install the App</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={webModalStyles.closeButton} onPress={() => setVisible(false)} activeOpacity={0.7}>
+          <TouchableOpacity style={webModalStyles.closeButton} onPress={handleClose} activeOpacity={0.7}>
             <Text style={webModalStyles.closeButtonText}>Later</Text>
           </TouchableOpacity>
         </View>
