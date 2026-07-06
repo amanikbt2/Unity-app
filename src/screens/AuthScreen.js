@@ -81,10 +81,15 @@ export default function AuthScreen({ navigation }) {
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     logLoginClick('google');
+    console.log("[Google Signin] Initiating Google login flow...");
+    console.log("[Google Signin] EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID:", process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID);
+    console.log("[Google Signin] EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID:", process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID);
+
     if (
       !process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID &&
       !process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID
     ) {
+      console.warn("[Google Signin] Bypassing Google login: Client IDs are missing/undefined. Falling back to mock mode.");
       // Mock mode fallback for testing immediately
       setTimeout(() => {
         updateSettings({

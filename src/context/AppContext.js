@@ -10,21 +10,21 @@ const DEFAULT_USER = {
   name: "Amani User",
   avatar:
     (Image.resolveAssetSource &&
-      Image.resolveAssetSource(require("../../assets/slot1.jpg"))?.uri) ||
-    "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+      Image.resolveAssetSource(require("../../assets/avatars/avatar_1.jpg"))?.uri) ||
+    "",
   avatarSlots: [
     (Image.resolveAssetSource &&
-      Image.resolveAssetSource(require("../../assets/slot1.jpg"))?.uri) ||
-      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
+      Image.resolveAssetSource(require("../../assets/avatars/avatar_1.jpg"))?.uri) ||
+      "",
     (Image.resolveAssetSource &&
-      Image.resolveAssetSource(require("../../assets/slot2.jpg"))?.uri) ||
-      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80",
+      Image.resolveAssetSource(require("../../assets/avatars/avatar_2.jpg"))?.uri) ||
+      "",
     (Image.resolveAssetSource &&
-      Image.resolveAssetSource(require("../../assets/slot3.jpg"))?.uri) ||
-      "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=150&h=150&q=80",
+      Image.resolveAssetSource(require("../../assets/avatars/avatar_3.jpg"))?.uri) ||
+      "",
     (Image.resolveAssetSource &&
-      Image.resolveAssetSource(require("../../assets/slot4.jpg"))?.uri) ||
-      "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=150&h=150&q=80",
+      Image.resolveAssetSource(require("../../assets/avatars/avatar_4.jpg"))?.uri) ||
+      "",
   ],
   activeAvatarSlot: 0,
   nativeLang: "en",
@@ -149,39 +149,6 @@ export const AppProvider = ({ children }) => {
 
     return () => clearTimeout(timer);
   }, []);
-
-  const updateSettings = async (newSettings) => {
-    try {
-      const updated = {
-        ...DEFAULT_USER,
-        ...currentUser,
-        ...newSettings,
-        uid: currentUser.uid || DEFAULT_USER.uid || generateUid(),
-      };
-      setCurrentUser(updated);
-      await AsyncStorage.setItem(
-        "amani_profile_settings",
-        JSON.stringify(updated),
-      );
-
-      // If it's a real user, ensure they are in the saved accounts list
-      if (updated.isRealUser && updated.email) {
-        setSavedAccounts((prevAccounts) => {
-          const filtered = prevAccounts.filter(
-            (acc) => acc.email !== updated.email,
-          );
-          const newAccounts = [updated, ...filtered];
-          AsyncStorage.setItem(
-            "amani_saved_accounts",
-            JSON.stringify(newAccounts),
-          ).catch(console.error);
-          return newAccounts;
-        });
-      }
-    } catch (e) {
-      console.error("Error saving config", e);
-    }
-  };
 
   const updateSettings = async (newSettings) => {
     try {

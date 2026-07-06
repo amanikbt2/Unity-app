@@ -64,6 +64,8 @@ import {
   getLastImportCheckTime,
   saveFirstTimeImportStatus,
   isFirstTimeImport,
+  saveLastAutoSyncDate,
+  getLastAutoSyncDate,
 } from "../services/SecureStorage";
 import UserProfilePopup from "../components/UserProfilePopup";
 
@@ -324,7 +326,7 @@ export default function HomeScreen({ navigation }) {
   const [syncedCount, setSyncedCount] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
   const [imported, setImported] = useState(false);
-  const [showImportSuccess, setShowImportSuccess] = useState(true);
+  const [showImportSuccess, setShowImportSuccess] = useState(false);
   const [contactSearchText, setContactSearchText] = useState("");
   const [exploreSearchText, setExploreSearchText] = useState("");
   const [postSearchText, setPostSearchText] = useState("");
@@ -421,77 +423,35 @@ export default function HomeScreen({ navigation }) {
   }, [gradientAnim, pulseAnim1, pulseAnim2, pulseAnim3]);
 
   /**
-   * Smart Import Check:
-   * - Shows import on first access
-   * - After 7 days, silently checks for unsynced contacts and shows if found
+   * Auto-sync contacts on app open (once per day).
+   * Runs silently in the background. Shows inline success/fail.
    */
   useEffect(() => {
     let isActive = true;
-    let checkInterval;
 
-    const checkAndShowImportPrompt = async () => {
+    const autoSync = async () => {
       try {
-        // Check if this is first time
-        const firstTime = await isFirstTimeImport();
-
-        if (firstTime) {
-          // First time: show import immediately
-          console.log(
-            "[HomeScreen] First time import detected, showing import UI",
-          );
-          if (isActive) {
-            setImported(false);
-            await saveFirstTimeImportStatus(false);
-            await saveLastImportCheckTime(Date.now());
-          }
+        const todayStr = new Date().toISOString().split("T")[0];
+        const lastSyncDate = await getLastAutoSyncDate();
+        if (lastSyncDate === todayStr) {
+          console.log("[Contacts] Already auto-synced today:", todayStr);
+          // Still load existing contacts from DB
+          const existing = await getDbContacts();
+          if (existing && existing.length > 0) setContacts(existing);
           return;
         }
 
-        // Not first time: check if 7 days have passed
-        const lastCheckTime = await getLastImportCheckTime();
-        const now = Date.now();
-        const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
-
-        if (lastCheckTime && now - lastCheckTime < SEVEN_DAYS_MS) {
-          // Less than 7 days have passed, don't show
-          console.log("[HomeScreen] Less than 7 days since last import check");
-          return;
-        }
-
-        // 7 days have passed or this is the first check since first import
-        // Silently check for unsynced contacts
-        console.log("[HomeScreen] Checking for unsynced contacts...");
-        const hasUnsynced = await hasUnsyncedContacts();
-
-        if (hasUnsynced) {
-          const count = await getUnsyncedContactsCount();
-          console.log(
-            `[HomeScreen] Found ${count} unsynced contacts, showing import UI`,
-          );
-          if (isActive) {
-            setImported(false);
-            await saveLastImportCheckTime(Date.now());
-          }
-        } else {
-          console.log("[HomeScreen] No unsynced contacts found");
-          if (isActive) {
-            await saveLastImportCheckTime(Date.now());
-          }
-        }
-      } catch (error) {
-        console.error("[HomeScreen] Error in checkAndShowImportPrompt:", error);
+        console.log("[Contacts] Starting automatic daily contact sync...");
+        await handleImportContacts(true);
+      } catch (err) {
+        console.error("[Contacts] Auto-sync trigger error:", err);
       }
     };
 
-    // Initial check on mount
-    checkAndShowImportPrompt();
-
-    // Set up periodic check every minute
-    checkInterval = setInterval(checkAndShowImportPrompt, 60000);
+    if (isActive) autoSync();
 
     return () => {
       isActive = false;
-      if (checkInterval) clearInterval(checkInterval);
     };
   }, []);
 
@@ -681,13 +641,13 @@ export default function HomeScreen({ navigation }) {
       isCompleted:
         currentUser.avatarSlots &&
         ((currentUser.avatarSlots[0] &&
-          !currentUser.avatarSlots[0].includes("photo-1534528741775")) ||
+          !currentUser.avatarSlots[0].includes("avatar_1.jpg")) ||
           (currentUser.avatarSlots[1] &&
-            !currentUser.avatarSlots[1].includes("photo-1507003211169")) ||
+            !currentUser.avatarSlots[1].includes("avatar_2.jpg")) ||
           (currentUser.avatarSlots[2] &&
-            !currentUser.avatarSlots[2].includes("photo-1517841905240")) ||
+            !currentUser.avatarSlots[2].includes("avatar_3.jpg")) ||
           (currentUser.avatarSlots[3] &&
-            !currentUser.avatarSlots[3].includes("photo-1488426862026"))),
+            !currentUser.avatarSlots[3].includes("avatar_4.jpg"))),
       uncompletedLabel: "Add profile picture",
       completedLabel: "✓ Profile picture added",
     },
@@ -874,17 +834,30 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
-  const handleImportContacts = async () => {
+  const handleImportContacts = async (isAuto = false) => {
     if (isImporting) return;
     setIsImporting(true);
-    trackEvent("started_contact_import", currentUser, {});
+    trackEvent("started_contact_import", currentUser, { auto: isAuto });
     try {
+      // Daily check: skip if already synced today (only for auto mode)
+      if (isAuto) {
+        const todayStr = new Date().toISOString().split("T")[0];
+        const lastSyncDate = await getLastAutoSyncDate();
+        if (lastSyncDate === todayStr) {
+          console.log("[Contacts] Already auto-synced today, skipping.");
+          setIsImporting(false);
+          return;
+        }
+      }
+
       const { status } = await Contacts.requestPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert(
-          "Permission Denied",
-          "Permission to access contacts was denied. Please enable it in settings.",
-        );
+        if (!isAuto) {
+          Alert.alert(
+            "Permission Denied",
+            "Permission to access contacts was denied. Please enable it in settings.",
+          );
+        }
         setIsImporting(false);
         return;
       }
@@ -921,10 +894,8 @@ export default function HomeScreen({ navigation }) {
           `[Contacts] Found ${data.length} device contacts. Syncing...`,
         );
 
-        // Format and map device contacts (taking top 50 for smart fast syncing)
         const deviceContacts = data.slice(0, 50);
 
-        // Extract phone numbers
         const phoneNumbers = deviceContacts
           .map((item) =>
             item.phoneNumbers && item.phoneNumbers.length > 0
@@ -933,7 +904,6 @@ export default function HomeScreen({ navigation }) {
           )
           .filter((num) => num !== "");
 
-        // Call backend to check which users exist
         let unityUserMap = {};
         try {
           console.log("[Contacts] Checking backend for Unity accounts...");
@@ -966,34 +936,32 @@ export default function HomeScreen({ navigation }) {
 
             const isUnityUser = unityUserMap[phone] || false;
 
-            // Smart flag assignment based on phone number country prefix
-            let flag = "🇺🇸"; // Default
+            let flag = "\u{1F1FA}\u{1F1F8}";
             let lang = "English";
             if (phone.includes("+33")) {
-              flag = "🇫🇷";
+              flag = "\u{1F1EB}\u{1F1F7}";
               lang = "French";
             } else if (phone.includes("+81")) {
-              flag = "🇯🇵";
+              flag = "\u{1F1EF}\u{1F1F5}";
               lang = "Japanese";
             } else if (phone.includes("+34")) {
-              flag = "🇪🇸";
+              flag = "\u{1F1EA}\u{1F1F8}";
               lang = "Spanish";
             } else if (phone.includes("+254")) {
-              flag = "🇰🇪";
+              flag = "\u{1F1F0}\u{1F1EA}";
               lang = "Swahili";
             } else {
               const simulatedLangs = [
-                { flag: "🇺🇸", lang: "English" },
-                { flag: "🇪🇸", lang: "Spanish" },
-                { flag: "🇫🇷", lang: "French" },
-                { flag: "🇯🇵", lang: "Japanese" },
+                { flag: "\u{1F1FA}\u{1F1F8}", lang: "English" },
+                { flag: "\u{1F1EA}\u{1F1F8}", lang: "Spanish" },
+                { flag: "\u{1F1EB}\u{1F1F7}", lang: "French" },
+                { flag: "\u{1F1EF}\u{1F1F5}", lang: "Japanese" },
               ];
               const choice = simulatedLangs[idx % simulatedLangs.length];
               flag = choice.flag;
               lang = choice.lang;
             }
 
-            // Cache contact image locally if available
             let localAvatar = "";
             if (item.image && item.image.uri) {
               localAvatar = await cacheRemoteImage(item.image.uri, "avatar");
@@ -1016,10 +984,8 @@ export default function HomeScreen({ navigation }) {
           }),
         );
 
-        // Save contacts to SQLite database
         await saveDbContacts(formattedContacts);
 
-        // Refresh local contacts list
         const updatedContacts = await getDbContacts();
         setContacts(updatedContacts);
         setSyncedCount(formattedContacts.length);
@@ -1027,28 +993,26 @@ export default function HomeScreen({ navigation }) {
 
         if (formattedContacts.length > 0) {
           setShowImportSuccess(true);
-          setTimeout(() => setShowImportSuccess(false), 30000);
-          Alert.alert(
-            "Sync Complete",
-            `Successfully synced ${formattedContacts.length} contacts from your phone!`,
-          );
-        } else {
-          Alert.alert("Sync Complete", "No new contacts were found to sync.");
+          setTimeout(() => setShowImportSuccess(false), 15000);
         }
 
-        // Save the import check timestamp for next 7-day cycle
+        // Mark today as synced
+        const todayStr = new Date().toISOString().split("T")[0];
+        await saveLastAutoSyncDate(todayStr);
         await saveLastImportCheckTime(Date.now());
+        console.log(`[Contacts] Sync complete: ${formattedContacts.length} contacts`);
       } else {
-        Alert.alert(
-          "No Contacts Found",
-          "No contacts were found on this device.",
-        );
+        console.log("[Contacts] No contacts found on device.");
       }
     } catch (e) {
       console.error("[Contacts] Sync error:", e);
       Alert.alert(
-        "Sync Failed",
-        `An error occurred while importing contacts: ${e.message || String(e)}`,
+        "Contact Sync Failed",
+        "An error occurred while syncing your contacts.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Retry", onPress: () => handleImportContacts(false) },
+        ],
       );
     } finally {
       setIsImporting(false);
@@ -2020,73 +1984,33 @@ export default function HomeScreen({ navigation }) {
                   />
                 </View>
 
-                {true ? (
-                  <TouchableOpacity
+                {/* Subtle syncing indicator (no manual button) */}
+                {isImporting ? (
+                  <View
                     style={[
-                      styles.importCard,
+                      styles.importSuccessCard,
                       {
                         backgroundColor: colors.cardBg,
                         borderColor: colors.border,
+                        flexDirection: "row",
+                        alignItems: "center",
                       },
                     ]}
-                    onPress={handleImportContacts}
-                    activeOpacity={0.8}
-                    disabled={isImporting}
                   >
-                    <LinearGradient
-                      colors={[
-                        "rgba(79, 70, 229, 0.08)",
-                        "rgba(6, 182, 212, 0.08)",
+                    <ActivityIndicator
+                      size="small"
+                      color={colors.primary}
+                      style={{ marginRight: 10 }}
+                    />
+                    <Text
+                      style={[
+                        styles.importSuccessText,
+                        { color: colors.textMuted },
                       ]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.importCardGradient}
                     >
-                      <View
-                        style={[
-                          styles.importIconContainer,
-                          { backgroundColor: colors.primaryGlow },
-                        ]}
-                      >
-                        {isImporting ? (
-                          <ActivityIndicator
-                            size="small"
-                            color={colors.primary}
-                          />
-                        ) : (
-                          <Svg
-                            width="22"
-                            height="22"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke={colors.primary}
-                            strokeWidth="2.5"
-                          >
-                            <Path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                            <Polyline points="7 10 12 15 17 10" />
-                            <Line x1="12" y1="15" x2="12" y2="3" />
-                          </Svg>
-                        )}
-                      </View>
-                      <View style={styles.importInfo}>
-                        <Text
-                          style={[styles.importTitle, { color: colors.text }]}
-                        >
-                          {isImporting ? "Syncing..." : "Sync Phone Contacts"}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.importDesc,
-                            { color: colors.textMuted },
-                          ]}
-                        >
-                          {isImporting
-                            ? "Reading address book..."
-                            : "Quickly sync your local phone contacts"}
-                        </Text>
-                      </View>
-                    </LinearGradient>
-                  </TouchableOpacity>
+                      Syncing contacts...
+                    </Text>
+                  </View>
                 ) : null}
 
                 {showImportSuccess && syncedCount > 0 ? (

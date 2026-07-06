@@ -89,3 +89,18 @@ export async function isFirstTimeImport() {
   const value = await getSecureValue("is_first_time_import");
   return value === null || value === "true";
 }
+
+/**
+ * Stores the date of the last auto sync (YYYY-MM-DD).
+ */
+export async function saveLastAutoSyncDate(dateStr) {
+  return saveSecureValue("last_auto_sync_date", dateStr);
+}
+
+/**
+ * Retrieves the date of the last auto sync (YYYY-MM-DD).
+ */
+export async function getLastAutoSyncDate() {
+  return await getSecureValue("last_auto_sync_date");
+}
+

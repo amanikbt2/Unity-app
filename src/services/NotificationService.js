@@ -108,7 +108,7 @@ export async function displayMessageNotification(
     // Build Android notification
     const androidConfig = {
       channelId,
-      smallIcon: "ic_launcher", // fallback to default app icon
+      smallIcon: "ic_notification",
       color: "#8B5CF6",
       pressAction: {
         id: "default",

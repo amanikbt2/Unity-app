@@ -12,6 +12,10 @@ import HomeScreen from "./src/screens/HomeScreen";
 import ConversationScreen from "./src/screens/ConversationScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import AppAnnouncerModal from "./src/components/AppAnnouncerModal";
+import { initGlobalErrorHandler } from "./src/services/LogService";
+
+// Start catching uncaught app errors as early as possible
+initGlobalErrorHandler();
 
 const Stack = createNativeStackNavigator();
 
