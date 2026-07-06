@@ -1,10 +1,19 @@
 import "react-native-gesture-handler";
-import React, { useContext } from "react";
+import React, { useContext, useState, useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { ActivityIndicator, View, StyleSheet } from "react-native";
+import {
+  ActivityIndicator,
+  View,
+  StyleSheet,
+  Platform,
+  Modal,
+  Text,
+  TouchableOpacity,
+  Linking,
+} from "react-native";
 
 import { AppProvider, AppContext } from "./src/context/AppContext";
 import AuthScreen from "./src/screens/AuthScreen";
@@ -52,7 +61,64 @@ const AppContent = () => {
       
       {/* Global Admin Popup Announcer */}
       <AppAnnouncerModal />
+
+      {/* Web-only App download promoter (triggers every 2 mins) */}
+      <WebPromoModal />
     </SafeAreaProvider>
+  );
+};
+
+const WebPromoModal = () => {
+  if (Platform.OS !== "web") return null;
+
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    // Show first time after 30 seconds
+    const initialTimer = setTimeout(() => {
+      setVisible(true);
+    }, 30000);
+
+    // Show every 2 minutes (120,000ms)
+    const intervalTimer = setInterval(() => {
+      setVisible(true);
+    }, 120000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(intervalTimer);
+    };
+  }, []);
+
+  const handleDownload = () => {
+    Linking.openURL("https://keysire.com/download-app");
+    setVisible(false);
+  };
+
+  return (
+    <Modal
+      transparent
+      visible={visible}
+      animationType="fade"
+      onRequestClose={() => setVisible(false)}
+    >
+      <View style={webModalStyles.overlay}>
+        <View style={webModalStyles.container}>
+          <Text style={webModalStyles.title}>✨ Better Experience on Mobile</Text>
+          <Text style={webModalStyles.message}>
+            Please install the Android app for a faster, native, and smoother translation experience!
+          </Text>
+          
+          <TouchableOpacity style={webModalStyles.button} onPress={handleDownload} activeOpacity={0.8}>
+            <Text style={webModalStyles.buttonText}>Download Android App</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={webModalStyles.closeButton} onPress={() => setVisible(false)} activeOpacity={0.7}>
+            <Text style={webModalStyles.closeButtonText}>Later</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 };
 
@@ -70,5 +136,61 @@ const styles = StyleSheet.create({
     backgroundColor: "#0F172A",
     justifyContent: "center",
     alignItems: "center",
+  },
+});
+
+const webModalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.85)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  container: {
+    backgroundColor: "#1E293B",
+    padding: 24,
+    borderRadius: 20,
+    width: "90%",
+    maxWidth: 400,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  title: {
+    color: "#FFF",
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  message: {
+    color: "#94A3B8",
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  button: {
+    backgroundColor: "#4F46E5",
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    width: "100%",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  buttonText: {
+    color: "#FFF",
+    fontWeight: "600",
+    fontSize: 15,
+  },
+  closeButton: {
+    paddingVertical: 8,
+    width: "100%",
+    alignItems: "center",
+  },
+  closeButtonText: {
+    color: "#64748B",
+    fontSize: 14,
   },
 });
