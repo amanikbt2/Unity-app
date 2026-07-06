@@ -20,7 +20,7 @@ import {
   Animated as RNAnimated,
   Alert,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Path, Line, Rect, Polygon } from "react-native-svg";
 import Animated, {
@@ -202,8 +202,18 @@ export default function ConversationScreen({ route, navigation }) {
       partnerId: "unity Translation AI",
     };
 
+  const { currentUser, getLangDetails, getLangDetailsFromFlag, LANGS } =
+    useContext(AppContext);
+  const insets = useSafeAreaInsets();
+
+  const isSelfChat =
+    partnerId === currentUser?.uid ||
+    partnerId === currentUser?.id ||
+    partnerId === "Me" ||
+    partnerName === currentUser?.name;
+
   const isOnline =
-    partnerId === "unity_ai"
+    isSelfChat || partnerId === "unity_ai"
       ? true
       : partnerStatus
         ? /online|available|ready to chat|connected|active/.test(
@@ -211,10 +221,7 @@ export default function ConversationScreen({ route, navigation }) {
           )
         : false;
 
-  const { currentUser, getLangDetails, getLangDetailsFromFlag, LANGS } =
-    useContext(AppContext);
-
-  const [isKeyboardMode, setIsKeyboardMode] = useState(false);
+  const [isKeyboardMode, setIsKeyboardMode] = useState(isSelfChat ? true : false);
   const [inputText, setInputText] = useState("");
   const [chatBubbles, setChatBubbles] = useState([]);
 
@@ -1159,7 +1166,7 @@ export default function ConversationScreen({ route, navigation }) {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
       style={[styles.container, { backgroundColor: colors.bg }]}
     >
       {/* Header bar */}
@@ -1344,47 +1351,49 @@ export default function ConversationScreen({ route, navigation }) {
       )}
 
       {/* Control Buttons Bar */}
-      <SafeAreaView
+      <View
         style={[
           styles.controlsSafeArea,
           {
             backgroundColor: colors.cardBg,
             borderTopColor: colors.border,
             borderTopWidth: 1,
+            paddingBottom: isKeyboardMode ? 0 : Math.max(insets.bottom, 12),
           },
         ]}
-        edges={["bottom", "left", "right"]}
       >
         <View style={styles.controlsBar}>
           {isKeyboardMode ? (
             /* Keyboard Mode Typing Input bar */
             <>
               {/* Mic Icon (Switch back to Voice) on the LEFT */}
-              <TouchableOpacity
-                style={{
-                  width: 44,
-                  height: 44,
-                  justifyContent: "center",
-                  alignItems: "center",
-                  marginRight: 8,
-                }}
-                onPress={() => setIsKeyboardMode(false)}
-                activeOpacity={0.7}
-              >
-                <Svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke={colors.textMuted}
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+              {!isSelfChat && (
+                <TouchableOpacity
+                  style={{
+                    width: 44,
+                    height: 44,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    marginRight: 8,
+                  }}
+                  onPress={() => setIsKeyboardMode(false)}
+                  activeOpacity={0.7}
                 >
-                  <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                  <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                </Svg>
-              </TouchableOpacity>
+                  <Svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={colors.textMuted}
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                    <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  </Svg>
+                </TouchableOpacity>
+              )}
 
               <View
                 style={[
@@ -1522,7 +1531,7 @@ export default function ConversationScreen({ route, navigation }) {
             </>
           )}
         </View>
-      </SafeAreaView>
+      </View>
     </KeyboardAvoidingView>
   );
 }
