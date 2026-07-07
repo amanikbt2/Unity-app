@@ -21,7 +21,8 @@ import HomeScreen from "./src/screens/HomeScreen";
 import ConversationScreen from "./src/screens/ConversationScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import AppAnnouncerModal from "./src/components/AppAnnouncerModal";
-import { initGlobalErrorHandler, trackEvent } from "./src/services/LogService";
+import { initGlobalErrorHandler } from "./src/services/LogService";
+import { trackEvent } from "./src/utils/Analytics";
 
 // Start catching uncaught app errors as early as possible
 initGlobalErrorHandler();
