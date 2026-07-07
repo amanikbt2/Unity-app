@@ -61,10 +61,7 @@ import { messageQueue } from "../services/MessageQueue";
 
 const { width } = Dimensions.get("window");
 
-const getAssetUri = (asset) =>
-  Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
-
-const DEFAULT_AVATAR = getAssetUri(require("../../assets/default-avatar-2.jpg"));
+const DEFAULT_AVATAR_REQ = require("../../assets/default-avatar-2.jpg");
 
 // Helper to convert flag emoji to lowercase 2-letter country code
 function getCountryCodeFromFlag(flagEmoji) {
@@ -193,6 +190,11 @@ const TypingIndicator = ({ color }) => {
 };
 
 export default function ConversationScreen({ route, navigation }) {
+  const getAssetUri = (asset) =>
+    Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
+
+  const DEFAULT_AVATAR = getAssetUri(DEFAULT_AVATAR_REQ);
+
   const { partnerName, partnerAvatar, partnerFlag, partnerId, partnerStatus } =
     route.params || {
       partnerName: "unity Translation AI",

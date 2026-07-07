@@ -28,10 +28,7 @@ import {
   logLoginFail,
 } from "../services/LogService";
 
-const getAssetUri = (asset) =>
-  Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
-
-const DEFAULT_AVATAR = getAssetUri(require("../../assets/default-avatar-2.jpg"));
+const DEFAULT_AVATAR_REQ = require("../../assets/default-avatar-2.jpg");
 
 // Enable layout animation on Android
 if (
@@ -42,6 +39,10 @@ if (
 }
 
 export default function AuthScreen({ navigation }) {
+  const getAssetUri = (asset) =>
+    Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
+
+  const DEFAULT_AVATAR = getAssetUri(DEFAULT_AVATAR_REQ);
   const {
     updateSettings,
     savedAccounts,

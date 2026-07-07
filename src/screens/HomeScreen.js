@@ -71,21 +71,21 @@ import UserProfilePopup from "../components/UserProfilePopup";
 
 const { width, height } = Dimensions.get("window");
 
+const DEFAULT_AVATARS = [
+  require("../../assets/default-avatar-1.jpg"),
+  require("../../assets/default-avatar-2.jpg"),
+  require("../../assets/default-avatar-3.jpg"),
+];
+
 const getAssetUri = (asset) =>
   Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
-
-const DEFAULT_AVATARS = [
-  getAssetUri(require("../../assets/default-avatar-1.jpg")),
-  getAssetUri(require("../../assets/default-avatar-2.jpg")),
-  getAssetUri(require("../../assets/default-avatar-3.jpg")),
-];
 
 const getDefaultAvatar = (seed) => {
   const idx =
     typeof seed === "string"
       ? seed.length % DEFAULT_AVATARS.length
       : Math.floor(Math.random() * DEFAULT_AVATARS.length);
-  return DEFAULT_AVATARS[idx];
+  return getAssetUri(DEFAULT_AVATARS[idx]);
 };
 
 // Helper to convert flag emoji to lowercase 2-letter country code
@@ -132,10 +132,7 @@ const INITIAL_CONTACTS = [
   {
     id: "unity_ai",
     name: "unity AI",
-    avatar:
-      (Image.resolveAssetSource &&
-        Image.resolveAssetSource(require("../../assets/icon.png"))?.uri) ||
-      "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=150&h=150&q=80",
+    avatar: require("../../assets/icon.png"),
     flag: "🌍",
     langName: "AI Companion",
     status: "Ready to chat",
@@ -144,8 +141,7 @@ const INITIAL_CONTACTS = [
   {
     id: "c1",
     name: "Marcus Sterling",
-    avatar:
-      getAssetUri(require("../../assets/default-avatar-1.jpg")),
+    avatar: require("../../assets/default-avatar-1.jpg"),
     flag: "🇺🇸",
     langName: "English (US)",
     status: "Busy",
@@ -154,8 +150,7 @@ const INITIAL_CONTACTS = [
   {
     id: "c2",
     name: "Yuki Tanaka",
-    avatar:
-      getAssetUri(require("../../assets/default-avatar-2.jpg")),
+    avatar: require("../../assets/default-avatar-2.jpg"),
     flag: "🇯🇵",
     langName: "Japanese",
     status: "Available",
@@ -167,8 +162,7 @@ const EXPLORE_PEOPLE = [
   {
     id: "e1",
     name: "Amélie Dubois",
-    avatar:
-      getAssetUri(require("../../assets/default-avatar-3.jpg")),
+    avatar: require("../../assets/default-avatar-3.jpg"),
     flag: "🇫🇷",
     langName: "French (France)",
     bio: "Hi! I am a culinary chef in Paris. Let's exchange recipes!",
@@ -176,8 +170,7 @@ const EXPLORE_PEOPLE = [
   {
     id: "e2",
     name: "Hiroshi Sato",
-    avatar:
-      getAssetUri(require("../../assets/default-avatar-1.jpg")),
+    avatar: require("../../assets/default-avatar-1.jpg"),
     flag: "🇯🇵",
     langName: "Japanese (Japan)",
     bio: "Tech enthusiast and history buff. Happy to translate and chat!",
@@ -188,8 +181,7 @@ const INITIAL_POSTS = [
   {
     id: "p1",
     authorName: "Sarah Jenkins",
-    avatar:
-      getAssetUri(require("../../assets/default-avatar-1.jpg")),
+    avatar: require("../../assets/default-avatar-1.jpg"),
     flag: "🇺🇸",
     time: "2 hours ago",
     content:
@@ -217,8 +209,7 @@ const INITIAL_POSTS = [
   {
     id: "p2",
     authorName: "Carlos Gomez",
-    avatar:
-      getAssetUri(require("../../assets/default-avatar-2.jpg")),
+    avatar: require("../../assets/default-avatar-2.jpg"),
     flag: "🇪🇸",
     time: "4 hours ago",
     content:

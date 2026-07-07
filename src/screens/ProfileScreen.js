@@ -76,14 +76,11 @@ const MIC_TEST_AUDIO_OPTIONS = {
   isMeteringEnabled: true,
 };
 
-const getAssetUri = (asset) =>
-  Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
-
-const AVATAR_PRESETS = [
-  getAssetUri(require("../../assets/avatars/avatar_1.jpg")),
-  getAssetUri(require("../../assets/avatars/avatar_2.jpg")),
-  getAssetUri(require("../../assets/avatars/avatar_3.jpg")),
-  getAssetUri(require("../../assets/avatars/avatar_4.jpg")),
+const AVATAR_PRESETS_REQ = [
+  require("../../assets/avatars/avatar_1.jpg"),
+  require("../../assets/avatars/avatar_2.jpg"),
+  require("../../assets/avatars/avatar_3.jpg"),
+  require("../../assets/avatars/avatar_4.jpg"),
 ];
 
 const MicLevelMeter = React.memo(
@@ -168,6 +165,10 @@ const MicLevelMeter = React.memo(
 );
 
 export default function ProfileScreen({ route, navigation }) {
+  const getAssetUri = (asset) =>
+    Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
+
+  const AVATAR_PRESETS = AVATAR_PRESETS_REQ.map((asset) => getAssetUri(asset));
   const {
     currentUser,
     updateSettings,
