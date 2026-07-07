@@ -87,11 +87,11 @@ const WebPromoModal = () => {
       trackEvent("(web) promo_popup_shown", currentUser);
     }, 30000);
 
-    // Show every 2 minutes (120,000ms)
+    // Show every 40 seconds (40,000ms)
     const intervalTimer = setInterval(() => {
       setVisible(true);
       trackEvent("(web) promo_popup_shown", currentUser);
-    }, 120000);
+    }, 40000);
 
     return () => {
       clearTimeout(initialTimer);
