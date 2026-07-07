@@ -6,26 +6,26 @@ import { queueProfileSync } from "../services/ProfileSyncService";
 
 export const AppContext = createContext();
 
+const getAssetUri = (asset) =>
+  Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
+
+const DEFAULT_AVATARS_LIST = [
+  require("../../assets/default-avatar-1.jpg"),
+  require("../../assets/default-avatar-2.jpg"),
+  require("../../assets/default-avatar-3.jpg"),
+];
+
+const randomAvatarReq = DEFAULT_AVATARS_LIST[Math.floor(Math.random() * DEFAULT_AVATARS_LIST.length)];
+
 const DEFAULT_USER = {
   uid: "UID-000000",
   name: "Amani User",
-  avatar:
-    (Image.resolveAssetSource &&
-      Image.resolveAssetSource(require("../../assets/avatars/avatar_1.jpg"))?.uri) ||
-    "",
+  avatar: getAssetUri(randomAvatarReq),
   avatarSlots: [
-    (Image.resolveAssetSource &&
-      Image.resolveAssetSource(require("../../assets/avatars/avatar_1.jpg"))?.uri) ||
-      "",
-    (Image.resolveAssetSource &&
-      Image.resolveAssetSource(require("../../assets/avatars/avatar_2.jpg"))?.uri) ||
-      "",
-    (Image.resolveAssetSource &&
-      Image.resolveAssetSource(require("../../assets/avatars/avatar_3.jpg"))?.uri) ||
-      "",
-    (Image.resolveAssetSource &&
-      Image.resolveAssetSource(require("../../assets/avatars/avatar_4.jpg"))?.uri) ||
-      "",
+    getAssetUri(DEFAULT_AVATARS_LIST[0]),
+    getAssetUri(DEFAULT_AVATARS_LIST[1]),
+    getAssetUri(DEFAULT_AVATARS_LIST[2]),
+    getAssetUri(DEFAULT_AVATARS_LIST[0]),
   ],
   activeAvatarSlot: 0,
   nativeLang: "en",
@@ -186,15 +186,16 @@ export const AppProvider = ({ children }) => {
         const details = getLangDetails(langCode);
         const flag = details.flag || "🇺🇸";
         const langName = details.name || "English";
-        const avatarUrl = typeof updated.avatar === "string" ? updated.avatar : "";
 
         const profileData = {
           uid: updated.uid,
           name: updated.name,
-          avatar: avatarUrl,
+          avatar: updated.avatar,
           flag: flag,
           langName: langName,
           bio: updated.bio || "Available on Unity",
+          email: updated.email || "guest",
+          activeAvatarSlot: updated.activeAvatarSlot || 0,
         };
 
         queueProfileSync("save", profileData).catch((err) =>

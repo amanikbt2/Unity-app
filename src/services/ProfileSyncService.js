@@ -10,7 +10,7 @@ const QUEUE_KEY = "amani_profile_sync_queue";
  * Queue a profile update or deletion locally if offline, or sync immediately if online.
  * 
  * @param {string} action - 'save' | 'delete'
- * @param {object} profile - { uid, name, avatar, flag, langName, bio }
+ * @param {object} profile - { uid, name, avatar, flag, langName, bio, email, activeAvatarSlot }
  */
 export async function queueProfileSync(action, profile) {
   try {
@@ -36,11 +36,64 @@ export async function queueProfileSync(action, profile) {
 }
 
 /**
+ * Uploads a local file URI to ImageKit via the backend.
+ */
+async function uploadAvatarToCloud(uid, email, slotIndex, localUri) {
+  try {
+    const formData = new FormData();
+    formData.append("uid", uid);
+    formData.append("email", email);
+    formData.append("slotIndex", slotIndex.toString());
+
+    const filename = localUri.split("/").pop();
+    const match = /\.(\w+)$/.exec(filename || "");
+    const type = match ? `image/${match[1]}` : "image";
+
+    formData.append("avatar", {
+      uri: localUri,
+      name: filename || "avatar.jpg",
+      type,
+    });
+
+    const response = await fetch(`${SERVER_URL}/api/users/avatar`, {
+      method: "POST",
+      body: formData,
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "multipart/form-data",
+      },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return data.url;
+    }
+  } catch (err) {
+    console.warn("[ProfileSync] ImageKit upload error:", err.message);
+  }
+  return null;
+}
+
+/**
  * Helper to perform the actual HTTP request to the backend.
  */
 async function sendSyncRequest(action, profile) {
   try {
     if (action === "save") {
+      // If the avatar is a local file path, upload it to ImageKit first!
+      if (profile.avatar && profile.avatar.startsWith("file://")) {
+        const slotIdx = profile.activeAvatarSlot || 0;
+        const emailAddr = profile.email || "guest";
+        console.log(`[ProfileSync] Uploading local profile picture to ImageKit: slot ${slotIdx}...`);
+        const cloudUrl = await uploadAvatarToCloud(profile.uid, emailAddr, slotIdx, profile.avatar);
+        if (cloudUrl) {
+          profile.avatar = cloudUrl;
+        } else {
+          // If ImageKit upload fails, we clear the local path so we don't send file:// to database
+          profile.avatar = "";
+        }
+      }
+
       const response = await fetch(`${SERVER_URL}/api/users`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
