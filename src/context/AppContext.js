@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { clearAllAppData } from "../services/StorageService";
 import { Image } from "react-native";
+import { queueProfileSync } from "../services/ProfileSyncService";
 
 export const AppContext = createContext();
 
@@ -178,6 +179,28 @@ export const AppProvider = ({ children }) => {
           return newAccounts;
         });
       }
+
+      // Sync profile details to the cloud globally
+      if (updated.isRealUser) {
+        const langCode = updated.nativeLang || "en";
+        const details = getLangDetails(langCode);
+        const flag = details.flag || "🇺🇸";
+        const langName = details.name || "English";
+        const avatarUrl = typeof updated.avatar === "string" ? updated.avatar : "";
+
+        const profileData = {
+          uid: updated.uid,
+          name: updated.name,
+          avatar: avatarUrl,
+          flag: flag,
+          langName: langName,
+          bio: updated.bio || "Available on Unity",
+        };
+
+        queueProfileSync("save", profileData).catch((err) =>
+          console.warn("[AppContext] Profile sync queue failed:", err),
+        );
+      }
     } catch (e) {
       console.error("Error saving config", e);
     }
@@ -229,6 +252,12 @@ export const AppProvider = ({ children }) => {
 
   const deleteAccountAndResetApp = async () => {
     try {
+      const userUid = currentUser?.uid;
+      if (userUid && currentUser?.isRealUser) {
+        queueProfileSync("delete", { uid: userUid }).catch((err) =>
+          console.warn("[AppContext] Global profile deletion queue failed:", err),
+        );
+      }
       await clearAllAppData();
     } catch (e) {
       console.error("Error clearing app data", e);

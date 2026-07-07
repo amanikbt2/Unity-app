@@ -22,10 +22,14 @@ import ConversationScreen from "./src/screens/ConversationScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import AppAnnouncerModal from "./src/components/AppAnnouncerModal";
 import { initGlobalErrorHandler } from "./src/services/LogService";
+import { initProfileSync } from "./src/services/ProfileSyncService";
 import { trackEvent } from "./src/utils/Analytics";
 
 // Start catching uncaught app errors as early as possible
 initGlobalErrorHandler();
+
+// Start monitoring internet connectivity to sync pending profile changes
+initProfileSync();
 
 const Stack = createNativeStackNavigator();
 

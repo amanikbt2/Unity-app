@@ -3141,7 +3141,10 @@ export default function HomeScreen({ navigation }) {
       {/* Floating Action Button (Teal Gradient Floating Plus) for Contacts Tab */}
       {activeTab === "contacts" && (
         <TouchableOpacity
-          style={styles.fab}
+          style={[
+            styles.fab,
+            { bottom: 16 + 66 + (insets.bottom > 0 ? insets.bottom : 10) },
+          ]}
           activeOpacity={0.8}
           onPress={handleStartConv}
         >
@@ -3171,7 +3174,10 @@ export default function HomeScreen({ navigation }) {
       {/* Floating Action Button for Updates Tab */}
       {activeTab === "updates" && (
         <TouchableOpacity
-          style={styles.fab}
+          style={[
+            styles.fab,
+            { bottom: 16 + 66 + (insets.bottom > 0 ? insets.bottom : 10) },
+          ]}
           activeOpacity={0.8}
           onPress={() => {
             const userFlag = currentUser.nativeLang

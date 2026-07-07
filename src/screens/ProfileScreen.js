@@ -2299,7 +2299,7 @@ export default function ProfileScreen({ route, navigation }) {
                     alignItems: "center",
                     marginBottom: 6,
                   }}
-                  onPress={logoutUser}
+                  onPress={handleLogout}
                 >
                   <Svg
                     width="20"
