@@ -320,7 +320,7 @@ export default function ConversationScreen({ route, navigation }) {
     ],
   );
 
-  const processSmartRecording = async () => {
+  async function processSmartRecording() {
     setSubtitleUser("Processing voice...");
     setSubtitleReceived(`Waiting for ${partnerName}...`);
 
