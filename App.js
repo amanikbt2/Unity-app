@@ -101,7 +101,7 @@ const WebPromoModal = () => {
 
   const handleDownload = () => {
     trackEvent("(web) promo_download_click", currentUser);
-    Linking.openURL("https://keysire.com/download-app");
+    Linking.openURL("https://elitestore.keysire.com/app/com.amanikbt1.xaylite");
     setVisible(false);
   };
 
