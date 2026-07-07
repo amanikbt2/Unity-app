@@ -153,12 +153,19 @@ export const AppProvider = ({ children }) => {
 
   const updateSettings = async (newSettings) => {
     try {
-      const updated = {
+      const merged = {
         ...DEFAULT_USER,
         ...currentUser,
         ...newSettings,
-        uid: currentUser.uid || DEFAULT_USER.uid || generateUid(),
       };
+
+      if (merged.isRealUser && merged.email) {
+        merged.uid = merged.email;
+      } else if (!merged.uid || merged.uid === DEFAULT_USER.uid) {
+        merged.uid = generateUid();
+      }
+
+      const updated = merged;
       setCurrentUser(updated);
       await AsyncStorage.setItem(
         "amani_profile_settings",
