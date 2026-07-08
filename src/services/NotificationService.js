@@ -1,13 +1,9 @@
-import * as Device from "expo-device";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import Constants from "expo-constants";
-import notifee, {
-  AndroidStyle,
-  AndroidImportance,
-} from "@notifee/react-native";
 
-// Set up the notification handler for when the app is in the foreground
+// Configure local notification handlers
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -16,136 +12,112 @@ Notifications.setNotificationHandler({
   }),
 });
 
+let BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://unity-3xc2.onrender.com';
+
+// Auto-resolve localhost IP for physical devices running Expo
+if (Platform.OS !== "web" && BASE_URL.includes("localhost") && Constants.expoConfig?.hostUri) {
+  const hostIp = Constants.expoConfig.hostUri.split(":")[0];
+  BASE_URL = `http://${hostIp}:3000`;
+}
+
+/**
+ * Request permission for native Android/iOS notifications on startup
+ */
 export async function registerForPushNotificationsAsync() {
-  let token;
-
-  if (Platform.OS === "android") {
-    await Notifications.setNotificationChannelAsync("default", {
-      name: "default",
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: "#8B5CF6",
-    });
-  }
-
-  if (Device.isDevice || Platform.OS === "web") {
-    const { status: existingStatus } =
-      await Notifications.getPermissionsAsync();
+  if (Platform.OS === 'web') return false;
+  
+  try {
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
-
-    if (existingStatus !== "granted") {
+    
+    if (existingStatus !== 'granted') {
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
     }
-
-    if (finalStatus !== "granted") {
-      console.log("Failed to get push token for push notification!");
-      return null;
+    
+    if (finalStatus !== 'granted') {
+      console.log('[NotificationService] Notification permissions denied.');
+      return false;
     }
-
-    try {
-      token = (
-        await Notifications.getExpoPushTokenAsync({
-          projectId: Constants.expoConfig?.extra?.eas?.projectId || "fad38d9d-1186-4f85-b710-c5a580465b71",
-        })
-      ).data;
-      console.log("Expo Push Token:", token);
-    } catch (e) {
-      console.log("Error getting token:", e);
+    
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'default',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C',
+      });
     }
-  } else {
-    console.log("Must use physical device for Push Notifications");
+    console.log('[NotificationService] Permissions and channels initialized.');
+    return true;
+  } catch (err) {
+    console.warn('[NotificationService] Failed to initialize notifications:', err.message);
+    return false;
   }
-
-  return token;
 }
 
-export async function scheduleLocalNotification(title, body, trigger = null) {
-  // Normalize trigger for Expo Notifications SDK 56+
-  let normalizedTrigger = null;
-  if (trigger && trigger.seconds) {
-    normalizedTrigger = {
-      type: 'timeInterval',
-      seconds: trigger.seconds,
-      repeats: trigger.repeats || false,
-    };
-  } else if (trigger) {
-    normalizedTrigger = trigger;
+/**
+ * Polls the backend for the latest notification payload.
+ * Triggers a local notification alert if the campaign ID has changed.
+ */
+export async function checkForNewNotifications() {
+  try {
+    const lastId = await AsyncStorage.getItem("amani_last_notification_id");
+    const response = await fetch(`${BASE_URL}/api/notifications`);
+    if (!response.ok) return;
+    
+    const data = await response.json();
+    const latestNotification = data.latest;
+    if (!latestNotification) return;
+    
+    if (latestNotification.id !== lastId) {
+      // Store new notification campaign ID
+      await AsyncStorage.setItem("amani_last_notification_id", latestNotification.id);
+      
+      // Trigger native notification banner
+      await showNativeNotification(latestNotification);
+    }
+  } catch (err) {
+    console.warn("[NotificationService] Polling failed:", err.message);
+  }
+}
+
+/**
+ * Presents a local notification banner based on alert type
+ */
+async function showNativeNotification(notif) {
+  if (Platform.OS === 'web') {
+    alert(`[${notif.type === 'chat' ? 'Message' : 'System'}] ${notif.title || notif.senderName}: ${notif.body}`);
+    return;
+  }
+
+  let title = "";
+  let body = "";
+  
+  if (notif.type === 'chat') {
+    title = `💬 New message from ${notif.senderName}`;
+    body = notif.body;
+  } else {
+    const iconEmoji = getSystemEmoji(notif.icon);
+    title = `${iconEmoji} ${notif.title}`;
+    body = notif.body;
   }
 
   await Notifications.scheduleNotificationAsync({
     content: {
       title,
       body,
-      sound: true,
+      data: { notifId: notif.id, type: notif.type },
     },
-    trigger: normalizedTrigger,
+    trigger: null,
   });
 }
 
-export async function displayMessageNotification(
-  senderName,
-  messageText,
-  avatarUrl = null,
-) {
-  if (Platform.OS === "web") return; // Notifee is not supported on web
-
-  try {
-    // Request permissions (required for iOS)
-    await notifee.requestPermission();
-
-    let channelId = "default";
-
-    if (Platform.OS === "android") {
-      // Create a channel (required for Android)
-      channelId = await notifee.createChannel({
-        id: "messages",
-        name: "Messages",
-        importance: AndroidImportance.HIGH,
-      });
-    }
-
-    // Build Android notification
-    const androidConfig = {
-      channelId,
-      smallIcon: "ic_notification",
-      color: "#8B5CF6",
-      pressAction: {
-        id: "default",
-      },
-      // The main style for WhatsApp-like messaging layout
-      style: {
-        type: AndroidStyle.MESSAGING,
-        person: {
-          name: senderName,
-          icon: avatarUrl || undefined,
-        },
-        messages: [
-          {
-            text: messageText,
-            timestamp: Date.now(),
-            person: {
-              name: senderName,
-              icon: avatarUrl || undefined,
-            },
-          },
-        ],
-        title: `${senderName} • unityApp`, // "unity AI . unityApp"
-      },
-    };
-
-    // If we have an avatar URL, also use it as the largeIcon
-    if (avatarUrl && Platform.OS === "android") {
-      androidConfig.largeIcon = avatarUrl;
-    }
-
-    // Display a notification
-    await notifee.displayNotification({
-      title: senderName,
-      body: messageText,
-      android: androidConfig,
-    });
-  } catch (error) {
-    console.warn("Failed to display notification:", error);
+function getSystemEmoji(iconType) {
+  switch (iconType) {
+    case 'warning': return '⚠️';
+    case 'success': return '✅';
+    case 'info': return 'ℹ️';
+    default: return '📢';
   }
 }

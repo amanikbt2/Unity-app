@@ -1,7 +1,8 @@
 import React, { createContext, useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { clearAllAppData } from "../services/StorageService";
-import { Image } from "react-native";
+import { Image, Platform } from "react-native";
+import Constants from "expo-constants";
 import { queueProfileSync } from "../services/ProfileSyncService";
 
 export const AppContext = createContext();
@@ -19,7 +20,7 @@ const randomAvatarReq = DEFAULT_AVATARS_LIST[Math.floor(Math.random() * DEFAULT_
 
 const DEFAULT_USER = {
   uid: "UID-000000",
-  name: "Amani User",
+  name: "User124",
   avatar: getAssetUri(randomAvatarReq),
   avatarSlots: [
     getAssetUri(DEFAULT_AVATARS_LIST[0]),
@@ -203,6 +204,8 @@ export const AppProvider = ({ children }) => {
           bio: updated.bio || "Available on Unity",
           email: updated.email || "guest",
           activeAvatarSlot: updated.activeAvatarSlot || 0,
+          platform: Platform.OS,
+          appVersion: Constants.expoConfig?.version || Constants.manifest?.version || "1.0.0",
         };
 
         queueProfileSync("save", profileData).catch((err) =>

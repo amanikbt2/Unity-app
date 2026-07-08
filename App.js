@@ -24,6 +24,7 @@ import AppAnnouncerModal from "./src/components/AppAnnouncerModal";
 import { initGlobalErrorHandler } from "./src/services/LogService";
 import { initProfileSync } from "./src/services/ProfileSyncService";
 import { trackEvent } from "./src/utils/Analytics";
+import { registerForPushNotificationsAsync, checkForNewNotifications } from "./src/services/NotificationService";
 
 // Start catching uncaught app errors as early as possible
 initGlobalErrorHandler();
@@ -35,6 +36,16 @@ const Stack = createNativeStackNavigator();
 
 const AppContent = () => {
   const { currentUser, loading } = useContext(AppContext);
+
+  useEffect(() => {
+    registerForPushNotificationsAsync();
+    
+    // Poll every 2 minutes (120,000ms)
+    const interval = setInterval(checkForNewNotifications, 120000);
+    checkForNewNotifications();
+    
+    return () => clearInterval(interval);
+  }, []);
 
   if (loading) {
     return (
