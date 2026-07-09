@@ -103,6 +103,7 @@ function renderFlagOrEmoji(val) {
 
 // Audio recording settings optimized for 16kHz mono voice compression (ideal for AI Speech-to-Text)
 const COMPRESSED_AUDIO_OPTIONS = {
+  isMeteringEnabled: true,
   android: {
     extension: ".m4a",
     outputFormat: "mpeg4",
@@ -110,6 +111,7 @@ const COMPRESSED_AUDIO_OPTIONS = {
     sampleRate: 16000,
     numberOfChannels: 1,
     bitRate: 128000,
+    isMeteringEnabled: true,
   },
   ios: {
     extension: ".m4a",
@@ -121,6 +123,7 @@ const COMPRESSED_AUDIO_OPTIONS = {
     linearPCMBitDepth: 16,
     linearPCMIsBigEndian: false,
     linearPCMIsFloat: false,
+    isMeteringEnabled: true,
   },
   web: {
     mimeType: "audio/webm",
@@ -363,7 +366,7 @@ export default function ConversationScreen({ route, navigation }) {
     // Immediately restart listening so the user isn't blocked
     if (handsFreeActive) {
       try {
-        await recorder.prepareToRecordAsync();
+        await recorder.prepareToRecordAsync(COMPRESSED_AUDIO_OPTIONS);
         recorder.record();
         setSubtitleUser("Listening...");
       } catch (e) {
@@ -774,7 +777,7 @@ export default function ConversationScreen({ route, navigation }) {
           playsInSilentModeIOS: true,
         });
 
-        await recorder.prepareToRecordAsync();
+        await recorder.prepareToRecordAsync(COMPRESSED_AUDIO_OPTIONS);
         recorder.record();
       } catch (err) {
         console.error(err);
@@ -915,14 +918,13 @@ export default function ConversationScreen({ route, navigation }) {
           });
           await updateContactLastMessageTime(partnerId, Date.now());
 
-          // Speak partner's translated response to the user in their language
-          // Force female voice for AI response
-          const aiVoiceId = partnerLang.startsWith("en")
+          const userLangCode = currentUser.nativeLang || "en";
+          const aiVoiceId = userLangCode.startsWith("en")
             ? ttsVoices.female.en
             : ttsVoices.female.es;
 
           Speech.speak(partnerResponseBase, {
-            language: partnerLang,
+            language: userLangCode,
             voice: aiVoiceId,
             rate: currentUser.aiVoiceRate || 1.0,
             pitch: currentUser.aiVoicePitch || 1.1,

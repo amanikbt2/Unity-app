@@ -235,7 +235,9 @@ const normalizePost = (post) => {
   const authorName = post?.authorName || "user";
   const avatar =
     post?.avatar_local_path ||
-    (post?.avatar && typeof post.avatar === "string" && !post.avatar.includes("unsplash.com")
+    (post?.avatar &&
+    typeof post.avatar === "string" &&
+    !post.avatar.includes("unsplash.com")
       ? post.avatar
       : getDefaultAvatar(authorName));
   return {
@@ -698,7 +700,9 @@ export default function HomeScreen({ navigation }) {
     },
     {
       id: "aiLang",
-      isCompleted: !!(currentUser.unityAILang && currentUser.unityAILang.trim() !== ""),
+      isCompleted: !!(
+        currentUser.unityAILang && currentUser.unityAILang.trim() !== ""
+      ),
       uncompletedLabel: "Set AI companion language",
       completedLabel: "✓ AI Companion Language Set",
     },
@@ -750,6 +754,8 @@ export default function HomeScreen({ navigation }) {
       : "rgba(79, 70, 229, 0.08)",
     headerBg: isDark ? "rgba(10, 6, 18, 0.85)" : "rgba(241, 245, 249, 0.95)",
   };
+
+  const isDev = currentUser?.email === "dev@gmail.com" || currentUser?.email === "dev@mail.com";
 
   const handleStartConv = () => {
     trackEvent("opened_start_conversation", currentUser, {});
@@ -962,7 +968,10 @@ export default function HomeScreen({ navigation }) {
               item.emails && item.emails.length > 0 ? item.emails[0].email : "";
 
             const unityInfo = unityUserMap[phone];
-            const isUnityUser = !!(unityInfo && (unityInfo.hasUnityAccount || unityInfo.hasAccount));
+            const isUnityUser = !!(
+              unityInfo &&
+              (unityInfo.hasUnityAccount || unityInfo.hasAccount)
+            );
 
             let flag = "";
             let lang = "";
@@ -1042,7 +1051,9 @@ export default function HomeScreen({ navigation }) {
         const todayStr = new Date().toISOString().split("T")[0];
         await saveLastAutoSyncDate(todayStr);
         await saveLastImportCheckTime(Date.now());
-        console.log(`[Contacts] Sync complete: ${formattedContacts.length} contacts`);
+        console.log(
+          `[Contacts] Sync complete: ${formattedContacts.length} contacts`,
+        );
       } else {
         console.log("[Contacts] No contacts found on device.");
       }
@@ -1240,7 +1251,7 @@ export default function HomeScreen({ navigation }) {
       return;
     }
 
-    const existingContact = contacts.find(
+    const existingContact = filteredContacts.find(
       (c) => c.name.toLowerCase() === post.authorName.toLowerCase(),
     );
 
@@ -1398,13 +1409,25 @@ export default function HomeScreen({ navigation }) {
 
   const isOnlineContact = (item) => item?.isMe || isOnlineStatus(item?.status);
 
+  const filteredContacts = contacts.filter((c) => {
+    if (c.id === "unity_ai") return true;
+    if (c.id === "c1" || c.id === "c2") return isDev;
+    return true;
+  });
+
   const displayedContacts = [
     myProfile,
-    ...normalizePosts(contacts).filter((c) => c.id !== "me"),
+    ...normalizePosts(filteredContacts).filter((c) => c.id !== "me"),
   ];
+
+  const filteredExploreProfiles = exploreProfiles.filter((e) => {
+    if (e.id === "e1" || e.id === "e2") return isDev;
+    return true;
+  });
+
   const displayedExplore = [
     myProfile,
-    ...normalizePosts(exploreProfiles).filter((e) => e.id !== "me"),
+    ...normalizePosts(filteredExploreProfiles).filter((e) => e.id !== "me"),
   ].filter((person) => {
     if (!exploreSearchText) return true;
     const q = exploreSearchText.toLowerCase();
@@ -1603,7 +1626,10 @@ export default function HomeScreen({ navigation }) {
             >
               {/* Unity AI Card */}
               <View
-                style={[styles.convCard, { borderBottomColor: colors.border }]}
+                style={[
+                  styles.convCard,
+                  isDev ? { borderBottomColor: colors.border } : { borderBottomWidth: 0 },
+                ]}
               >
                 <TouchableOpacity
                   activeOpacity={0.85}
@@ -1685,237 +1711,241 @@ export default function HomeScreen({ navigation }) {
                 </TouchableOpacity>
               </View>
 
-              {/* Partner Card 1 */}
-              <View
-                style={[styles.convCard, { borderBottomColor: colors.border }]}
-              >
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  hitSlop={8}
-                  onPress={() =>
-                    openProfilePopup({
-                      name: "Sophia Martinez",
-                      avatar:
-                        "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
-                      flag: "🇪🇸",
-                      langName: "Spanish",
-                      uid: "recent_sophia",
-                    })
-                  }
-                  style={styles.avatarContainer}
-                >
-                  <Image
-                    source={{
-                      uri: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
-                    }}
-                    style={styles.avatar}
-                  />
+              {isDev && (
+                <>
+                  {/* Partner Card 1 */}
                   <View
-                    style={[styles.flagBadge, { backgroundColor: colors.bg }]}
+                    style={[styles.convCard, { borderBottomColor: colors.border }]}
                   >
-                    {renderFlagOrEmoji("🇪🇸")}
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() =>
-                    handlePartnerClick(
-                      "Sophia Martinez",
-                      "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
-                      "🇪🇸",
-                    )
-                  }
-                  style={styles.convBodyPress}
-                >
-                  <View style={styles.convDetails}>
-                    <View style={styles.convHeader}>
-                      <Text
-                        style={[styles.partnerName, { color: colors.text }]}
-                      >
-                        Sophia Martinez
-                      </Text>
-                      <Text
-                        style={[styles.convTime, { color: colors.textDimmed }]}
-                      >
-                        2m ago
-                      </Text>
-                    </View>
-                    <Text
-                      style={[styles.convPreview, { color: colors.textMuted }]}
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      hitSlop={8}
+                      onPress={() =>
+                        openProfilePopup({
+                          name: "Sophia Martinez",
+                          avatar:
+                            "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
+                          flag: "🇪🇸",
+                          langName: "Spanish",
+                          uid: "recent_sophia",
+                        })
+                      }
+                      style={styles.avatarContainer}
                     >
-                      English ⇄ Spanish (Active)
-                    </Text>
-                  </View>
-                  <View style={styles.convArrow}>
-                    <Svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={colors.textDimmed}
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                      <Image
+                        source={{
+                          uri: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
+                        }}
+                        style={styles.avatar}
+                      />
+                      <View
+                        style={[styles.flagBadge, { backgroundColor: colors.bg }]}
+                      >
+                        {renderFlagOrEmoji("🇪🇸")}
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() =>
+                        handlePartnerClick(
+                          "Sophia Martinez",
+                          "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
+                          "🇪🇸",
+                        )
+                      }
+                      style={styles.convBodyPress}
                     >
-                      <Path d="M9 18l6-6-6-6" />
-                    </Svg>
+                      <View style={styles.convDetails}>
+                        <View style={styles.convHeader}>
+                          <Text
+                            style={[styles.partnerName, { color: colors.text }]}
+                          >
+                            Sophia Martinez
+                          </Text>
+                          <Text
+                            style={[styles.convTime, { color: colors.textDimmed }]}
+                          >
+                            2m ago
+                          </Text>
+                        </View>
+                        <Text
+                          style={[styles.convPreview, { color: colors.textMuted }]}
+                        >
+                          English ⇄ Spanish (Active)
+                        </Text>
+                      </View>
+                      <View style={styles.convArrow}>
+                        <Svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke={colors.textDimmed}
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <Path d="M9 18l6-6-6-6" />
+                        </Svg>
+                      </View>
+                    </TouchableOpacity>
                   </View>
-                </TouchableOpacity>
-              </View>
 
-              {/* Partner Card 2 */}
-              <View
-                style={[styles.convCard, { borderBottomColor: colors.border }]}
-              >
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  hitSlop={8}
-                  onPress={() =>
-                    openProfilePopup({
-                      name: "Kenji Sato",
-                      avatar:
-                        "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
-                      flag: "🇯🇵",
-                      langName: "Japanese",
-                      uid: "recent_kenji",
-                    })
-                  }
-                  style={styles.avatarContainer}
-                >
-                  <Image
-                    source={{
-                      uri: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
-                    }}
-                    style={styles.avatar}
-                  />
+                  {/* Partner Card 2 */}
                   <View
-                    style={[styles.flagBadge, { backgroundColor: colors.bg }]}
+                    style={[styles.convCard, { borderBottomColor: colors.border }]}
                   >
-                    {renderFlagOrEmoji("🇯🇵")}
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() =>
-                    handlePartnerClick(
-                      "Kenji Sato",
-                      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
-                      "🇯🇵",
-                    )
-                  }
-                  style={styles.convBodyPress}
-                >
-                  <View style={styles.convDetails}>
-                    <View style={styles.convHeader}>
-                      <Text
-                        style={[styles.partnerName, { color: colors.text }]}
-                      >
-                        Kenji Sato
-                      </Text>
-                      <Text
-                        style={[styles.convTime, { color: colors.textDimmed }]}
-                      >
-                        1h ago
-                      </Text>
-                    </View>
-                    <Text
-                      style={[styles.convPreview, { color: colors.textMuted }]}
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      hitSlop={8}
+                      onPress={() =>
+                        openProfilePopup({
+                          name: "Kenji Sato",
+                          avatar:
+                            "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
+                          flag: "🇯🇵",
+                          langName: "Japanese",
+                          uid: "recent_kenji",
+                        })
+                      }
+                      style={styles.avatarContainer}
                     >
-                      English ⇄ Japanese
-                    </Text>
-                  </View>
-                  <View style={styles.convArrow}>
-                    <Svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={colors.textDimmed}
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                      <Image
+                        source={{
+                          uri: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
+                        }}
+                        style={styles.avatar}
+                      />
+                      <View
+                        style={[styles.flagBadge, { backgroundColor: colors.bg }]}
+                      >
+                        {renderFlagOrEmoji("🇯🇵")}
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() =>
+                        handlePartnerClick(
+                          "Kenji Sato",
+                          "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
+                          "🇯🇵",
+                        )
+                      }
+                      style={styles.convBodyPress}
                     >
-                      <Path d="M9 18l6-6-6-6" />
-                    </Svg>
+                      <View style={styles.convDetails}>
+                        <View style={styles.convHeader}>
+                          <Text
+                            style={[styles.partnerName, { color: colors.text }]}
+                          >
+                            Kenji Sato
+                          </Text>
+                          <Text
+                            style={[styles.convTime, { color: colors.textDimmed }]}
+                          >
+                            1h ago
+                          </Text>
+                        </View>
+                        <Text
+                          style={[styles.convPreview, { color: colors.textMuted }]}
+                        >
+                          English ⇄ Japanese
+                        </Text>
+                      </View>
+                      <View style={styles.convArrow}>
+                        <Svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke={colors.textDimmed}
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <Path d="M9 18l6-6-6-6" />
+                        </Svg>
+                      </View>
+                    </TouchableOpacity>
                   </View>
-                </TouchableOpacity>
-              </View>
 
-              {/* Partner Card 3 */}
-              <View style={[styles.convCard, { borderBottomWidth: 0 }]}>
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  hitSlop={8}
-                  onPress={() =>
-                    openProfilePopup({
-                      name: "Amara Okoro",
-                      avatar:
-                        "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=100&h=100&q=80",
-                      flag: "🇰🇪",
-                      langName: "Swahili",
-                      uid: "recent_amara",
-                    })
-                  }
-                  style={styles.avatarContainer}
-                >
-                  <Image
-                    source={{
-                      uri: "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=100&h=100&q=80",
-                    }}
-                    style={styles.avatar}
-                  />
-                  <View
-                    style={[styles.flagBadge, { backgroundColor: colors.bg }]}
-                  >
-                    {renderFlagOrEmoji("🇰🇪")}
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() =>
-                    handlePartnerClick(
-                      "Amara Okoro",
-                      "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=100&h=100&q=80",
-                      "🇰🇪",
-                    )
-                  }
-                  style={styles.convBodyPress}
-                >
-                  <View style={styles.convDetails}>
-                    <View style={styles.convHeader}>
-                      <Text
-                        style={[styles.partnerName, { color: colors.text }]}
-                      >
-                        Amara Okoro
-                      </Text>
-                      <Text
-                        style={[styles.convTime, { color: colors.textDimmed }]}
-                      >
-                        Yesterday
-                      </Text>
-                    </View>
-                    <Text
-                      style={[styles.convPreview, { color: colors.textMuted }]}
+                  {/* Partner Card 3 */}
+                  <View style={[styles.convCard, { borderBottomWidth: 0 }]}>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      hitSlop={8}
+                      onPress={() =>
+                        openProfilePopup({
+                          name: "Amara Okoro",
+                          avatar:
+                            "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=100&h=100&q=80",
+                          flag: "🇰🇪",
+                          langName: "Swahili",
+                          uid: "recent_amara",
+                        })
+                      }
+                      style={styles.avatarContainer}
                     >
-                      English ⇄ Swahili
-                    </Text>
-                  </View>
-                  <View style={styles.convArrow}>
-                    <Svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={colors.textDimmed}
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                      <Image
+                        source={{
+                          uri: "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=100&h=100&q=80",
+                        }}
+                        style={styles.avatar}
+                      />
+                      <View
+                        style={[styles.flagBadge, { backgroundColor: colors.bg }]}
+                      >
+                        {renderFlagOrEmoji("🇰🇪")}
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() =>
+                        handlePartnerClick(
+                          "Amara Okoro",
+                          "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=100&h=100&q=80",
+                          "🇰🇪",
+                        )
+                      }
+                      style={styles.convBodyPress}
                     >
-                      <Path d="M9 18l6-6-6-6" />
-                    </Svg>
+                      <View style={styles.convDetails}>
+                        <View style={styles.convHeader}>
+                          <Text
+                            style={[styles.partnerName, { color: colors.text }]}
+                          >
+                            Amara Okoro
+                          </Text>
+                          <Text
+                            style={[styles.convTime, { color: colors.textDimmed }]}
+                          >
+                            Yesterday
+                          </Text>
+                        </View>
+                        <Text
+                          style={[styles.convPreview, { color: colors.textMuted }]}
+                        >
+                          English ⇄ Swahili
+                        </Text>
+                      </View>
+                      <View style={styles.convArrow}>
+                        <Svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke={colors.textDimmed}
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <Path d="M9 18l6-6-6-6" />
+                        </Svg>
+                      </View>
+                    </TouchableOpacity>
                   </View>
-                </TouchableOpacity>
-              </View>
+                </>
+              )}
             </View>
           </View>
         )}
@@ -2094,7 +2124,7 @@ export default function HomeScreen({ navigation }) {
                     },
                   ]}
                 >
-                  {contacts
+                  {filteredContacts
                     .filter((c) => {
                       const q = contactSearchText.toLowerCase();
                       return (
@@ -2104,8 +2134,10 @@ export default function HomeScreen({ navigation }) {
                       );
                     })
                     .sort((a, b) => {
-                      const aVal = a.isUnityUser === true || a.isUnityUser === 1 ? 1 : 0;
-                      const bVal = b.isUnityUser === true || b.isUnityUser === 1 ? 1 : 0;
+                      const aVal =
+                        a.isUnityUser === true || a.isUnityUser === 1 ? 1 : 0;
+                      const bVal =
+                        b.isUnityUser === true || b.isUnityUser === 1 ? 1 : 0;
                       return bVal - aVal;
                     })
                     .map((contact, index, arr) => (
@@ -2121,7 +2153,7 @@ export default function HomeScreen({ navigation }) {
                         onPress={() => {
                           if (!contact.isUnityUser) {
                             const message =
-                              "🤯 I'm talking to people in different languages with XayLite, even animals. You should try it too! Download: https://keysire.com";
+                              "🤯 I'm talking to people in different languages with Xaylite. You should try it too! Download: https://elitestore.keysire.com/app/com.amanikbt1.xaylite";
                             const phone = (contact.phone || "").replace(
                               /\D/g,
                               "",
@@ -3790,8 +3822,7 @@ export default function HomeScreen({ navigation }) {
                   </TouchableOpacity>
 
                   {/* Owner Delete Option vs Non-Owner Actions */}
-                  {optionsPost.authorName ===
-                    (currentUser.name || "User124") ||
+                  {optionsPost.authorName === (currentUser.name || "User124") ||
                   optionsPost.authorName === "Me" ? (
                     <TouchableOpacity
                       style={[styles.optionsSheetItem, styles.deleteOptionItem]}
@@ -4190,7 +4221,7 @@ export default function HomeScreen({ navigation }) {
                   startConvFilter === "contacts"
                     ? displayedContacts
                     : displayedExplore;
-                
+
                 let filtered = sourceList.filter(
                   (item) =>
                     item.name
@@ -4204,7 +4235,9 @@ export default function HomeScreen({ navigation }) {
                 // Ensure AI Companion (unity_ai) is always in the list and sorted first
                 const hasAI = filtered.some((item) => item.id === "unity_ai");
                 if (!hasAI) {
-                  const aiContact = displayedContacts.find((c) => c.id === "unity_ai") || {
+                  const aiContact = displayedContacts.find(
+                    (c) => c.id === "unity_ai",
+                  ) || {
                     id: "unity_ai",
                     name: "unity AI",
                     avatar: require("../../assets/icon.png"),
@@ -4214,8 +4247,12 @@ export default function HomeScreen({ navigation }) {
                     isUnityUser: true,
                   };
                   const matchesSearch =
-                    aiContact.name.toLowerCase().includes(startConvSearch.toLowerCase()) ||
-                    aiContact.id.toLowerCase().includes(startConvSearch.toLowerCase());
+                    aiContact.name
+                      .toLowerCase()
+                      .includes(startConvSearch.toLowerCase()) ||
+                    aiContact.id
+                      .toLowerCase()
+                      .includes(startConvSearch.toLowerCase());
                   if (matchesSearch) {
                     filtered = [aiContact, ...filtered];
                   }
@@ -4225,8 +4262,10 @@ export default function HomeScreen({ navigation }) {
                 filtered.sort((a, b) => {
                   if (a.id === "unity_ai") return -1;
                   if (b.id === "unity_ai") return 1;
-                  const aVal = a.isUnityUser === true || a.isUnityUser === 1 ? 1 : 0;
-                  const bVal = b.isUnityUser === true || b.isUnityUser === 1 ? 1 : 0;
+                  const aVal =
+                    a.isUnityUser === true || a.isUnityUser === 1 ? 1 : 0;
+                  const bVal =
+                    b.isUnityUser === true || b.isUnityUser === 1 ? 1 : 0;
                   return bVal - aVal;
                 });
 
@@ -4307,8 +4346,7 @@ export default function HomeScreen({ navigation }) {
                     ]}
                     onPress={() => {
                       if (!item.isUnityUser) {
-                        const message =
-                          "🤯 I'm talking to people in different languages with XayLite, even animals. You should try it too! Download: https://keysire.com";
+                        const message = "";
                         const phone = (item.phone || "").replace(/\D/g, "");
                         Linking.openURL(
                           `whatsapp://send?text=${encodeURIComponent(message)}&phone=${phone}`,
@@ -4405,10 +4443,9 @@ export default function HomeScreen({ navigation }) {
                       style={[
                         styles.modalPartnerCta,
                         {
-                          backgroundColor:
-                            !item.isUnityUser
-                              ? colors.border
-                              : colors.primaryGlow,
+                          backgroundColor: !item.isUnityUser
+                            ? colors.border
+                            : colors.primaryGlow,
                         },
                       ]}
                     >
@@ -4416,10 +4453,9 @@ export default function HomeScreen({ navigation }) {
                         style={[
                           styles.modalPartnerCtaText,
                           {
-                            color:
-                              !item.isUnityUser
-                                ? colors.text
-                                : colors.primary,
+                            color: !item.isUnityUser
+                              ? colors.text
+                              : colors.primary,
                           },
                         ]}
                       >
