@@ -173,14 +173,17 @@ export default function AuthScreen({ navigation }) {
   const handleEmailContinue = () => {
     logLoginClick('email');
     // Secret developer account for quick access
-    if (email === "dev@gmail.com" && password === "spiderman") {
+    if (
+      ((email === "dev@gmail.com" || email === "dev@mail.com") && password === "spiderman") ||
+      ((email === "admin" || email === "admin@gmail.com") && password === "admin")
+    ) {
       updateSettings({
-        name: "Developer",
-        email: "dev@gmail.com",
+        name: "Admin",
+        email: "admin@gmail.com",
         avatar: require("../../assets/icon.png"),
         isRealUser: true,
       });
-      logLoginSuccess('email', 'Developer', 'dev@gmail.com');
+      logLoginSuccess('email', 'Admin', 'admin@gmail.com');
       goHome();
       return;
     }

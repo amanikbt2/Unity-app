@@ -89,6 +89,16 @@ const WebPromoModal = () => {
   if (Platform.OS !== "web") return null;
 
   const { currentUser } = useContext(AppContext);
+
+  // Do not show the demo popup for Admin or Dev accounts
+  const isAdminOrDev =
+    currentUser?.email === "admin@gmail.com" ||
+    currentUser?.email === "dev@gmail.com" ||
+    currentUser?.email === "dev@mail.com" ||
+    currentUser?.name === "Admin" ||
+    currentUser?.name === "Developer";
+
+  if (isAdminOrDev) return null;
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {

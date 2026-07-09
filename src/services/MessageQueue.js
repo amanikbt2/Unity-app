@@ -93,7 +93,7 @@ class MessageQueueService {
 
       try {
         if (job.type === 'ai') {
-          const translatedUserText = await translateText(job.payload.text, job.payload.partnerLang);
+          const translatedUserText = await translateText(job.payload.text, job.payload.partnerLang, true);
           
           if (job.userMsgId) {
              this.notifyListeners({
@@ -115,26 +115,36 @@ class MessageQueueService {
              } catch (e) { console.error(e); }
           }
           
-          aiReply = await chatWithAI(translatedUserText, job.payload.history || [], job.payload.targetLang);
-          replyText = await translateText(aiReply, job.payload.userLang);
+          aiReply = await chatWithAI(translatedUserText, job.payload.history || [], job.payload.targetLang, true);
+          replyText = await translateText(aiReply, job.payload.userLang, true);
           success = true;
         } else if (job.type === 'translate') {
-          replyText = await translateText(job.payload.text, job.payload.targetLang);
+          replyText = await translateText(job.payload.text, job.payload.targetLang, true);
           success = true;
         }
       } catch (err) {
         console.error('Queue job failed:', err);
-        if (err.message.toLowerCase().includes('network') || err.message.toLowerCase().includes('gateway') || err.message.toLowerCase().includes('failed to fetch')) {
-           if (job.attempts > 3) {
-             console.warn("Job failed 3 times, dropping from queue.");
-             replyText = "Network Error - Message failed.";
-             success = true;
-           } else {
-             break; 
-           }
+        const errMsg = err.message ? err.message.toLowerCase() : '';
+        const isNetworkError = 
+          errMsg.includes('network') || 
+          errMsg.includes('gateway') || 
+          errMsg.includes('failed to fetch') || 
+          errMsg.includes('fetch failed') ||
+          errMsg.includes('unknownhost') ||
+          errMsg.includes('unable to resolve host') ||
+          !this.isConnected;
+
+        if (isNetworkError) {
+          console.log('[MessageQueue] Network/Offline error. Leaving job in queue for auto-retry.');
+          break; // Do not drop from queue
         } else {
-           replyText = "Failed to send message.";
-           success = true; 
+          if (job.attempts > 3) {
+            console.warn("Job failed 3 times, dropping from queue.");
+            replyText = "Network Error - Message failed.";
+            success = true;
+          } else {
+            break; 
+          }
         }
       }
 

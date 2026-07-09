@@ -76,7 +76,7 @@ async function fetchWithRetry(url, options, delayMs = 3000) {
  * Translates a text message using the secure server translation gateway.
  * Integrates local cache checks to save API quota.
  */
-export async function translateText(text, targetLang) {
+export async function translateText(text, targetLang, throwOnError = false) {
   if (!text || !text.trim()) return "";
 
   const cacheKey = `trans_cache_${targetLang}_${text.trim().toLowerCase()}`;
@@ -119,6 +119,9 @@ export async function translateText(text, targetLang) {
     return result;
   } catch (error) {
     console.error("Text translation service error:", error);
+    if (throwOnError) {
+      throw error;
+    }
     return `[Translation Failed: ${error.message}] ${text}`;
   }
 }
@@ -196,7 +199,7 @@ export async function translateVoice(audioUri, targetLang) {
 /**
  * Sends a message to the Unity AI companion.
  */
-export async function chatWithAI(message, history, language) {
+export async function chatWithAI(message, history, language, throwOnError = false) {
   if (!message || !message.trim()) return "";
 
   try {
@@ -220,6 +223,9 @@ export async function chatWithAI(message, history, language) {
     return data.replyText || data.reply || "";
   } catch (error) {
     console.error("AI chat service error:", error);
+    if (throwOnError) {
+      throw error;
+    }
     return `[AI Error: ${error.message}]`;
   }
 }

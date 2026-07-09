@@ -657,7 +657,7 @@ export default function HomeScreen({ navigation }) {
     },
     {
       id: "username",
-      isCompleted: !!(currentUser.name && currentUser.name !== "Amani User"),
+      isCompleted: !!(currentUser.name && currentUser.name !== "User124"),
       uncompletedLabel: "Change username",
       completedLabel: "✓ Username Changed",
     },
@@ -919,7 +919,7 @@ export default function HomeScreen({ navigation }) {
           const checkData = await res.json();
           if (checkData && checkData.contacts) {
             checkData.contacts.forEach((c) => {
-              unityUserMap[c.phone] = c.hasUnityAccount;
+              unityUserMap[c.phone] = c;
             });
           }
         } catch (backendErr) {
@@ -938,32 +938,47 @@ export default function HomeScreen({ navigation }) {
             const email =
               item.emails && item.emails.length > 0 ? item.emails[0].email : "";
 
-            const isUnityUser = unityUserMap[phone] || false;
+            const unityInfo = unityUserMap[phone];
+            const isUnityUser = !!(unityInfo && (unityInfo.hasUnityAccount || unityInfo.hasAccount));
 
-            let flag = "\u{1F1FA}\u{1F1F8}";
-            let lang = "English";
-            if (phone.includes("+33")) {
-              flag = "\u{1F1EB}\u{1F1F7}";
-              lang = "French";
-            } else if (phone.includes("+81")) {
-              flag = "\u{1F1EF}\u{1F1F5}";
-              lang = "Japanese";
-            } else if (phone.includes("+34")) {
-              flag = "\u{1F1EA}\u{1F1F8}";
-              lang = "Spanish";
-            } else if (phone.includes("+254")) {
-              flag = "\u{1F1F0}\u{1F1EA}";
-              lang = "Swahili";
+            let flag = "";
+            let lang = "";
+
+            if (!isUnityUser) {
+              // Not on Xaylite -> show current user's native flag/language
+              flag = getLangDetails(currentUser.nativeLang)?.flag || "🌍";
+              lang = getLangDetails(currentUser.nativeLang)?.name || "English";
             } else {
-              const simulatedLangs = [
-                { flag: "\u{1F1FA}\u{1F1F8}", lang: "English" },
-                { flag: "\u{1F1EA}\u{1F1F8}", lang: "Spanish" },
-                { flag: "\u{1F1EB}\u{1F1F7}", lang: "French" },
-                { flag: "\u{1F1EF}\u{1F1F5}", lang: "Japanese" },
-              ];
-              const choice = simulatedLangs[idx % simulatedLangs.length];
-              flag = choice.flag;
-              lang = choice.lang;
+              // On Xaylite -> show actual flag/lang if available, or fallback
+              const backendFlag = unityInfo?.flag || unityInfo?.nativeLangFlag;
+              const backendLang = unityInfo?.lang || unityInfo?.nativeLang;
+
+              if (backendFlag && backendLang) {
+                flag = backendFlag;
+                lang = backendLang;
+              } else if (phone.includes("+33")) {
+                flag = "\u{1F1EB}\u{1F1F7}";
+                lang = "French";
+              } else if (phone.includes("+81")) {
+                flag = "\u{1F1EF}\u{1F1F5}";
+                lang = "Japanese";
+              } else if (phone.includes("+34")) {
+                flag = "\u{1F1EA}\u{1F1F8}";
+                lang = "Spanish";
+              } else if (phone.includes("+254")) {
+                flag = "\u{1F1F0}\u{1F1EA}";
+                lang = "Swahili";
+              } else {
+                const simulatedLangs = [
+                  { flag: "\u{1F1FA}\u{1F1F8}", lang: "English" },
+                  { flag: "\u{1F1EA}\u{1F1F8}", lang: "Spanish" },
+                  { flag: "\u{1F1EB}\u{1F1F7}", lang: "French" },
+                  { flag: "\u{1F1EF}\u{1F1F5}", lang: "Japanese" },
+                ];
+                const choice = simulatedLangs[idx % simulatedLangs.length];
+                flag = choice.flag;
+                lang = choice.lang;
+              }
             }
 
             let localAvatar = "";
@@ -980,10 +995,10 @@ export default function HomeScreen({ navigation }) {
               email: email,
               flag: flag,
               langName: lang,
-              status: isUnityUser ? "Available on Unity" : "Not on Unity",
+              status: isUnityUser ? "Available on Xaylite" : "Not on Xaylite",
               is_synced: 1,
               avatar: localAvatar,
-              isUnityUser: isUnityUser,
+              isUnityUser: isUnityUser ? 1 : 0,
             };
           }),
         );
@@ -1103,9 +1118,9 @@ export default function HomeScreen({ navigation }) {
       ? getLangDetails(currentUser.nativeLang).flag || "\u{1F30D}"
       : "\u{1F30D}";
     const authorName =
-      currentUser.name && currentUser.name !== "Amani User"
+      currentUser.name && currentUser.name !== "User124"
         ? currentUser.name
-        : "Amani User";
+        : "User124";
     const postCopy = buildPostCopy(newPostText.trim());
 
     // Optimistically create the post object
@@ -1172,7 +1187,7 @@ export default function HomeScreen({ navigation }) {
   const getAuthorAvatar = (authorName) => {
     if (
       authorName === currentUser.name ||
-      authorName === "Amani User" ||
+      authorName === "User124" ||
       authorName === "Me"
     ) {
       return currentUser.avatar;
@@ -1195,7 +1210,7 @@ export default function HomeScreen({ navigation }) {
 
   const handlePostChat = (post) => {
     const isOwner =
-      post.authorName === (currentUser.name || "Amani User") ||
+      post.authorName === (currentUser.name || "User124") ||
       post.authorName === "Me";
     if (isOwner) {
       Alert.alert("Chat", "You cannot start a conversation with yourself.");
@@ -1301,9 +1316,9 @@ export default function HomeScreen({ navigation }) {
               {
                 id: Date.now().toString(),
                 author:
-                  currentUser.name && currentUser.name !== "Amani User"
+                  currentUser.name && currentUser.name !== "User124"
                     ? currentUser.name
-                    : "Amani User",
+                    : "User124",
                 content: newCommentText.trim(),
               },
             ],
@@ -1343,7 +1358,7 @@ export default function HomeScreen({ navigation }) {
   // Prepare current user profile for injection
   const myProfile = {
     id: "me",
-    name: `(Me) ${currentUser.name && currentUser.name !== "Amani User" ? currentUser.name : "Amani User"}`,
+    name: `(Me) ${currentUser.name && currentUser.name !== "User124" ? currentUser.name : "User124"}`,
     avatar:
       currentUser.avatar ||
       "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
@@ -2065,18 +2080,23 @@ export default function HomeScreen({ navigation }) {
                         (c.uid || "").toLowerCase().includes(q)
                       );
                     })
-                    .map((contact, index) => (
+                    .sort((a, b) => {
+                      const aVal = a.isUnityUser === true || a.isUnityUser === 1 ? 1 : 0;
+                      const bVal = b.isUnityUser === true || b.isUnityUser === 1 ? 1 : 0;
+                      return bVal - aVal;
+                    })
+                    .map((contact, index, arr) => (
                       <TouchableOpacity
                         key={contact.id}
                         style={[
                           styles.convCard,
-                          index === contacts.length - 1
+                          index === arr.length - 1
                             ? { borderBottomWidth: 0 }
                             : { borderBottomColor: colors.border },
                         ]}
                         activeOpacity={0.7}
                         onPress={() => {
-                          if (contact.isUnityUser === false) {
+                          if (!contact.isUnityUser) {
                             const message =
                               "🤯 I'm talking to people in different languages with XayLite, even animals. You should try it too! Download: https://keysire.com";
                             const phone = (contact.phone || "").replace(
@@ -2179,7 +2199,7 @@ export default function HomeScreen({ navigation }) {
                           </Text>
                         </View>
                         <View style={styles.convArrow}>
-                          {contact.isUnityUser === false ? (
+                          {!contact.isUnityUser ? (
                             <View
                               style={{
                                 backgroundColor: colors.border,
@@ -3473,7 +3493,7 @@ export default function HomeScreen({ navigation }) {
                   <Text
                     style={[styles.createPostUserName, { color: colors.text }]}
                   >
-                    {currentUser.name || "Amani User"}
+                    {currentUser.name || "User124"}
                   </Text>
                   <View style={styles.postLanguageBadge}>
                     <Text
@@ -3748,7 +3768,7 @@ export default function HomeScreen({ navigation }) {
 
                   {/* Owner Delete Option vs Non-Owner Actions */}
                   {optionsPost.authorName ===
-                    (currentUser.name || "Amani User") ||
+                    (currentUser.name || "User124") ||
                   optionsPost.authorName === "Me" ? (
                     <TouchableOpacity
                       style={[styles.optionsSheetItem, styles.deleteOptionItem]}
@@ -4157,11 +4177,13 @@ export default function HomeScreen({ navigation }) {
                       .includes(startConvSearch.toLowerCase()),
                 );
 
-                // Unity AI always first
+                // Unity AI always first, then Xaylite-available users
                 filtered.sort((a, b) => {
                   if (a.id === "unity_ai") return -1;
                   if (b.id === "unity_ai") return 1;
-                  return 0;
+                  const aVal = a.isUnityUser === true || a.isUnityUser === 1 ? 1 : 0;
+                  const bVal = b.isUnityUser === true || b.isUnityUser === 1 ? 1 : 0;
+                  return bVal - aVal;
                 });
 
                 if (filtered.length === 0) {
@@ -4240,9 +4262,9 @@ export default function HomeScreen({ navigation }) {
                       { borderBottomColor: colors.border },
                     ]}
                     onPress={() => {
-                      if (item.isUnityUser === false) {
+                      if (!item.isUnityUser) {
                         const message =
-                          "Hey! I'm using Unity to translate my chats in real-time. Download it here: https://unity.app";
+                          "🤯 I'm talking to people in different languages with XayLite, even animals. You should try it too! Download: https://keysire.com";
                         const phone = (item.phone || "").replace(/\D/g, "");
                         Linking.openURL(
                           `whatsapp://send?text=${encodeURIComponent(message)}&phone=${phone}`,
@@ -4340,7 +4362,7 @@ export default function HomeScreen({ navigation }) {
                         styles.modalPartnerCta,
                         {
                           backgroundColor:
-                            item.isUnityUser === false
+                            !item.isUnityUser
                               ? colors.border
                               : colors.primaryGlow,
                         },
@@ -4351,13 +4373,13 @@ export default function HomeScreen({ navigation }) {
                           styles.modalPartnerCtaText,
                           {
                             color:
-                              item.isUnityUser === false
+                              !item.isUnityUser
                                 ? colors.text
                                 : colors.primary,
                           },
                         ]}
                       >
-                        {item.isUnityUser === false ? "Invite" : "Chat"}
+                        {!item.isUnityUser ? "Invite" : "Chat"}
                       </Text>
                     </View>
                   </TouchableOpacity>

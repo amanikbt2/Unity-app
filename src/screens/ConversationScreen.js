@@ -20,6 +20,7 @@ import {
   Animated as RNAnimated,
   Alert,
 } from "react-native";
+import NetInfo from "@react-native-community/netinfo";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Path, Line, Rect, Polygon } from "react-native-svg";
@@ -233,6 +234,14 @@ export default function ConversationScreen({ route, navigation }) {
   const [subtitleUser, setSubtitleUser] = useState("Tap mic to start talking");
   const [profilePopupVisible, setProfilePopupVisible] = useState(false);
   const [profilePopupData, setProfilePopupData] = useState(null);
+  const [isConnected, setIsConnected] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      setIsConnected(state.isConnected ?? true);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Shared Animation Values for the Orb
   const orbScale = useSharedValue(1);
@@ -653,7 +662,7 @@ export default function ConversationScreen({ route, navigation }) {
         setChatBubbles((prev) =>
           prev.map((msg) =>
             msg.id === event.userMsgId
-              ? { ...msg, transText: event.transText }
+              ? { ...msg, text: event.text || msg.text, transText: event.transText }
               : msg,
           ),
         );
@@ -764,6 +773,21 @@ export default function ConversationScreen({ route, navigation }) {
         ? getLangDetails(currentUser.unityAILang)?.name || "AI"
         : getLangDetails(partnerLang).name;
     const userLangName = getLangDetails(currentUser.nativeLang).name;
+
+    const userMsgId = "msg_" + Date.now();
+    const partnerMsgId = "msg_" + (Date.now() + 1);
+
+    if (!isConnected) {
+      Alert.alert(
+        "Offline",
+        "Voice transcription is unavailable while offline. Please type your message or use the microphone button on your keyboard."
+      );
+      // Clean up the file immediately
+      await FileSystem.deleteAsync(audioUri, { idempotent: true }).catch(
+        (err) => console.warn("Failed to delete transient audio file:", err),
+      );
+      return;
+    }
 
     try {
       const result = await translateVoice(audioUri, partnerLang);
@@ -1207,11 +1231,42 @@ export default function ConversationScreen({ route, navigation }) {
             <Text style={[styles.partnerNameText, { color: colors.text }]}>
               {partnerName}
             </Text>
-            <Text
-              style={[styles.partnerStatusText, { color: colors.textMuted }]}
-            >
-              Connected 🟢
-            </Text>
+            {isConnected ? (
+              <Text
+                style={[styles.partnerStatusText, { color: colors.textMuted }]}
+              >
+                Connected 🟢
+              </Text>
+            ) : (
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Text
+                  style={[
+                    styles.partnerStatusText,
+                    { color: colors.danger, marginRight: 4 },
+                  ]}
+                >
+                  You're offline
+                </Text>
+                <Svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={colors.danger}
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <Path d="M1 1l22 22" />
+                  <Path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.5" />
+                  <Path d="M5 12.5a10.94 10.94 0 0 1 5.83-2.84" />
+                  <Path d="M8.5 16.5a5 5 0 0 1 7 0" />
+                  <Path d="M21.3 8.11A15.89 15.89 0 0 1 23 9" />
+                  <Path d="M1 9a15.89 15.89 0 0 1 9-2.78" />
+                  <Path d="M12 20h.01" />
+                </Svg>
+              </View>
+            )}
           </View>
 
           <TouchableOpacity
@@ -1232,7 +1287,14 @@ export default function ConversationScreen({ route, navigation }) {
                 source={{ uri: partnerAvatar }}
                 style={styles.headerAvatar}
               />
-              {isOnline && <View style={styles.onlineBadge} />}
+              {isOnline && (
+                <View
+                  style={[
+                    styles.onlineBadge,
+                    !isConnected && { backgroundColor: colors.danger },
+                  ]}
+                />
+              )}
             </View>
           </TouchableOpacity>
         </View>

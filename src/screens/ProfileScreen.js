@@ -77,10 +77,10 @@ const MIC_TEST_AUDIO_OPTIONS = {
 };
 
 const AVATAR_PRESETS_REQ = [
-  require("../../assets/avatars/avatar_1.jpg"),
-  require("../../assets/avatars/avatar_2.jpg"),
-  require("../../assets/avatars/avatar_3.jpg"),
-  require("../../assets/avatars/avatar_4.jpg"),
+  require("../../assets/default-avatar-1.jpg"),
+  require("../../assets/default-avatar-2.jpg"),
+  require("../../assets/default-avatar-3.jpg"),
+  require("../../assets/default-avatar-1.jpg"),
 ];
 
 const MicLevelMeter = React.memo(
@@ -1369,7 +1369,10 @@ export default function ProfileScreen({ route, navigation }) {
             </Animated.View>
 
             {/* AI Companion Language */}
-            <View
+            <Animated.View
+              onLayout={(e) => {
+                layoutOffsets.current.aiLang = e.nativeEvent.layout.y;
+              }}
               style={{
                 flexDirection: "row",
                 alignItems: "center",
@@ -1377,6 +1380,17 @@ export default function ProfileScreen({ route, navigation }) {
                 borderBottomWidth: 1,
                 borderBottomColor: colors.border,
                 paddingBottom: 16,
+                ...(glowTarget === "aiLang"
+                  ? {
+                      backgroundColor: glowAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ["transparent", colors.primaryGlow],
+                      }),
+                      borderRadius: 8,
+                      padding: 8,
+                      marginHorizontal: -8,
+                    }
+                  : {}),
               }}
             >
               <View>
@@ -1436,7 +1450,7 @@ export default function ProfileScreen({ route, navigation }) {
                   <Polyline points="6 9 12 15 18 9" />
                 </Svg>
               </TouchableOpacity>
-            </View>
+            </Animated.View>
 
             {/* Voice AI Profile */}
             <Animated.View
