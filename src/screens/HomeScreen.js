@@ -1,4 +1,5 @@
 import React, { useContext, useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   StyleSheet,
   Text,
@@ -320,7 +321,7 @@ export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState("chats");
   const [callsFilter, setCallsFilter] = useState("all");
-  const [onboardingVisible, setOnboardingVisible] = useState(true);
+  const [onboardingVisible, setOnboardingVisible] = useState(false);
   const [contactsFilter, setContactsFilter] = useState("my");
   const [contacts, setContacts] = useState(INITIAL_CONTACTS);
   const [syncedCount, setSyncedCount] = useState(0);
@@ -421,6 +422,21 @@ export default function HomeScreen({ navigation }) {
       clearInterval(pulseInterval);
     };
   }, [gradientAnim, pulseAnim1, pulseAnim2, pulseAnim3]);
+
+  useEffect(() => {
+    const checkOnboarding = async () => {
+      try {
+        const dismissed = await AsyncStorage.getItem("@onboarding_dismissed");
+        if (dismissed !== "true") {
+          setOnboardingVisible(true);
+        }
+      } catch (e) {
+        console.error("Failed to read onboarding dismiss state", e);
+        setOnboardingVisible(true);
+      }
+    };
+    checkOnboarding();
+  }, []);
 
   /**
    * Auto-sync contacts on app open (once per day).
@@ -677,21 +693,14 @@ export default function HomeScreen({ navigation }) {
       id: "voice",
       isCompleted:
         currentUser.voiceAITrained === true || currentUser.micTested === true,
-      uncompletedLabel: "Train your AI voice",
-      completedLabel: "✓ AI Voice Trained",
+      uncompletedLabel: "Train your voice AI",
+      completedLabel: "✓ Voice AI Trained",
     },
     {
-      id: "secondaryLang",
-      isCompleted: currentUser.secondaryLangsSelected === true,
-      uncompletedLabel: "Add secondary language",
-      completedLabel: "✓ Secondary Language Added",
-    },
-    {
-      id: "gender",
-      isCompleted: !!currentUser.gender,
-      uncompletedLabel: "Set Voice Gender",
-      completedLabel: "✓ Voice Gender Set",
-      highlight: true,
+      id: "aiLang",
+      isCompleted: !!(currentUser.unityAILang && currentUser.unityAILang.trim() !== ""),
+      uncompletedLabel: "Set AI companion language",
+      completedLabel: "✓ AI Companion Language Set",
     },
   ];
 
@@ -773,9 +782,23 @@ export default function HomeScreen({ navigation }) {
     });
   };
 
-  const handleOpenSettings = (target) => {
+  const handleCloseOnboarding = async () => {
+    setOnboardingVisible(false);
+    try {
+      await AsyncStorage.setItem("@onboarding_dismissed", "true");
+    } catch (e) {
+      console.error("Failed to dismiss onboarding", e);
+    }
+  };
+
+  const handleOpenSettings = async (target) => {
     trackEvent("opened_settings", currentUser, { target });
     setOnboardingVisible(false);
+    try {
+      await AsyncStorage.setItem("@onboarding_dismissed", "true");
+    } catch (e) {
+      console.error("Failed to mark onboarding as dismissed", e);
+    }
     navigation.navigate("Profile", { scrollTo: target });
   };
 
@@ -3010,7 +3033,7 @@ export default function HomeScreen({ navigation }) {
           visible={onboardingVisible}
           transparent
           animationType="fade"
-          onRequestClose={() => setOnboardingVisible(false)}
+          onRequestClose={handleCloseOnboarding}
         >
           <View style={styles.onboardingOverlay}>
             <View
@@ -3054,7 +3077,7 @@ export default function HomeScreen({ navigation }) {
                   </Text>
                 </View>
                 <TouchableOpacity
-                  onPress={() => setOnboardingVisible(false)}
+                  onPress={handleCloseOnboarding}
                   style={styles.closeMiniBtn}
                 >
                   <Text
@@ -4167,7 +4190,8 @@ export default function HomeScreen({ navigation }) {
                   startConvFilter === "contacts"
                     ? displayedContacts
                     : displayedExplore;
-                const filtered = sourceList.filter(
+                
+                let filtered = sourceList.filter(
                   (item) =>
                     item.name
                       .toLowerCase()
@@ -4176,6 +4200,26 @@ export default function HomeScreen({ navigation }) {
                       .toLowerCase()
                       .includes(startConvSearch.toLowerCase()),
                 );
+
+                // Ensure AI Companion (unity_ai) is always in the list and sorted first
+                const hasAI = filtered.some((item) => item.id === "unity_ai");
+                if (!hasAI) {
+                  const aiContact = displayedContacts.find((c) => c.id === "unity_ai") || {
+                    id: "unity_ai",
+                    name: "unity AI",
+                    avatar: require("../../assets/icon.png"),
+                    flag: "🌍",
+                    langName: "AI Companion",
+                    status: "Ready to chat",
+                    isUnityUser: true,
+                  };
+                  const matchesSearch =
+                    aiContact.name.toLowerCase().includes(startConvSearch.toLowerCase()) ||
+                    aiContact.id.toLowerCase().includes(startConvSearch.toLowerCase());
+                  if (matchesSearch) {
+                    filtered = [aiContact, ...filtered];
+                  }
+                }
 
                 // Unity AI always first, then Xaylite-available users
                 filtered.sort((a, b) => {
