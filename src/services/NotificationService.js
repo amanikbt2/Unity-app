@@ -121,3 +121,49 @@ function getSystemEmoji(iconType) {
     default: return '📢';
   }
 }
+
+/**
+ * Triggers a local notification alert.
+ */
+export async function scheduleLocalNotification(title, body, data = {}) {
+  try {
+    if (Platform.OS === 'web') {
+      console.log(`[Notification] ${title}: ${body}`);
+      return;
+    }
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        data,
+      },
+      trigger: null,
+    });
+  } catch (err) {
+    console.warn("[NotificationService] scheduleLocalNotification failed:", err);
+  }
+}
+
+/**
+ * Specifically displays a notification for an incoming chat message.
+ */
+export async function displayMessageNotification(senderName, body, avatarUrl = "") {
+  try {
+    if (Platform.OS === 'web') {
+      console.log(`[Message from ${senderName}] ${body}`);
+      return;
+    }
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `💬 New message from ${senderName}`,
+        body: body,
+        data: { type: 'chat', senderName },
+      },
+      trigger: null,
+    });
+  } catch (err) {
+    console.warn("[NotificationService] displayMessageNotification failed:", err);
+  }
+}
