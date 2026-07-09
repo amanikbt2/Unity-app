@@ -114,7 +114,7 @@ export default function UserProfilePopup({
               onPress={() => setShowFullImage(true)}
               style={styles.heroWrap}
             >
-              <Image source={{ uri: avatarUri }} style={styles.heroAvatar} />
+              <Image source={typeof avatarUri === "number" ? avatarUri : { uri: avatarUri }} style={styles.heroAvatar} />
               {profile?.status &&
                 /online|available|ready to chat|connected|active/.test(
                   profile.status.trim().toLowerCase(),
@@ -203,7 +203,7 @@ export default function UserProfilePopup({
           >
             <Text style={styles.fullCloseText}>&times;</Text>
           </TouchableOpacity>
-          <Image source={{ uri: avatarUri }} style={styles.fullImage} />
+          <Image source={typeof avatarUri === "number" ? avatarUri : { uri: avatarUri }} style={styles.fullImage} />
           <Text style={styles.fullName}>{resolvedProfile.name}</Text>
         </View>
       </Modal>

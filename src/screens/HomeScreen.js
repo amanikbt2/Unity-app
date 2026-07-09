@@ -798,14 +798,15 @@ export default function HomeScreen({ navigation }) {
   };
 
   const handleOpenSettings = async (target) => {
-    trackEvent("opened_settings", currentUser, { target });
+    const targetStr = typeof target === "string" ? target : "menu";
+    trackEvent("opened_settings", currentUser, { target: targetStr });
     setOnboardingVisible(false);
     try {
       await AsyncStorage.setItem("@onboarding_dismissed", "true");
     } catch (e) {
       console.error("Failed to mark onboarding as dismissed", e);
     }
-    navigation.navigate("Profile", { scrollTo: target });
+    navigation.navigate("Profile", { scrollTo: targetStr });
   };
 
   const openProfilePopup = (profile = {}) => {
@@ -1638,7 +1639,7 @@ export default function HomeScreen({ navigation }) {
                   style={styles.avatarContainer}
                 >
                   <Image
-                    source={{ uri: INITIAL_CONTACTS[0].avatar }}
+                    source={typeof INITIAL_CONTACTS[0].avatar === "number" ? INITIAL_CONTACTS[0].avatar : { uri: INITIAL_CONTACTS[0].avatar }}
                     style={styles.avatar}
                   />
                   <View
@@ -2178,7 +2179,7 @@ export default function HomeScreen({ navigation }) {
                       >
                         <View style={styles.avatarContainer}>
                           <Image
-                            source={{ uri: contact.avatar }}
+                            source={typeof contact.avatar === "number" ? contact.avatar : { uri: contact.avatar }}
                             style={styles.avatar}
                           />
                           {isOnlineContact(contact) && (
@@ -2356,9 +2357,7 @@ export default function HomeScreen({ navigation }) {
                       ]}
                     >
                       <Image
-                        source={{
-                          uri: person.avatar_local_path || person.avatar,
-                        }}
+                        source={typeof (person.avatar_local_path || person.avatar) === "number" ? (person.avatar_local_path || person.avatar) : { uri: person.avatar_local_path || person.avatar }}
                         style={styles.exploreImage}
                       />
                       <View
@@ -2569,9 +2568,7 @@ export default function HomeScreen({ navigation }) {
                     <View style={styles.postHeader}>
                       <View style={styles.avatarContainer}>
                         <Image
-                          source={{
-                            uri: post.avatar_local_path || post.avatar,
-                          }}
+                          source={typeof (post.avatar_local_path || post.avatar) === "number" ? (post.avatar_local_path || post.avatar) : { uri: post.avatar_local_path || post.avatar }}
                           style={styles.postAvatar}
                         />
                         <View
@@ -2966,86 +2963,121 @@ export default function HomeScreen({ navigation }) {
               ))}
             </ScrollView>
 
-            <View
-              style={[
-                styles.convList,
-                { backgroundColor: colors.cardBg, borderColor: colors.border },
-              ]}
-            >
+            {isDev ? (
               <View
-                style={[styles.convCard, { borderBottomColor: colors.border }]}
+                style={[
+                  styles.convList,
+                  { backgroundColor: colors.cardBg, borderColor: colors.border },
+                ]}
               >
-                <View style={styles.avatarContainer}>
-                  <Image
-                    source={{
-                      uri: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
-                    }}
-                    style={styles.avatar}
-                  />
-                  <View
-                    style={[
-                      styles.callIndicatorBadge,
-                      { backgroundColor: "#10B981" },
-                    ]}
-                  >
-                    <Text style={styles.callArrow}>↗</Text>
-                  </View>
-                </View>
-                <View style={styles.convDetails}>
-                  <View style={styles.convHeader}>
-                    <Text style={[styles.partnerName, { color: colors.text }]}>
-                      Sophia Martinez
-                    </Text>
-                    <Text
-                      style={[styles.convTime, { color: colors.textDimmed }]}
+                <View
+                  style={[styles.convCard, { borderBottomColor: colors.border }]}
+                >
+                  <View style={styles.avatarContainer}>
+                    <Image
+                      source={{
+                        uri: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
+                      }}
+                      style={styles.avatar}
+                    />
+                    <View
+                      style={[
+                        styles.callIndicatorBadge,
+                        { backgroundColor: "#10B981" },
+                      ]}
                     >
-                      10m ago
+                      <Text style={styles.callArrow}>↗</Text>
+                    </View>
+                  </View>
+                  <View style={styles.convDetails}>
+                    <View style={styles.convHeader}>
+                      <Text style={[styles.partnerName, { color: colors.text }]}>
+                        Sophia Martinez
+                      </Text>
+                      <Text
+                        style={[styles.convTime, { color: colors.textDimmed }]}
+                      >
+                        10m ago
+                      </Text>
+                    </View>
+                    <Text
+                      style={[styles.convPreview, { color: colors.textMuted }]}
+                    >
+                      Outgoing translation call • 4m 12s
                     </Text>
                   </View>
-                  <Text
-                    style={[styles.convPreview, { color: colors.textMuted }]}
-                  >
-                    Outgoing translation call • 4m 12s
-                  </Text>
                 </View>
-              </View>
 
-              <View style={[styles.convCard, { borderBottomWidth: 0 }]}>
-                <View style={styles.avatarContainer}>
-                  <Image
-                    source={{
-                      uri: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
-                    }}
-                    style={styles.avatar}
-                  />
-                  <View
-                    style={[
-                      styles.callIndicatorBadge,
-                      { backgroundColor: "#EF4444" },
-                    ]}
-                  >
-                    <Text style={styles.callArrow}>↙</Text>
-                  </View>
-                </View>
-                <View style={styles.convDetails}>
-                  <View style={styles.convHeader}>
-                    <Text style={[styles.partnerName, { color: colors.text }]}>
-                      Kenji Sato
-                    </Text>
-                    <Text
-                      style={[styles.convTime, { color: colors.textDimmed }]}
+                <View style={[styles.convCard, { borderBottomWidth: 0 }]}>
+                  <View style={styles.avatarContainer}>
+                    <Image
+                      source={{
+                        uri: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
+                      }}
+                      style={styles.avatar}
+                    />
+                    <View
+                      style={[
+                        styles.callIndicatorBadge,
+                        { backgroundColor: "#EF4444" },
+                      ]}
                     >
-                      Yesterday
+                      <Text style={styles.callArrow}>↙</Text>
+                    </View>
+                  </View>
+                  <View style={styles.convDetails}>
+                    <View style={styles.convHeader}>
+                      <Text style={[styles.partnerName, { color: colors.text }]}>
+                        Kenji Sato
+                      </Text>
+                      <Text
+                        style={[styles.convTime, { color: colors.textDimmed }]}
+                      >
+                        Yesterday
+                      </Text>
+                    </View>
+                    <Text
+                      style={[styles.convPreview, { color: colors.textMuted }]}
+                    >
+                      Incoming translation call • 12m 40s
                     </Text>
                   </View>
-                  <Text
-                    style={[styles.convPreview, { color: colors.textMuted }]}
-                  >
-                    Incoming translation call • 12m 40s
-                  </Text>
                 </View>
               </View>
-            </View>
+            ) : (
+              <View
+                style={{
+                  alignItems: "center",
+                  justifyContent: "center",
+                  paddingVertical: 40,
+                  paddingHorizontal: 20,
+                  backgroundColor: colors.cardBg,
+                  borderRadius: 24,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontWeight: "600",
+                    color: colors.text,
+                    marginBottom: 6,
+                  }}
+                >
+                  No recent calls
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 14,
+                    color: colors.textMuted,
+                    textAlign: "center",
+                  }}
+                >
+                  Your translation call history will appear here.
+                </Text>
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
@@ -3537,11 +3569,7 @@ export default function HomeScreen({ navigation }) {
               {/* Author Profile Row */}
               <View style={styles.createPostUserRow}>
                 <Image
-                  source={{
-                    uri:
-                      currentUser.avatar ||
-                      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
-                  }}
+                  source={typeof (currentUser.avatar) === "number" ? currentUser.avatar : { uri: currentUser.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80" }}
                   style={styles.createPostUserAvatar}
                 />
                 <View style={styles.createPostUserInfo}>
@@ -3983,7 +4011,7 @@ export default function HomeScreen({ navigation }) {
                   <View key={comment.id} style={styles.bottomSheetCommentItem}>
                     <View style={styles.bottomSheetCommentAvatarContainer}>
                       <Image
-                        source={{ uri: getAuthorAvatar(comment.author) }}
+                        source={typeof getAuthorAvatar(comment.author) === "number" ? getAuthorAvatar(comment.author) : { uri: getAuthorAvatar(comment.author) }}
                         style={styles.bottomSheetCommentAvatar}
                       />
                     </View>
@@ -4370,7 +4398,7 @@ export default function HomeScreen({ navigation }) {
                   >
                     <View style={styles.modalAvatarContainer}>
                       <Image
-                        source={{ uri: item.avatar_local_path || item.avatar }}
+                        source={typeof (item.avatar_local_path || item.avatar) === "number" ? (item.avatar_local_path || item.avatar) : { uri: item.avatar_local_path || item.avatar }}
                         style={styles.modalAvatar}
                       />
                       {isOnlineContact(item) && (

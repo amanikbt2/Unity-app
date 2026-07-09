@@ -282,14 +282,19 @@ export default function ConversationScreen({ route, navigation }) {
         if (db < noiseFloorRef.current) {
           noiseFloorRef.current = db; // Snap instantly to new quietest sound
         } else {
-          noiseFloorRef.current += 0.05; // Slowly drift up (0.5 dB/sec) to adapt to noisy rooms
+          noiseFloorRef.current += 0.01; // Drift up slower (0.1 dB/sec) to keep threshold sensitive
+        }
+
+        // Clamp noise floor to prevent loud environments from deafening the VAD
+        if (noiseFloorRef.current > -55) {
+          noiseFloorRef.current = -55;
         }
 
         // Update speech peak
         if (db > speechPeakRef.current) {
           speechPeakRef.current = db; // Snap instantly to new loudest sound
         } else {
-          speechPeakRef.current -= 0.1; // Slowly drift down (1 dB/sec)
+          speechPeakRef.current -= 0.8; // Recover 8x faster from loud spikes/blows (8 dB/sec)
         }
 
         // Enforce a minimum dynamic range so thresholding doesn't break in absolute silence
@@ -314,8 +319,8 @@ export default function ConversationScreen({ route, navigation }) {
         });
 
         if (handsFreeActiveRef.current) {
-          // Dynamic speech threshold is 35% above the noise floor
-          const dynamicThreshold = currentNoiseFloor + range * 0.35;
+          // Dynamic speech threshold is 22% above the noise floor for higher sensitivity
+          const dynamicThreshold = currentNoiseFloor + range * 0.22;
 
           if (db > dynamicThreshold) {
             if (silenceTimerRef.current) {
@@ -367,7 +372,7 @@ export default function ConversationScreen({ route, navigation }) {
     if (handsFreeActive) {
       try {
         await recorder.prepareToRecordAsync(COMPRESSED_AUDIO_OPTIONS);
-        recorder.record();
+        await recorder.record();
         setSubtitleUser("Listening...");
       } catch (e) {
         console.error("Restart recording failed", e);
@@ -778,7 +783,7 @@ export default function ConversationScreen({ route, navigation }) {
         });
 
         await recorder.prepareToRecordAsync(COMPRESSED_AUDIO_OPTIONS);
-        recorder.record();
+        await recorder.record();
       } catch (err) {
         console.error(err);
         setHandsFreeActive(false);
@@ -1291,7 +1296,7 @@ export default function ConversationScreen({ route, navigation }) {
           >
             <View style={styles.headerAvatarContainer}>
               <Image
-                source={{ uri: partnerAvatar }}
+                source={typeof partnerAvatar === "number" ? partnerAvatar : { uri: partnerAvatar }}
                 style={styles.headerAvatar}
               />
               {isOnline && (

@@ -1,3 +1,35 @@
+function sanitizeDetails(details) {
+  if (!details || typeof details !== "object") return {};
+  const clean = {};
+  for (const key in details) {
+    if (Object.prototype.hasOwnProperty.call(details, key)) {
+      const val = details[key];
+      const type = typeof val;
+      if (type === "string" || type === "number" || type === "boolean" || val === null) {
+        clean[key] = val;
+      } else if (type === "object") {
+        if (
+          val.nativeEvent ||
+          val._reactName ||
+          val.navigation ||
+          val.dispatch ||
+          val.state ||
+          val.currentTarget
+        ) {
+          clean[key] = "[Non-Serializable Object]";
+        } else {
+          try {
+            clean[key] = JSON.parse(JSON.stringify(val));
+          } catch {
+            clean[key] = "[Non-Serializable Object]";
+          }
+        }
+      }
+    }
+  }
+  return clean;
+}
+
 function safeStringify(obj) {
   const cache = new Set();
   return JSON.stringify(obj, (key, value) => {
@@ -20,7 +52,7 @@ export const trackEvent = async (event, user, details = {}) => {
     const bodyPayload = safeStringify({
       event,
       user: user?.name || user?.email || "Anonymous",
-      details
+      details: sanitizeDetails(details)
     });
 
     // Attempt standard fetch (for web) and fallback for React Native android 10.0.2.2 

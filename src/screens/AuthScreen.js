@@ -196,23 +196,27 @@ export default function AuthScreen({ navigation }) {
   return (
     <LinearGradient colors={["#EEF2F6", "#F8FAFC"]} style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.topContainer}>
-          {/* Logo container */}
-          <View style={styles.logoWrapper}>
-            <Image
-              source={require("../../assets/auth-bird-logo.png")}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          <View style={styles.topContainer}>
+            {/* Logo container */}
+            <View style={styles.logoWrapper}>
+              <Image
+                source={require("../../assets/auth-bird-logo.png")}
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
+            </View>
+
+            <Text style={styles.appTitle}>xayLite</Text>
+            <Text style={styles.appTagline}>
+              Talk to anyone, in any language instantly
+            </Text>
           </View>
 
-          <Text style={styles.appTitle}>xayLite</Text>
-          <Text style={styles.appTagline}>
-            Talk to anyone, in any language instantly
-          </Text>
-        </View>
-
-        <View style={styles.bottomContainer}>
+          <View style={styles.bottomContainer}>
           {savedAccounts && savedAccounts.length > 0 && (
             <View style={styles.savedAccountsContainer}>
               <Text style={styles.savedAccountsTitle}>Tap to log in</Text>
@@ -235,32 +239,16 @@ export default function AuthScreen({ navigation }) {
                     }}
                     activeOpacity={0.8}
                   >
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() =>
-                        openProfilePopup({
-                          name: account.name,
-                          avatar: account.avatar,
-                          langName:
-                            getLangDetails(account.nativeLang)?.name ||
-                            account.nativeLang,
-                          country:
-                            getLangDetails(account.nativeLang)?.country || "",
-                          uid: account.uid || account.email || account.name,
-                        })
-                      }
-                    >
-                      <View style={styles.savedAccountAvatarContainer}>
-                        <Image
-                          source={{ uri: account.avatar }}
-                          style={styles.savedAccountAvatar}
-                        />
-                        {account.status &&
-                          /online|available|ready to chat|connected|active/i.test(
-                            account.status,
-                          ) && <View style={styles.onlineBadge} />}
-                      </View>
-                    </TouchableOpacity>
+                    <View style={styles.savedAccountAvatarContainer}>
+                      <Image
+                        source={typeof account.avatar === "number" ? account.avatar : { uri: account.avatar }}
+                        style={styles.savedAccountAvatar}
+                      />
+                      {account.status &&
+                        /online|available|ready to chat|connected|active/i.test(
+                          account.status,
+                        ) && <View style={styles.onlineBadge} />}
+                    </View>
                     <Text style={styles.savedAccountName} numberOfLines={1}>
                       {(account.name || "Account").split(" ")[0]}
                     </Text>
@@ -386,7 +374,8 @@ export default function AuthScreen({ navigation }) {
             <Text style={styles.termsLink}>Terms</Text> and{" "}
             <Text style={styles.termsLink}>Privacy Policy</Text>.
           </Text>
-        </View>
+          </View>
+        </ScrollView>
       </SafeAreaView>
 
       <UserProfilePopup
@@ -415,9 +404,12 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: 24,
-    justifyContent: "space-between",
     paddingVertical: 32,
+    justifyContent: "space-between",
   },
   topContainer: {
     alignItems: "center",

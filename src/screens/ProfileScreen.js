@@ -1081,7 +1081,7 @@ export default function ProfileScreen({ route, navigation }) {
             activeOpacity={0.8}
           >
             <Image
-              source={{ uri: currentUser.avatar }}
+              source={typeof currentUser.avatar === "number" ? currentUser.avatar : { uri: currentUser.avatar }}
               style={[styles.avatarPreview, { borderColor: colors.cardBg }]}
             />
             {/* Pen Icon for Edit */}
@@ -1130,7 +1130,7 @@ export default function ProfileScreen({ route, navigation }) {
                   ]}
                 >
                   <Image
-                    source={{ uri: avatarUri }}
+                    source={typeof avatarUri === "number" ? avatarUri : { uri: avatarUri }}
                     style={[
                       styles.presetItem,
                       isSelected
