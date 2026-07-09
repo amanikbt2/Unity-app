@@ -19,6 +19,7 @@ import {
   Dimensions,
   Animated as RNAnimated,
   Alert,
+  Keyboard,
 } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -235,6 +236,24 @@ export default function ConversationScreen({ route, navigation }) {
   const [profilePopupVisible, setProfilePopupVisible] = useState(false);
   const [profilePopupData, setProfilePopupData] = useState(null);
   const [isConnected, setIsConnected] = useState(true);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSubscription = Keyboard.addListener(showEvent, () => {
+      setIsKeyboardVisible(true);
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      setIsKeyboardVisible(false);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
@@ -823,21 +842,7 @@ export default function ConversationScreen({ route, navigation }) {
       });
       await updateContactLastMessageTime(partnerId, Date.now());
 
-      // Speak translation out loud (simulating playing on partner's end)
-      if (translation) {
-        const isMale = currentUser.gender === "male";
-        const voiceGroup = isMale ? ttsVoices.male : ttsVoices.female;
-        const voiceId = partnerLang.startsWith("en")
-          ? voiceGroup.en
-          : voiceGroup.es;
-
-        Speech.speak(translation, {
-          language: partnerLang,
-          voice: voiceId,
-          rate: currentUser.aiVoiceRate || 1.0,
-          pitch: currentUser.aiVoicePitch || (isMale ? 0.9 : 1.1),
-        });
-      }
+      // Speak translation out loud (simulating playing on partner's end) - disabled as per user request to skip reading own messages
 
       // Clean up transient audio file immediately
       await FileSystem.deleteAsync(audioUri, { idempotent: true }).catch(
@@ -1422,7 +1427,7 @@ export default function ConversationScreen({ route, navigation }) {
             backgroundColor: colors.cardBg,
             borderTopColor: colors.border,
             borderTopWidth: 1,
-            paddingBottom: isKeyboardMode ? 0 : Math.max(insets.bottom, 12),
+            paddingBottom: (isKeyboardMode && isKeyboardVisible) ? 0 : Math.max(insets.bottom, 12),
           },
         ]}
       >
