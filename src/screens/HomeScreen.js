@@ -976,54 +976,57 @@ export default function HomeScreen({ navigation }) {
 
             let flag = "";
             let lang = "";
+            let name = item.name || "Unnamed Contact";
+            let localAvatar = "";
 
             if (!isUnityUser) {
               // Not on Xaylite -> show current user's native flag/language
               flag = getLangDetails(currentUser.nativeLang)?.flag || "🌍";
               lang = getLangDetails(currentUser.nativeLang)?.name || "English";
-            } else {
-              // On Xaylite -> show actual flag/lang if available, or fallback
-              const backendFlag = unityInfo?.flag || unityInfo?.nativeLangFlag;
-              const backendLang = unityInfo?.lang || unityInfo?.nativeLang;
-
-              if (backendFlag && backendLang) {
-                flag = backendFlag;
-                lang = backendLang;
-              } else if (phone.includes("+33")) {
-                flag = "\u{1F1EB}\u{1F1F7}";
-                lang = "French";
-              } else if (phone.includes("+81")) {
-                flag = "\u{1F1EF}\u{1F1F5}";
-                lang = "Japanese";
-              } else if (phone.includes("+34")) {
-                flag = "\u{1F1EA}\u{1F1F8}";
-                lang = "Spanish";
-              } else if (phone.includes("+254")) {
-                flag = "\u{1F1F0}\u{1F1EA}";
-                lang = "Swahili";
+              
+              if (item.image && item.image.uri) {
+                localAvatar = await cacheRemoteImage(item.image.uri, "avatar");
               } else {
-                const simulatedLangs = [
-                  { flag: "\u{1F1FA}\u{1F1F8}", lang: "English" },
-                  { flag: "\u{1F1EA}\u{1F1F8}", lang: "Spanish" },
-                  { flag: "\u{1F1EB}\u{1F1F7}", lang: "French" },
-                  { flag: "\u{1F1EF}\u{1F1F5}", lang: "Japanese" },
-                ];
-                const choice = simulatedLangs[idx % simulatedLangs.length];
-                flag = choice.flag;
-                lang = choice.lang;
+                localAvatar = getDefaultAvatar(item.name || `user_${idx}`);
               }
-            }
-
-            let localAvatar = "";
-            if (item.image && item.image.uri) {
-              localAvatar = await cacheRemoteImage(item.image.uri, "avatar");
             } else {
-              localAvatar = getDefaultAvatar(item.name || `user_${idx}`);
+              // On Xaylite -> use actual flag, lang, name and avatar from backend profile
+              name = unityInfo?.name || unityInfo?.username || item.name || "Unnamed Contact";
+              flag = unityInfo?.flag || unityInfo?.nativeLangFlag || "";
+              lang = unityInfo?.lang || unityInfo?.nativeLang || "";
+
+              if (!flag || !lang) {
+                if (phone.includes("+33")) {
+                  flag = "\u{1F1EB}\u{1F1F7}";
+                  lang = "French";
+                } else if (phone.includes("+81")) {
+                  flag = "\u{1F1EF}\u{1F1F5}";
+                  lang = "Japanese";
+                } else if (phone.includes("+34")) {
+                  flag = "\u{1F1EA}\u{1F1F8}";
+                  lang = "Spanish";
+                } else if (phone.includes("+254")) {
+                  flag = "\u{1F1F0}\u{1F1EA}";
+                  lang = "Swahili";
+                } else {
+                  // Default to user flag if backend didn't specify
+                  flag = getLangDetails(currentUser.nativeLang)?.flag || "🌍";
+                  lang = getLangDetails(currentUser.nativeLang)?.name || "English";
+                }
+              }
+
+              if (unityInfo?.avatar) {
+                localAvatar = unityInfo.avatar;
+              } else if (item.image && item.image.uri) {
+                localAvatar = await cacheRemoteImage(item.image.uri, "avatar");
+              } else {
+                localAvatar = getDefaultAvatar(name || `user_${idx}`);
+              }
             }
 
             return {
               id: item.id || `c_device_${Date.now()}_${idx}`,
-              name: item.name || "Unnamed Contact",
+              name: name,
               phone: phone,
               email: email,
               flag: flag,
