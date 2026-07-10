@@ -925,12 +925,11 @@ export default function HomeScreen({ navigation }) {
 
       if (data && data.length > 0) {
         console.log(
-          `[Contacts] Found ${data.length} device contacts. Syncing...`,
+          `[Contacts] Found ${data.length} device contacts. Syncing in background...`,
         );
 
-        const deviceContacts = data.slice(0, 50);
-
-        const phoneNumbers = deviceContacts
+        // Extract all phone numbers for a single fast backend check
+        const phoneNumbers = data
           .map((item) =>
             item.phoneNumbers && item.phoneNumbers.length > 0
               ? item.phoneNumbers[0].number
@@ -940,7 +939,7 @@ export default function HomeScreen({ navigation }) {
 
         let unityUserMap = {};
         try {
-          console.log("[Contacts] Checking backend for Unity accounts...");
+          console.log("[Contacts] Checking backend for Xaylite accounts...");
           const res = await fetch(`${SERVER_URL}/api/check-contacts`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -959,8 +958,14 @@ export default function HomeScreen({ navigation }) {
           );
         }
 
-        const formattedContacts = await Promise.all(
-          deviceContacts.map(async (item, idx) => {
+        // Process in batches of 15 to keep UI perfectly smooth and responsive
+        const batchSize = 15;
+        let processedCount = 0;
+
+        for (let i = 0; i < data.length; i += batchSize) {
+          const batch = data.slice(i, i + batchSize);
+          
+          const formattedBatch = batch.map((item, idx) => {
             const phone =
               item.phoneNumbers && item.phoneNumbers.length > 0
                 ? item.phoneNumbers[0].number
@@ -980,17 +985,15 @@ export default function HomeScreen({ navigation }) {
             let localAvatar = "";
 
             if (!isUnityUser) {
-              // Not on Xaylite -> show current user's native flag/language
               flag = getLangDetails(currentUser.nativeLang)?.flag || "🌍";
               lang = getLangDetails(currentUser.nativeLang)?.name || "English";
               
               if (item.image && item.image.uri) {
-                localAvatar = await cacheRemoteImage(item.image.uri, "avatar");
+                localAvatar = item.image.uri; // Direct local URI reference
               } else {
                 localAvatar = getDefaultAvatar(item.name || `user_${idx}`);
               }
             } else {
-              // On Xaylite -> use actual flag, lang, name and avatar from backend profile
               name = unityInfo?.name || unityInfo?.username || item.name || "Unnamed Contact";
               flag = unityInfo?.flag || unityInfo?.nativeLangFlag || "";
               lang = unityInfo?.lang || unityInfo?.nativeLang || "";
@@ -1009,7 +1012,6 @@ export default function HomeScreen({ navigation }) {
                   flag = "\u{1F1F0}\u{1F1EA}";
                   lang = "Swahili";
                 } else {
-                  // Default to user flag if backend didn't specify
                   flag = getLangDetails(currentUser.nativeLang)?.flag || "🌍";
                   lang = getLangDetails(currentUser.nativeLang)?.name || "English";
                 }
@@ -1018,14 +1020,14 @@ export default function HomeScreen({ navigation }) {
               if (unityInfo?.avatar) {
                 localAvatar = unityInfo.avatar;
               } else if (item.image && item.image.uri) {
-                localAvatar = await cacheRemoteImage(item.image.uri, "avatar");
+                localAvatar = item.image.uri;
               } else {
                 localAvatar = getDefaultAvatar(name || `user_${idx}`);
               }
             }
 
             return {
-              id: item.id || `c_device_${Date.now()}_${idx}`,
+              id: item.id || `c_device_${Date.now()}_${processedCount + idx}`,
               name: name,
               phone: phone,
               email: email,
@@ -1036,17 +1038,25 @@ export default function HomeScreen({ navigation }) {
               avatar: localAvatar,
               isUnityUser: isUnityUser ? 1 : 0,
             };
-          }),
-        );
+          });
 
-        await saveDbContacts(formattedContacts);
+          processedCount += batch.length;
 
-        const updatedContacts = await getDbContacts();
-        setContacts(updatedContacts);
-        setSyncedCount(formattedContacts.length);
+          // Save batch to database in background
+          await saveDbContacts(formattedBatch);
+
+          // Update contacts state incrementally in UI
+          const currentContacts = await getDbContacts();
+          setContacts(currentContacts);
+          setSyncedCount(processedCount);
+
+          // Yield UI thread rendering cycles (30ms sleep)
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        }
+
         setImported(true);
 
-        if (formattedContacts.length > 0) {
+        if (processedCount > 0) {
           setShowImportSuccess(true);
           setTimeout(() => setShowImportSuccess(false), 15000);
         }
