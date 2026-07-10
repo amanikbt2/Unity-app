@@ -402,7 +402,7 @@ export default function ConversationScreen({ route, navigation }) {
       unsubscribe = navigation.addListener("blur", () => {
         console.log("[ConversationScreen] Navigation blur: stopping audio recorder...");
         try {
-          if (recorder && recorder.isRecording) {
+          if (recorder) {
             recorder.stop().catch((err) =>
               console.warn("[ConversationScreen] Failed to stop recorder on blur:", err)
             );
@@ -430,7 +430,7 @@ export default function ConversationScreen({ route, navigation }) {
         console.warn("[ConversationScreen] Failed to stop Speech on unmount:", err);
       }
       try {
-        if (recorder && recorder.isRecording) {
+        if (recorder) {
           recorder.stop().catch((err) =>
             console.warn("[ConversationScreen] Failed to stop recorder on unmount:", err)
           );
@@ -449,6 +449,16 @@ export default function ConversationScreen({ route, navigation }) {
           setActiveChatPartnerId(partnerId);
         } else {
           setActiveChatPartnerId(null);
+          // Stop recording when app goes to background to prevent hot mic
+          try {
+            if (recorder) {
+              recorder.stop().catch(() => {});
+            }
+          } catch (_) {}
+          setIsRecording(false);
+          setHandsFreeActive(false);
+          handsFreeActiveRef.current = false;
+          isSpeakingRef.current = false;
         }
       } catch (err) {
         console.error(err);
@@ -510,7 +520,7 @@ export default function ConversationScreen({ route, navigation }) {
         console.error(err);
       }
     };
-  }, [navigation, partnerId]);
+  }, [navigation, partnerId, recorder]);
 
   const [isRecording, setIsRecording] = useState(false);
   const [handsFreeActive, setHandsFreeActive] = useState(false);
@@ -852,7 +862,9 @@ export default function ConversationScreen({ route, navigation }) {
   useEffect(() => {
     return () => {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      if (recorder.isRecording) recorder.stop();
+      if (recorder) {
+        recorder.stop().catch(() => {});
+      }
     };
   }, [recorder]);
 
@@ -1053,13 +1065,29 @@ export default function ConversationScreen({ route, navigation }) {
             pitch: currentUser.aiVoicePitch || 1.1,
           });
 
-          // Schedule 2-minute reminder for user to reply
-          scheduleLocalNotification(
-            "Waiting for Reply",
-            `${partnerName} is waiting for your reply, maybe you forgot?`,
-            { seconds: 120 },
-            partnerId
-          );
+          // Count consecutive partner messages before scheduling reply reminder
+          let consecutivePartnerMsgs = 0;
+          for (let idx = chatBubbles.length - 1; idx >= 0; idx--) {
+            if (chatBubbles[idx].sender === "partner") {
+              consecutivePartnerMsgs++;
+            } else if (chatBubbles[idx].sender === "user") {
+              break;
+            }
+          }
+          // Add 1 for the newly received partner response
+          consecutivePartnerMsgs += 1;
+
+          // Only schedule 2-minute reminder if they sent 2 or more messages without reply
+          if (consecutivePartnerMsgs >= 2) {
+            scheduleLocalNotification(
+              "Waiting for Reply",
+              `${partnerName} is waiting for your reply, maybe you forgot?`,
+              { seconds: 120 },
+              partnerId
+            );
+          } else {
+            console.log(`[ConversationScreen] Skipped reply reminder: consecutive partner messages = ${consecutivePartnerMsgs}`);
+          }
         } catch (err) {
           console.error(
             "Failed to translate simulated partner voice response:",
