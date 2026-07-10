@@ -397,26 +397,46 @@ export default function ConversationScreen({ route, navigation }) {
 
   // Stop microphone recording when leaving the screen or unmounting
   useEffect(() => {
-    const unsubscribe = navigation.addListener("blur", () => {
-      console.log("[ConversationScreen] Navigation blur: stopping audio recorder...");
-      if (recorder && recorder.isRecording) {
-        recorder.stop().catch((err) =>
-          console.warn("[ConversationScreen] Failed to stop recorder on blur:", err)
-        );
-      }
-      setIsRecording(false);
-      setHandsFreeActive(false);
-      handsFreeActiveRef.current = false;
-      isSpeakingRef.current = false;
-    });
+    let unsubscribe = null;
+    try {
+      unsubscribe = navigation.addListener("blur", () => {
+        console.log("[ConversationScreen] Navigation blur: stopping audio recorder...");
+        try {
+          if (recorder && recorder.isRecording) {
+            recorder.stop().catch((err) =>
+              console.warn("[ConversationScreen] Failed to stop recorder on blur:", err)
+            );
+          }
+        } catch (err) {
+          console.warn("[ConversationScreen] Sync error stopping recorder on blur:", err);
+        }
+        setIsRecording(false);
+        setHandsFreeActive(false);
+        handsFreeActiveRef.current = false;
+        isSpeakingRef.current = false;
+      });
+    } catch (err) {
+      console.warn("[ConversationScreen] Failed to add blur listener:", err);
+    }
 
     return () => {
-      unsubscribe();
-      console.log("[ConversationScreen] Screen unmount: stopping audio recorder...");
-      if (recorder && recorder.isRecording) {
-        recorder.stop().catch((err) =>
-          console.warn("[ConversationScreen] Failed to stop recorder on unmount:", err)
-        );
+      if (unsubscribe && typeof unsubscribe === "function") {
+        try { unsubscribe(); } catch (_) {}
+      }
+      console.log("[ConversationScreen] Screen unmount: stopping audio recorder & Speech...");
+      try {
+        Speech.stop();
+      } catch (err) {
+        console.warn("[ConversationScreen] Failed to stop Speech on unmount:", err);
+      }
+      try {
+        if (recorder && recorder.isRecording) {
+          recorder.stop().catch((err) =>
+            console.warn("[ConversationScreen] Failed to stop recorder on unmount:", err)
+          );
+        }
+      } catch (err) {
+        console.warn("[ConversationScreen] Sync error stopping recorder on unmount:", err);
       }
     };
   }, [navigation, recorder]);
@@ -424,28 +444,71 @@ export default function ConversationScreen({ route, navigation }) {
   // Suppress incoming/reminder notifications while actively inside this chat view
   useEffect(() => {
     const handleAppStateChange = (nextAppState) => {
-      if (nextAppState === "active") {
-        setActiveChatPartnerId(partnerId);
-      } else {
-        setActiveChatPartnerId(null);
+      try {
+        if (nextAppState === "active") {
+          setActiveChatPartnerId(partnerId);
+        } else {
+          setActiveChatPartnerId(null);
+        }
+      } catch (err) {
+        console.error(err);
       }
     };
 
-    const appStateSub = AppState.addEventListener("change", handleAppStateChange);
-    setActiveChatPartnerId(partnerId);
-
-    const focusUnsubscribe = navigation.addListener("focus", () => {
+    let appStateSub = null;
+    try {
+      appStateSub = AppState.addEventListener("change", handleAppStateChange);
+    } catch (err) {
+      console.warn("Failed to add AppState listener:", err);
+    }
+    
+    try {
       setActiveChatPartnerId(partnerId);
-    });
-    const blurUnsubscribe = navigation.addListener("blur", () => {
-      setActiveChatPartnerId(null);
-    });
+    } catch (err) {
+      console.error(err);
+    }
+
+    let focusUnsubscribe = null;
+    let blurUnsubscribe = null;
+    try {
+      focusUnsubscribe = navigation.addListener("focus", () => {
+        try { setActiveChatPartnerId(partnerId); } catch (_) {}
+      });
+      blurUnsubscribe = navigation.addListener("blur", () => {
+        try { setActiveChatPartnerId(null); } catch (_) {}
+      });
+    } catch (err) {
+      console.warn("Failed to add focus/blur listener for notifications:", err);
+    }
 
     return () => {
-      appStateSub.remove();
-      focusUnsubscribe();
-      blurUnsubscribe();
-      setActiveChatPartnerId(null);
+      try {
+        if (appStateSub && typeof appStateSub.remove === "function") {
+          appStateSub.remove();
+        } else if (AppState.removeEventListener) {
+          AppState.removeEventListener("change", handleAppStateChange);
+        }
+      } catch (err) {
+        console.warn("Failed to remove AppState listener:", err);
+      }
+      
+      try {
+        if (focusUnsubscribe && typeof focusUnsubscribe === "function") {
+          focusUnsubscribe();
+        }
+      } catch (_) {}
+      
+      try {
+        if (blurUnsubscribe && typeof blurUnsubscribe === "function") {
+          blurUnsubscribe();
+        }
+      } catch (_) {}
+
+      try {
+        setActiveChatPartnerId(null);
+      } catch (err) {
+        console.error(err);
+      }
     };
   }, [navigation, partnerId]);
 
