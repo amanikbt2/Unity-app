@@ -21,7 +21,11 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -44,8 +48,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "fad38d9d-1186-4f85-b710-c5a580465b71"
+        "projectId": "44c29046-283a-46bd-8f8f-529810f3d096"
       }
-    }
+    },
+    "owner": "sliver1"
   }
 }

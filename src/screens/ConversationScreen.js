@@ -19,6 +19,7 @@ import {
   Dimensions,
   Animated as RNAnimated,
   Alert,
+  AppState,
   Keyboard,
 } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
@@ -51,7 +52,7 @@ import {
 } from "../services/TranslationService";
 import { AppContext } from "../context/AppContext";
 import * as Notifications from "expo-notifications";
-import { scheduleLocalNotification } from "../services/NotificationService";
+import { scheduleLocalNotification, setActiveChatPartnerId } from "../services/NotificationService";
 import UserProfilePopup from "../components/UserProfilePopup";
 import {
   saveChat,
@@ -393,6 +394,60 @@ export default function ConversationScreen({ route, navigation }) {
       onRecordingStatusUpdate(recorderState);
     }
   }, [onRecordingStatusUpdate, recorderState]);
+
+  // Stop microphone recording when leaving the screen or unmounting
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("blur", () => {
+      console.log("[ConversationScreen] Navigation blur: stopping audio recorder...");
+      if (recorder && recorder.isRecording) {
+        recorder.stop().catch((err) =>
+          console.warn("[ConversationScreen] Failed to stop recorder on blur:", err)
+        );
+      }
+      setIsRecording(false);
+      setHandsFreeActive(false);
+      handsFreeActiveRef.current = false;
+      isSpeakingRef.current = false;
+    });
+
+    return () => {
+      unsubscribe();
+      console.log("[ConversationScreen] Screen unmount: stopping audio recorder...");
+      if (recorder && recorder.isRecording) {
+        recorder.stop().catch((err) =>
+          console.warn("[ConversationScreen] Failed to stop recorder on unmount:", err)
+        );
+      }
+    };
+  }, [navigation, recorder]);
+
+  // Suppress incoming/reminder notifications while actively inside this chat view
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState) => {
+      if (nextAppState === "active") {
+        setActiveChatPartnerId(partnerId);
+      } else {
+        setActiveChatPartnerId(null);
+      }
+    };
+
+    const appStateSub = AppState.addEventListener("change", handleAppStateChange);
+    setActiveChatPartnerId(partnerId);
+
+    const focusUnsubscribe = navigation.addListener("focus", () => {
+      setActiveChatPartnerId(partnerId);
+    });
+    const blurUnsubscribe = navigation.addListener("blur", () => {
+      setActiveChatPartnerId(null);
+    });
+
+    return () => {
+      appStateSub.remove();
+      focusUnsubscribe();
+      blurUnsubscribe();
+      setActiveChatPartnerId(null);
+    };
+  }, [navigation, partnerId]);
 
   const [isRecording, setIsRecording] = useState(false);
   const [handsFreeActive, setHandsFreeActive] = useState(false);
@@ -940,6 +995,7 @@ export default function ConversationScreen({ route, navigation }) {
             "Waiting for Reply",
             `${partnerName} is waiting for your reply, maybe you forgot?`,
             { seconds: 120 },
+            partnerId
           );
         } catch (err) {
           console.error(

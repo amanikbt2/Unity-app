@@ -3,13 +3,33 @@ import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 
+let activeChatPartnerId = null;
+
+export function setActiveChatPartnerId(id) {
+  activeChatPartnerId = id;
+  console.log(`[NotificationService] Active chat partner set to: ${id}`);
+}
+
 // Configure local notification handlers
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data || {};
+    if (activeChatPartnerId) {
+      if (data.partnerId === activeChatPartnerId || data.type === 'chat') {
+        console.log(`[NotificationService] Suppressing active partner notification: ${data.partnerId || 'chat'}`);
+        return {
+          shouldShowAlert: false,
+          shouldPlaySound: false,
+          shouldSetBadge: false,
+        };
+      }
+    }
+    return {
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    };
+  },
 });
 
 let BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://unity-3xc2.onrender.com';
@@ -125,20 +145,36 @@ function getSystemEmoji(iconType) {
 /**
  * Triggers a local notification alert.
  */
-export async function scheduleLocalNotification(title, body, data = {}) {
+export async function scheduleLocalNotification(title, body, trigger = null, partnerId = "") {
   try {
     if (Platform.OS === 'web') {
       console.log(`[Notification] ${title}: ${body}`);
       return;
     }
 
+    if (partnerId && activeChatPartnerId === partnerId) {
+      console.log(`[NotificationService] Suppressed scheduling notification for active partner: ${partnerId}`);
+      return;
+    }
+
+    let normalizedTrigger = null;
+    if (trigger && trigger.seconds) {
+      normalizedTrigger = {
+        type: 'timeInterval',
+        seconds: trigger.seconds,
+        repeats: trigger.repeats || false,
+      };
+    } else if (trigger) {
+      normalizedTrigger = trigger;
+    }
+
     await Notifications.scheduleNotificationAsync({
       content: {
         title,
         body,
-        data,
+        data: { partnerId },
       },
-      trigger: null,
+      trigger: normalizedTrigger,
     });
   } catch (err) {
     console.warn("[NotificationService] scheduleLocalNotification failed:", err);
@@ -148,10 +184,15 @@ export async function scheduleLocalNotification(title, body, data = {}) {
 /**
  * Specifically displays a notification for an incoming chat message.
  */
-export async function displayMessageNotification(senderName, body, avatarUrl = "") {
+export async function displayMessageNotification(senderName, body, avatarUrl = "", partnerId = "") {
   try {
     if (Platform.OS === 'web') {
       console.log(`[Message from ${senderName}] ${body}`);
+      return;
+    }
+
+    if (partnerId && activeChatPartnerId === partnerId) {
+      console.log(`[NotificationService] Suppressed incoming message notification for active partner: ${partnerId}`);
       return;
     }
 
@@ -159,7 +200,7 @@ export async function displayMessageNotification(senderName, body, avatarUrl = "
       content: {
         title: `💬 New message from ${senderName}`,
         body: body,
-        data: { type: 'chat', senderName },
+        data: { type: 'chat', senderName, partnerId },
       },
       trigger: null,
     });

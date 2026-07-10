@@ -189,7 +189,7 @@ class MessageQueueService {
 
         // Trigger background notification if we got a valid reply
         if (replyText && job.partnerName) {
-           await displayMessageNotification(job.partnerName, replyText, job.partnerAvatarUrl);
+           await displayMessageNotification(job.partnerName, replyText, job.partnerAvatarUrl, job.partnerId);
         }
       }
     }
