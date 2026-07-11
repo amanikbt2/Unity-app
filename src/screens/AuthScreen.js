@@ -83,8 +83,8 @@ export default function AuthScreen({ navigation }) {
     setGoogleLoading(true);
     logLoginClick('google');
     console.log("[Google Signin] Initiating Google login flow...");
-    console.log("[Google Signin] EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID:", process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID);
-    console.log("[Google Signin] EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID:", process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID);
+
+    const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
 
     if (
       !process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID &&
@@ -92,15 +92,37 @@ export default function AuthScreen({ navigation }) {
     ) {
       console.warn("[Google Signin] Bypassing Google login: Client IDs are missing/undefined. Falling back to mock mode.");
       // Mock mode fallback for testing immediately
-      setTimeout(() => {
-        updateSettings({
-          name: "Real User",
-          email: "realuser@example.com",
-          avatar:
-            DEFAULT_AVATAR,
-          isRealUser: true,
-        });
-        logLoginSuccess('google_mock', 'Real User', 'realuser@example.com');
+      setTimeout(async () => {
+        const mockEmail = "realuser@example.com";
+        let existingProfile = null;
+        try {
+          console.log(`[Google Signin Mock] Checking if account exists for: ${mockEmail}...`);
+          const checkRes = await fetch(`${API_URL}/api/users/email/${encodeURIComponent(mockEmail)}`);
+          if (checkRes.ok) {
+            const checkData = await checkRes.json();
+            if (checkData.exists && checkData.user) {
+              existingProfile = checkData.user;
+              console.log("[Google Signin Mock] Reusing existing profile:", existingProfile);
+            }
+          }
+        } catch (err) {
+          console.warn("[Google Signin Mock] Failed to query existing profile:", err);
+        }
+
+        if (existingProfile) {
+          await updateSettings({
+            ...existingProfile,
+            isRealUser: true,
+          });
+        } else {
+          await updateSettings({
+            name: "Real User",
+            email: mockEmail,
+            avatar: DEFAULT_AVATAR,
+            isRealUser: true,
+          });
+        }
+        logLoginSuccess('google_mock', 'Real User', mockEmail);
         setGoogleLoading(false);
         goHome();
       }, 900);
@@ -124,14 +146,35 @@ export default function AuthScreen({ navigation }) {
         throw new Error("Google sign-in returned no user data.");
       }
 
-      await updateSettings({
-        name: user.name || "Google User",
-        email: user.email,
-        avatar:
-          user.photo ||
-          DEFAULT_AVATAR,
-        isRealUser: true,
-      });
+      // Check if user already exists in the backend by email
+      let existingProfile = null;
+      try {
+        console.log(`[Google Signin] Checking if account exists for email: ${user.email}...`);
+        const checkRes = await fetch(`${API_URL}/api/users/email/${encodeURIComponent(user.email)}`);
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          if (checkData.exists && checkData.user) {
+            existingProfile = checkData.user;
+            console.log("[Google Signin] Reusing existing profile from server:", existingProfile);
+          }
+        }
+      } catch (err) {
+        console.warn("[Google Signin] Failed to query existing profile:", err);
+      }
+
+      if (existingProfile) {
+        await updateSettings({
+          ...existingProfile,
+          isRealUser: true,
+        });
+      } else {
+        await updateSettings({
+          name: user.name || "Google User",
+          email: user.email,
+          avatar: user.photo || DEFAULT_AVATAR,
+          isRealUser: true,
+        });
+      }
       logLoginSuccess('google', user.name || 'Google User', user.email);
       goHome();
     } catch (error) {

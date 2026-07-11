@@ -206,6 +206,12 @@ export const AppProvider = ({ children }) => {
           activeAvatarSlot: updated.activeAvatarSlot || 0,
           platform: Platform.OS,
           appVersion: Constants.expoConfig?.version || Constants.manifest?.version || "1.0.0",
+          nativeLang: updated.nativeLang || "en",
+          unityAILang: updated.unityAILang || "es",
+          phone: updated.phone || "",
+          nativeLangSelected: updated.nativeLangSelected || false,
+          voiceAITrained: updated.voiceAITrained || false,
+          micTested: updated.micTested || false,
         };
 
         queueProfileSync("save", profileData).catch((err) =>
