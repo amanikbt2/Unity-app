@@ -167,6 +167,7 @@ const EXPLORE_PEOPLE = [
     flag: "🇫🇷",
     langName: "French (France)",
     bio: "Hi! I am a culinary chef in Paris. Let's exchange recipes!",
+    isUnityUser: true,
   },
   {
     id: "e2",
@@ -175,6 +176,7 @@ const EXPLORE_PEOPLE = [
     flag: "🇯🇵",
     langName: "Japanese (Japan)",
     bio: "Tech enthusiast and history buff. Happy to translate and chat!",
+    isUnityUser: true,
   },
 ];
 
@@ -559,6 +561,7 @@ export default function HomeScreen({ navigation }) {
             return {
               ...profile,
               avatar_local_path: localAvatar || "",
+              isUnityUser: true, // Force to true as explore profiles are always registered app users
             };
           }),
         );
