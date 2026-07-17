@@ -514,7 +514,7 @@ export default function ProfileScreen({ route, navigation }) {
 
   const trainingSentences = [
     "The quick brown fox jumps over the lazy dog.",
-    "Unity translates my voice instantly to any language in real-time.",
+    "Xaylite translates my voice instantly to any language in real-time.",
     "Global communication is now seamless and natural for everyone.",
   ];
 

@@ -225,7 +225,7 @@ const INITIAL_POSTS = [
     flag: "🇪🇸",
     time: "4 hours ago",
     content:
-      "Preparando la presentación para la cumbre europea de mañana. Gracias a Dios por la traducción de documentos en tiempo real de Unity, me ahorró horas de trabajo duro. 🇪🇺💼",
+      "Preparando la presentación para la cumbre europea de mañana. Gracias a Dios por la traducción de documentos en tiempo real de Xaylite, me ahorró horas de trabajo duro. 🇪🇺💼",
     images: [],
     likes: 12,
     liked: false,
@@ -1114,7 +1114,7 @@ export default function HomeScreen({ navigation }) {
                 "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
               flag: "🌍",
               langName: "Universal Partner",
-              status: "Hey there! I am using Unity.",
+              status: "Hey there! I am using Xaylite.",
             };
             setContacts((prev) => [...prev, newContact]);
             setStartConvModalVisible(false);

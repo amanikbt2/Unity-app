@@ -204,7 +204,7 @@ export const AppProvider = ({ children }) => {
           avatar: updated.avatar,
           flag: flag,
           langName: langName,
-          bio: updated.bio || "Available on Unity",
+          bio: updated.bio || "Available on Xaylite",
           email: updated.email || "guest",
           activeAvatarSlot: updated.activeAvatarSlot || 0,
           platform: Platform.OS,
