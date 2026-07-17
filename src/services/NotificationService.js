@@ -95,7 +95,22 @@ export async function registerForPushNotificationsAsync() {
 export async function checkForNewNotifications() {
   try {
     const lastId = await AsyncStorage.getItem("amani_last_notification_id");
-    const response = await fetch(`${BASE_URL}/api/notifications`);
+
+    // Read user email from saved profile settings for targeted notifications
+    let userEmail = '';
+    try {
+      const profileRaw = await AsyncStorage.getItem("amani_profile_settings");
+      if (profileRaw) {
+        const profile = JSON.parse(profileRaw);
+        userEmail = (profile.email || '').trim().toLowerCase();
+      }
+    } catch (_) {}
+
+    const url = userEmail
+      ? `${BASE_URL}/api/notifications?email=${encodeURIComponent(userEmail)}`
+      : `${BASE_URL}/api/notifications`;
+
+    const response = await fetch(url);
     if (!response.ok) return;
     
     const data = await response.json();
