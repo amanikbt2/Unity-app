@@ -53,7 +53,8 @@ if (Platform.OS !== "web" && BASE_URL.includes("localhost") && Constants.expoCon
 }
 
 /**
- * Request permission for native Android/iOS notifications on startup
+ * Request permission for native Android/iOS notifications on startup.
+ * Returns true if granted, false otherwise.
  */
 export async function registerForPushNotificationsAsync() {
   if (Platform.OS === 'web') return false;
@@ -96,13 +97,14 @@ export async function checkForNewNotifications() {
   try {
     const lastId = await AsyncStorage.getItem("amani_last_notification_id");
 
-    // Read user email from saved profile settings for targeted notifications
+    // Read user profile from AsyncStorage for targeted notifications + placeholder resolution
     let userEmail = '';
+    let userProfile = {};
     try {
       const profileRaw = await AsyncStorage.getItem("amani_profile_settings");
       if (profileRaw) {
-        const profile = JSON.parse(profileRaw);
-        userEmail = (profile.email || '').trim().toLowerCase();
+        userProfile = JSON.parse(profileRaw);
+        userEmail = (userProfile.email || '').trim().toLowerCase();
       }
     } catch (_) {}
 
@@ -112,17 +114,17 @@ export async function checkForNewNotifications() {
 
     const response = await fetch(url);
     if (!response.ok) return;
-    
+
     const data = await response.json();
     const latestNotification = data.latest;
     if (!latestNotification) return;
-    
+
     if (latestNotification.id !== lastId) {
       // Store new notification campaign ID
       await AsyncStorage.setItem("amani_last_notification_id", latestNotification.id);
-      
-      // Trigger native notification banner
-      await showNativeNotification(latestNotification);
+
+      // Trigger native notification banner (with user profile for placeholder resolution)
+      await showNativeNotification(latestNotification, userProfile);
     }
   } catch (err) {
     console.warn("[NotificationService] Polling failed:", err.message);
@@ -130,9 +132,49 @@ export async function checkForNewNotifications() {
 }
 
 /**
+ * Gets the Expo push token for this device.
+ * Send this to the backend via /api/register-push to enable background push.
+ * Must be called after notification permissions are granted.
+ */
+export async function getExpoPushToken() {
+  if (Platform.OS === 'web') return null;
+  try {
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ??
+      Constants.easConfig?.projectId;
+    if (!projectId) {
+      console.warn('[NotificationService] No EAS projectId found in app.json. Push token unavailable.');
+      return null;
+    }
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+    console.log('[NotificationService] Expo push token:', tokenData.data);
+    return tokenData.data;
+  } catch (err) {
+    console.warn('[NotificationService] Failed to get Expo push token:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Resolves magic word placeholders in a string with actual user profile values.
+ * Supported: {username} or {name}, {email}, {firstname}
+ */
+function resolvePlaceholders(text, profile = {}) {
+  if (!text) return text;
+  const name = profile.name || profile.displayName || 'there';
+  const firstName = name.split(' ')[0];
+  const email = profile.email || '';
+  return text
+    .replace(/\{username\}/gi, name)
+    .replace(/\{name\}/gi, name)
+    .replace(/\{firstname\}/gi, firstName)
+    .replace(/\{email\}/gi, email);
+}
+
+/**
  * Presents a local notification banner based on alert type
  */
-async function showNativeNotification(notif) {
+async function showNativeNotification(notif, userProfile = {}) {
   if (Platform.OS === 'web') {
     alert(`[${notif.type === 'chat' ? 'Message' : 'System'}] ${notif.title || notif.senderName}: ${notif.body}`);
     return;
@@ -140,14 +182,14 @@ async function showNativeNotification(notif) {
 
   let title = "";
   let body = "";
-  
+
   if (notif.type === 'chat') {
-    title = `💬 New message from ${notif.senderName}`;
-    body = notif.body;
+    title = `💬 New message from ${resolvePlaceholders(notif.senderName, userProfile)}`;
+    body = resolvePlaceholders(notif.body, userProfile);
   } else {
     const iconEmoji = getSystemEmoji(notif.icon);
-    title = `${iconEmoji} ${notif.title}`;
-    body = notif.body;
+    title = `${iconEmoji} ${resolvePlaceholders(notif.title, userProfile)}`;
+    body = resolvePlaceholders(notif.body, userProfile);
   }
 
   await Notifications.scheduleNotificationAsync({
@@ -170,7 +212,7 @@ function getSystemEmoji(iconType) {
 }
 
 /**
- * Triggers a local notification alert.
+ * Triggers a local notification alert (for timed reminders etc.).
  */
 export async function scheduleLocalNotification(title, body, trigger = null, partnerId = "") {
   try {
@@ -209,7 +251,8 @@ export async function scheduleLocalNotification(title, body, trigger = null, par
 }
 
 /**
- * Specifically displays a notification for an incoming chat message.
+ * Displays a local notification for an incoming chat message (foreground only).
+ * For background/closed-app delivery, the backend calls /api/push-message instead.
  */
 export async function displayMessageNotification(senderName, body, avatarUrl = "", partnerId = "") {
   try {

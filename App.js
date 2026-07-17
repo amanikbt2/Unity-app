@@ -24,7 +24,7 @@ import AppAnnouncerModal from "./src/components/AppAnnouncerModal";
 import { initGlobalErrorHandler } from "./src/services/LogService";
 import { initProfileSync } from "./src/services/ProfileSyncService";
 import { trackEvent } from "./src/utils/Analytics";
-import { registerForPushNotificationsAsync, checkForNewNotifications } from "./src/services/NotificationService";
+import { registerForPushNotificationsAsync, getExpoPushToken } from "./src/services/NotificationService";
 
 // Start catching uncaught app errors as early as possible
 initGlobalErrorHandler();
@@ -35,16 +35,22 @@ initProfileSync();
 const Stack = createNativeStackNavigator();
 
 const AppContent = () => {
-  const { currentUser, loading } = useContext(AppContext);
+  const { currentUser, loading, updateSettings } = useContext(AppContext);
 
   useEffect(() => {
-    registerForPushNotificationsAsync();
-    
-    // Poll every 2 minutes (120,000ms)
-    const interval = setInterval(checkForNewNotifications, 120000);
-    checkForNewNotifications();
-    
-    return () => clearInterval(interval);
+    async function initPush() {
+      const granted = await registerForPushNotificationsAsync();
+      if (!granted) return;
+      // Get this device's permanent Expo push token and save it to the backend.
+      // The backend stores it in MongoDB so push works even when the app is closed.
+      const token = await getExpoPushToken();
+      if (token) {
+        // Store token on the user profile — AppContext will forward it to /api/register-push
+        updateSettings({ expoPushToken: token });
+      }
+    }
+    initPush();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (loading) {

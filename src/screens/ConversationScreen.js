@@ -1385,6 +1385,20 @@ export default function ConversationScreen({ route, navigation }) {
       });
       await updateContactLastMessageTime(partnerId, Date.now());
 
+      if (partnerId !== "unity_ai") {
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+        fetch(`${API_URL}/api/push-message`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            recipientId: partnerId,
+            senderName: currentUser.name || "Xaylite User",
+            messageText: transcription,
+            type: "chat"
+          })
+        }).catch(err => console.warn("[Push] Failed to send push message:", err.message));
+      }
+
       // Clean up transient audio file immediately
       await FileSystem.deleteAsync(audioUri, { idempotent: true }).catch(
         (err) => console.warn("Failed to delete transient audio file:", err),
@@ -1558,6 +1572,20 @@ export default function ConversationScreen({ route, navigation }) {
         await updateContactLastMessageTime(partnerId, Date.now());
       } catch (dbError) {
         console.warn("Skipping SQLite save on Web:", dbError.message);
+      }
+
+      if (partnerId !== "unity_ai") {
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+        fetch(`${API_URL}/api/push-message`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            recipientId: partnerId,
+            senderName: currentUser.name || "Xaylite User",
+            messageText: text,
+            type: "chat"
+          })
+        }).catch(err => console.warn("[Push] Failed to send push message:", err.message));
       }
 
       if (partnerId === "unity_ai") {

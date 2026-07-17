@@ -87,11 +87,17 @@ const AppAnnouncerModal = () => {
     setVisible(false);
   };
 
-  // Replace {name} placeholder with user's name or 'User' as fallback
+  // Replace placeholders with actual user profile values
   const interpolate = (str) => {
     if (!str) return '';
-    const name = currentUser?.username || currentUser?.displayName || currentUser?.name || 'User';
-    return str.replace(/\{name\}/gi, name);
+    const name = currentUser?.username || currentUser?.displayName || currentUser?.name || 'there';
+    const firstName = name.split(' ')[0];
+    const email = currentUser?.email || '';
+    return str
+      .replace(/\{username\}/gi, name)
+      .replace(/\{name\}/gi, name)
+      .replace(/\{firstname\}/gi, firstName)
+      .replace(/\{email\}/gi, email);
   };
 
   const handleAction = async (url) => {

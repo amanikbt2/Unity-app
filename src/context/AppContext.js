@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect } from "react";
+import React, { createContext, useState, useEffect, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { clearAllAppData } from "../services/StorageService";
 import { Image, Platform } from "react-native";
@@ -116,36 +116,34 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      loadSettings();
-    }, 0);
+  const getLangDetails = (langCode) => {
+    return LANGS[langCode] || { name: langCode, flag: "🌍", country: "" };
+  };
 
-    const initNotifications = async () => {
-      try {
-        const {
-          registerForPushNotificationsAsync,
-        } = require("../services/NotificationService");
-        const token = await registerForPushNotificationsAsync();
-        if (token) {
-          // updateSettings is declared above (moved) so it's safe to call here
-          updateSettings({ expoPushToken: token });
-        }
-      } catch (e) {
-        console.error("Push notification setup error:", e);
-      }
-    };
+  const getLangDetailsFromFlag = (flag) => {
+    return FLAG_MAP[flag] || { name: "Unknown", country: "" };
+  };
 
-    initNotifications();
-
-    return () => clearTimeout(timer);
-  }, []);
-
+  // ─── updateSettings ──────────────────────────────────────────────────────────
+  // Always reads the current persisted profile from AsyncStorage before merging.
+  // This prevents a race condition where a background call (e.g. push-token
+  // registration) arrives before loadSettings has propagated to React state and
+  // overwrites isRealUser=true with the DEFAULT_USER's isRealUser=false.
   const updateSettings = async (newSettings) => {
     try {
+      let storedBase = { ...DEFAULT_USER };
+      try {
+        const storedRaw = await AsyncStorage.getItem("amani_profile_settings");
+        if (storedRaw) {
+          storedBase = { ...DEFAULT_USER, ...JSON.parse(storedRaw) };
+        }
+      } catch (_) {
+        // Storage read failed — fall back to current React state
+        storedBase = { ...DEFAULT_USER, ...currentUser };
+      }
+
       const merged = {
-        ...DEFAULT_USER,
-        ...currentUser,
+        ...storedBase,
         ...newSettings,
       };
 
@@ -228,6 +226,37 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  // Keep a stable ref so the startup effect can call updateSettings without
+  // adding it to the dependency array (would cause re-runs on every render).
+  const updateSettingsRef = useRef(updateSettings);
+  useEffect(() => {
+    updateSettingsRef.current = updateSettings;
+  });
+
+  // ─── Startup: load persisted settings FIRST, then register push token ────────
+  useEffect(() => {
+    const init = async () => {
+      await loadSettings();
+
+      try {
+        const {
+          registerForPushNotificationsAsync,
+        } = require("../services/NotificationService");
+        const token = await registerForPushNotificationsAsync();
+        if (token) {
+          // updateSettingsRef.current is the freshest updateSettings closure,
+          // and updateSettings itself reads from AsyncStorage — so isRealUser
+          // will never be accidentally clobbered by a stale state snapshot.
+          updateSettingsRef.current({ expoPushToken: token });
+        }
+      } catch (e) {
+        console.error("Push notification setup error:", e);
+      }
+    };
+
+    init();
+  }, []);
+
   const logoutUser = async () => {
     try {
       // Keep the user in savedAccounts (already handled during updateSettings)
@@ -288,14 +317,6 @@ export const AppProvider = ({ children }) => {
       setSavedAccounts([]);
       setLoading(false);
     }
-  };
-
-  const getLangDetails = (langCode) => {
-    return LANGS[langCode] || { name: langCode, flag: "🌍", country: "" };
-  };
-
-  const getLangDetailsFromFlag = (flag) => {
-    return FLAG_MAP[flag] || { name: "Unknown", country: "" };
   };
 
   return (
