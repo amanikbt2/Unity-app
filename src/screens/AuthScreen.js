@@ -281,7 +281,7 @@ export default function AuthScreen({ navigation }) {
               />
             </View>
 
-            <Text style={styles.appTitle}>xayLite</Text>
+            <Text style={styles.appTitle}>Xaylite</Text>
             <Text style={styles.appTagline}>
               Talk to anyone, in any language instantly
             </Text>
