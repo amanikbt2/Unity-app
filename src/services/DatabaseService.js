@@ -4,16 +4,156 @@ import { Platform } from "react-native";
 let dbInstance = null;
 
 class MockDatabase {
+  constructor() {
+    this.tables = {
+      contacts: [],
+      chats: [],
+      posts: [],
+      explore_profiles: [],
+      pending_posts: [],
+    };
+    if (Platform.OS === "web") {
+      try {
+        const stored = localStorage.getItem("amani_mock_db");
+        if (stored) {
+          this.tables = JSON.parse(stored);
+        }
+      } catch (_) {}
+    }
+  }
+
+  save() {
+    if (Platform.OS === "web") {
+      try {
+        localStorage.setItem("amani_mock_db", JSON.stringify(this.tables));
+      } catch (_) {}
+    }
+  }
+
   async execAsync(sql) {
+    if (sql.includes("DELETE FROM")) {
+      const match = sql.match(/DELETE\s+FROM\s+(\w+)/i);
+      if (match && this.tables[match[1]]) {
+        this.tables[match[1]] = [];
+        this.save();
+      }
+    }
     return;
   }
-  async runAsync(sql, params) {
-    return { lastInsertRowId: 0, changes: 0 };
+
+  async runAsync(sql, params = []) {
+    if (sql.includes("INSERT OR REPLACE INTO") || sql.includes("INSERT INTO")) {
+      const tableMatch = sql.match(/(?:INSERT\s+OR\s+REPLACE|INSERT)\s+INTO\s+(\w+)/i);
+      const colMatch = sql.match(/\(([^)]+)\)/);
+      if (tableMatch && colMatch) {
+        const tableName = tableMatch[1];
+        const columns = colMatch[1].split(",").map(c => c.trim());
+        const newRow = {};
+        columns.forEach((col, idx) => {
+          newRow[col] = params[idx];
+        });
+
+        if (!this.tables[tableName]) this.tables[tableName] = [];
+
+        const pk = newRow.id;
+        this.tables[tableName] = this.tables[tableName].filter(r => r.id !== pk);
+        this.tables[tableName].push(newRow);
+        this.save();
+      }
+    } else if (sql.includes("UPDATE contacts")) {
+      const isClear = sql.includes("unread_count = 0");
+      const isIncrement = sql.includes("unread_count = unread_count + 1");
+      const isUpdateTime = sql.includes("last_message_time = ?") && !isIncrement;
+
+      if (isClear) {
+        const contactId = params[0];
+        const contact = this.tables.contacts.find(c => c.id === contactId);
+        if (contact) {
+          contact.unread_count = 0;
+          this.save();
+        }
+      } else if (isIncrement) {
+        const lastMessageTime = params[0];
+        const contactId = params[1];
+        const contact = this.tables.contacts.find(c => c.id === contactId);
+        if (contact) {
+          contact.unread_count = (Number(contact.unread_count) || 0) + 1;
+          contact.last_message_time = lastMessageTime;
+          this.save();
+        }
+      } else if (isUpdateTime) {
+        const lastMessageTime = params[0];
+        const contactId = params[1];
+        const contact = this.tables.contacts.find(c => c.id === contactId);
+        if (contact) {
+          contact.last_message_time = lastMessageTime;
+          this.save();
+        }
+      }
+    }
+    return { lastInsertRowId: 0, changes: 1 };
   }
-  async getFirstAsync(sql, params) {
-    return null;
+
+  async getFirstAsync(sql, params = []) {
+    const rows = await this.getAllAsync(sql, params);
+    return rows.length > 0 ? rows[0] : null;
   }
-  async getAllAsync(sql, params) {
+
+  async getAllAsync(sql, params = []) {
+    if (sql.includes("COUNT(*)")) {
+      if (sql.includes("contacts WHERE is_synced = 0")) {
+        const count = this.tables.contacts.filter(c => Number(c.is_synced) === 0).length;
+        return [{ count }];
+      }
+    }
+    if (sql.includes("SELECT unread_count, last_message_time FROM contacts WHERE id = ?")) {
+      const contactId = params[0];
+      const contact = this.tables.contacts.find(c => c.id === contactId);
+      return contact ? [contact] : [];
+    }
+
+    if (sql.includes("FROM contacts")) {
+      return [...this.tables.contacts].sort((a, b) => {
+        const tA = Number(a.last_message_time) || 0;
+        const tB = Number(b.last_message_time) || 0;
+        if (tB !== tA) return tB - tA;
+        return (a.name || "").localeCompare(b.name || "");
+      });
+    }
+    if (sql.includes("FROM chats")) {
+      const partnerId = params[0];
+      return this.tables.chats
+        .filter(c => c.partner_id === partnerId)
+        .sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0));
+    }
+    if (sql.includes("FROM posts")) {
+      return [...this.tables.posts].sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
+    }
+    if (sql.includes("FROM explore_profiles")) {
+      return [...this.tables.explore_profiles].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    }
+    if (sql.includes("FROM pending_posts")) {
+      return [...this.tables.pending_posts].sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0));
+    }
+
+    if (sql.includes("table_info")) {
+      if (sql.includes("contacts")) {
+        return [
+          { name: "id" }, { name: "name" }, { name: "phone" }, { name: "email" }, 
+          { name: "flag" }, { name: "status" }, { name: "is_synced" }, { name: "avatar" }, 
+          { name: "is_unity_user" }, { name: "unread_count" }, { name: "last_message_time" }
+        ];
+      }
+      if (sql.includes("posts")) {
+        return [
+          { name: "id" }, { name: "author_name" }, { name: "author_email" }, { name: "author_avatar" },
+          { name: "author_flag" }, { name: "author_native_lang" }, { name: "content" }, { name: "flag" },
+          { name: "time" }, { name: "image_local_path" }, { name: "image_url" }, { name: "media_type" },
+          { name: "background_key" }, { name: "description" }, { name: "avatar_local_path" },
+          { name: "likes" }, { name: "liked" }, { name: "comments" }, { name: "timestamp" }
+        ];
+      }
+    }
     return [];
   }
 }

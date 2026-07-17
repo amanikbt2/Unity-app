@@ -646,7 +646,7 @@ export default function HomeScreen({ navigation }) {
       }
     }
     loadLocalData();
-  }, []);
+  }, [currentUser?.uid]);
 
   useFocusEffect(
     React.useCallback(() => {

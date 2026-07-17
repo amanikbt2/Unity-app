@@ -236,7 +236,11 @@ export default function ProfileScreen({ route, navigation }) {
         });
       }
 
-      Alert.alert("Secret Login", "Logged in as Mr Man (Admin)");
+      if (Platform.OS === "web") {
+        alert("Logged in as Mr Man (Admin)");
+      } else {
+        Alert.alert("Secret Login", "Logged in as Mr Man (Admin)");
+      }
       navigation.navigate("Home");
     }
   };

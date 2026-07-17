@@ -62,6 +62,7 @@ import {
   getChats,
   clearContactUnread,
   updateContactLastMessageTime,
+  saveContacts,
 } from "../services/DatabaseService";
 import { messageQueue } from "../services/MessageQueue";
 
@@ -255,6 +256,11 @@ export default function ConversationScreen({ route, navigation }) {
   const [callSpeakerActive, setCallSpeakerActive] = useState(false);
   const [activeCallId, setActiveCallId] = useState(null);
   const [incomingCallData, setIncomingCallData] = useState(null);
+
+  const [isRecording, setIsRecording] = useState(false);
+  const [handsFreeActive, setHandsFreeActive] = useState(false);
+  const handsFreeActiveRef = useRef(false);
+  const isSpeakingRef = useRef(false);
 
   // Calling Refs
   const callDurationTimerRef = useRef(null);
@@ -928,10 +934,6 @@ export default function ConversationScreen({ route, navigation }) {
     };
   }, [navigation, partnerId, recorder]);
 
-  const [isRecording, setIsRecording] = useState(false);
-  const [handsFreeActive, setHandsFreeActive] = useState(false);
-  const handsFreeActiveRef = useRef(false);
-  const isSpeakingRef = useRef(false);
   const silenceTimerRef = useRef(null);
 
   const noiseFloorRef = useRef(-60);
@@ -1147,10 +1149,21 @@ export default function ConversationScreen({ route, navigation }) {
     getPermission();
   }, []);
 
-  // Load local chat history or set up welcome message
   useEffect(() => {
     async function loadChatHistory() {
       try {
+        await saveContacts([
+          {
+            id: partnerId,
+            name: partnerName,
+            phone: "",
+            email: partnerId.includes("@") ? partnerId : "",
+            flag: partnerFlag,
+            status: partnerStatus || "Available on Unity",
+            avatar: partnerAvatar || "",
+            isUnityUser: true,
+          },
+        ]);
         await clearContactUnread(partnerId);
         const dbChats = await getChats(partnerId);
         if (dbChats && dbChats.length > 0) {
@@ -1339,10 +1352,6 @@ export default function ConversationScreen({ route, navigation }) {
     const isSameLanguage = currentUser.nativeLang === partnerLang;
 
     if (!isConnected) {
-      Alert.alert(
-        "Offline",
-        "Voice transcription is unavailable while offline. Please type your message or use the microphone button on your keyboard."
-      );
       // Clean up the file immediately
       await FileSystem.deleteAsync(audioUri, { idempotent: true }).catch(
         (err) => console.warn("Failed to delete transient audio file:", err),
@@ -1502,7 +1511,6 @@ export default function ConversationScreen({ route, navigation }) {
       setSubtitleUser("Voice translation failed");
       const errorMessage = error.message || "Unknown error occurred.";
       setSubtitleReceived(`Error: ${errorMessage}`);
-      Alert.alert("Voice Chat Error", errorMessage);
 
       // Still clean up the file on failure
       await FileSystem.deleteAsync(audioUri, { idempotent: true }).catch(
