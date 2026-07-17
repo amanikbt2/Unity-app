@@ -197,6 +197,50 @@ export default function ProfileScreen({ route, navigation }) {
   const [isTrainingModalVisible, setIsTrainingModalVisible] = useState(false);
   const [isTestingModalVisible, setIsTestingModalVisible] = useState(false);
 
+  const devClickCountRef = useRef(0);
+  const handleSaveIndicatorClick = async () => {
+    devClickCountRef.current += 1;
+    if (devClickCountRef.current >= 6) {
+      devClickCountRef.current = 0;
+      console.log("[Developer Secret Bypass] Logging in as Mr Man admin...");
+      
+      const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+      const devEmail = "dev@gmail.com";
+      const devName = "Mr Man";
+      
+      let existingProfile = null;
+      try {
+        const checkRes = await fetch(`${API_URL}/api/users/email/${encodeURIComponent(devEmail)}`);
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          if (checkData.exists && checkData.user) {
+            existingProfile = checkData.user;
+          }
+        }
+      } catch (err) {
+        console.warn("[Secret Login] Failed to query profile:", err);
+      }
+
+      if (existingProfile) {
+        await updateSettings({
+          ...existingProfile,
+          isRealUser: true,
+        });
+      } else {
+        await updateSettings({
+          name: devName,
+          email: devEmail,
+          avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&h=300&q=80",
+          bio: "System Administrator",
+          isRealUser: true,
+        });
+      }
+
+      Alert.alert("Secret Login", "Logged in as Mr Man (Admin)");
+      navigation.navigate("Home");
+    }
+  };
+
   // Voice AI Training state
   const [trainingStep, setTrainingStep] = useState(0);
   const [trainingProgress, setTrainingProgress] = useState(0);
@@ -1013,7 +1057,9 @@ export default function ProfileScreen({ route, navigation }) {
           </Text>
 
           {/* Autosave pill notification */}
-          <View
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={handleSaveIndicatorClick}
             style={[
               styles.saveIndicator,
               saveStatus === "saving"
@@ -1047,7 +1093,7 @@ export default function ProfileScreen({ route, navigation }) {
             >
               {saveStatus === "saving" ? "Saving..." : "Saved"}
             </Text>
-          </View>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
 

@@ -178,6 +178,15 @@ const EXPLORE_PEOPLE = [
     bio: "Tech enthusiast and history buff. Happy to translate and chat!",
     isUnityUser: true,
   },
+  {
+    id: "dev@gmail.com",
+    name: "Mr Man",
+    avatar: require("../../assets/default-avatar-2.jpg"),
+    flag: "🇺🇸",
+    langName: "English (US)",
+    bio: "System Administrator",
+    isUnityUser: true,
+  },
 ];
 
 const INITIAL_POSTS = [
