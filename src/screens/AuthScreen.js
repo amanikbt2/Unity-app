@@ -249,6 +249,7 @@ export default function AuthScreen({ navigation }) {
         await updateSettings({
           name: devName,
           email: devEmail,
+          bio: devEmail === 'dev@gmail.com' ? 'System Administrator' : '',
           avatar: DEFAULT_AVATAR,
           isRealUser: true,
         });
