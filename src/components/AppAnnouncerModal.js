@@ -75,6 +75,8 @@ const AppAnnouncerModal = () => {
   };
 
   useEffect(() => {
+    // Don't show announcer popups to the admin (Mr Man) account
+    if (currentUser?.email === 'dev@gmail.com') return;
     fetchLatestPopup();
   }, []);
 
