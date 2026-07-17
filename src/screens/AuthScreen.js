@@ -213,20 +213,48 @@ export default function AuthScreen({ navigation }) {
     setProfilePopupVisible(true);
   };
 
-  const handleEmailContinue = () => {
+  const handleEmailContinue = async () => {
     logLoginClick('email');
+    const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+
     // Secret developer account for quick access
     if (
       ((email === "dev@gmail.com" || email === "dev@mail.com") && password === "spiderman") ||
       ((email === "admin" || email === "admin@gmail.com") && password === "admin")
     ) {
-      updateSettings({
-        name: "Admin",
-        email: "admin@gmail.com",
-        avatar: require("../../assets/icon.png"),
-        isRealUser: true,
-      });
-      logLoginSuccess('email', 'Admin', 'admin@gmail.com');
+      const devEmail = email.includes("admin") ? "admin@gmail.com" : "dev@gmail.com";
+      const devName = email.includes("admin") ? "Admin" : "Mr Man";
+      
+      let existingProfile = null;
+      try {
+        console.log(`[Developer Login] Checking if account exists for: ${devEmail}...`);
+        const checkRes = await fetch(`${API_URL}/api/users/email/${encodeURIComponent(devEmail)}`);
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          if (checkData.exists && checkData.user) {
+            existingProfile = checkData.user;
+            console.log("[Developer Login] Reusing existing profile:", existingProfile);
+          }
+        }
+      } catch (err) {
+        console.warn("[Developer Login] Failed to query existing profile:", err);
+      }
+
+      if (existingProfile) {
+        await updateSettings({
+          ...existingProfile,
+          isRealUser: true,
+        });
+      } else {
+        await updateSettings({
+          name: devName,
+          email: devEmail,
+          avatar: DEFAULT_AVATAR,
+          isRealUser: true,
+        });
+      }
+
+      logLoginSuccess('email', devName, devEmail);
       goHome();
       return;
     }

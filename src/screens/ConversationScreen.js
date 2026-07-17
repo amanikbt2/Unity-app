@@ -21,8 +21,10 @@ import {
   Alert,
   AppState,
   Keyboard,
+  Modal,
 } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Path, Line, Rect, Polygon } from "react-native-svg";
@@ -38,6 +40,7 @@ import Animated, {
 import {
   useAudioRecorder,
   useAudioRecorderState,
+  useAudioPlayer,
   AudioModule,
   AudioQuality,
   IOSOutputFormat,
@@ -130,7 +133,6 @@ const COMPRESSED_AUDIO_OPTIONS = {
     mimeType: "audio/webm",
     bitsPerSecond: 128000,
   },
-  isMeteringEnabled: true,
 };
 
 const Dot = ({ anim, color }) => (
@@ -195,6 +197,8 @@ const TypingIndicator = ({ color }) => {
   );
 };
 
+const getCurrentTimestamp = () => Date.now();
+
 export default function ConversationScreen({ route, navigation }) {
   const getAssetUri = (asset) =>
     Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
@@ -241,6 +245,24 @@ export default function ConversationScreen({ route, navigation }) {
   const [profilePopupData, setProfilePopupData] = useState(null);
   const [isConnected, setIsConnected] = useState(true);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  // WebRTC-like Calling States
+  const [micMenuVisible, setMicMenuVisible] = useState(false);
+  const [isRealTimeCall, setIsRealTimeCall] = useState(false);
+  const [callStatus, setCallStatus] = useState("disconnected"); // 'connecting' | 'ringing' | 'connected' | 'ended'
+  const [callDuration, setCallDuration] = useState(0);
+  const [callMuted, setCallMuted] = useState(false);
+  const [callSpeakerActive, setCallSpeakerActive] = useState(false);
+  const [activeCallId, setActiveCallId] = useState(null);
+  const [incomingCallData, setIncomingCallData] = useState(null);
+
+  // Calling Refs
+  const callDurationTimerRef = useRef(null);
+  const callStatusPollIntervalRef = useRef(null);
+  const callAudioPollIntervalRef = useRef(null);
+  const lastAudioTimestampRef = useRef(0);
+  const callAudioRecorderRef = useRef(null);
+  const ringtonePlayerRef = useRef(null);
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -385,6 +407,390 @@ export default function ConversationScreen({ route, navigation }) {
       handleVoiceMessage(uri).catch(console.error);
     }
   };
+
+  // Load ringtone audio player
+  const ringtonePlayer = useAudioPlayer(require("../../assets/ringtone.mp3"));
+
+  // Play/Stop Ringtone
+  const playRingtone = () => {
+    try {
+      if (ringtonePlayer) {
+        ringtonePlayer.loop = true;
+        ringtonePlayer.play();
+      }
+    } catch (err) {
+      console.warn("[Calls] Failed to play ringtone:", err);
+    }
+  };
+
+  const stopRingtone = () => {
+    try {
+      if (ringtonePlayer) {
+        ringtonePlayer.pause();
+        ringtonePlayer.seekTo(0);
+      }
+    } catch (err) {
+      console.warn("[Calls] Failed to stop ringtone:", err);
+    }
+  };
+
+  // Poll call status from backend
+  const startStatusPolling = (callId) => {
+    if (callStatusPollIntervalRef.current) clearInterval(callStatusPollIntervalRef.current);
+    
+    callStatusPollIntervalRef.current = setInterval(async () => {
+      try {
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+        const res = await fetch(`${API_URL}/api/calls/status/${callId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            console.log(`[Calls] Polled status for ${callId}:`, data.status);
+            if (data.status === "connected" && callStatus !== "connected") {
+              setCallStatus("connected");
+              clearInterval(callStatusPollIntervalRef.current);
+              callStatusPollIntervalRef.current = null;
+              connectCall(callId);
+            } else if (data.status === "rejected" || data.status === "ended") {
+              setCallStatus(data.status);
+              clearInterval(callStatusPollIntervalRef.current);
+              callStatusPollIntervalRef.current = null;
+              endCall(callId, data.status === "rejected" ? "Call Rejected" : "Call Ended");
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[Calls] Status poll error:", err.message);
+      }
+    }, 2000);
+  };
+
+  // Initiate an outgoing call
+  const startOutgoingCall = async () => {
+    setMicMenuVisible(false);
+    setIsRealTimeCall(true);
+    setCallStatus("connecting");
+    setCallDuration(0);
+    setCallMuted(false);
+    setCallSpeakerActive(false);
+
+    try {
+      // connecting phase -> ringing
+      setTimeout(() => {
+        setCallStatus("ringing");
+        playRingtone();
+      }, 1000);
+
+      const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+      const res = await fetch(`${API_URL}/api/calls/initiate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          callerId: currentUser.uid,
+          partnerId: partnerId,
+          callerName: currentUser.name,
+          callerAvatar: currentUser.avatar || ""
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.callId) {
+          setActiveCallId(data.callId);
+          startStatusPolling(data.callId);
+        } else {
+          throw new Error("Failed to initialize call session");
+        }
+      } else {
+        throw new Error("Initiate endpoint failed");
+      }
+    } catch (err) {
+      console.error("[Calls] Outgoing call initiation failed:", err);
+      Alert.alert("Call failed", "Unable to start the call. Please try again.");
+      setIsRealTimeCall(false);
+      setCallStatus("disconnected");
+      stopRingtone();
+    }
+  };
+
+  // Accept an incoming call
+  const acceptIncomingCall = async () => {
+    if (!incomingCallData) return;
+    const callId = incomingCallData.id;
+    setIncomingCallData(null);
+    setIsRealTimeCall(true);
+    setCallStatus("connected");
+    setCallDuration(0);
+    setCallMuted(false);
+    setCallSpeakerActive(false);
+    setActiveCallId(callId);
+    stopRingtone();
+
+    try {
+      const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+      await fetch(`${API_URL}/api/calls/accept`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callId })
+      });
+      connectCall(callId);
+    } catch (err) {
+      console.error("[Calls] Accept call error:", err);
+      endCall(callId, "Failed to connect call");
+    }
+  };
+
+  // Reject an incoming call
+  const rejectIncomingCall = async () => {
+    if (!incomingCallData) return;
+    const callId = incomingCallData.id;
+    setIncomingCallData(null);
+    stopRingtone();
+
+    try {
+      const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+      await fetch(`${API_URL}/api/calls/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callId })
+      });
+    } catch (err) {
+      console.error("[Calls] Reject call error:", err);
+    }
+  };
+
+  // Connect the call
+  const connectCall = async (callId) => {
+    stopRingtone();
+    setCallStatus("connected");
+
+    // Start call duration timer
+    if (callDurationTimerRef.current) clearInterval(callDurationTimerRef.current);
+    callDurationTimerRef.current = setInterval(() => {
+      setCallDuration(prev => prev + 1);
+    }, 1000);
+
+    // Audio polling loop (Receiver side)
+    lastAudioTimestampRef.current = getCurrentTimestamp();
+    if (callAudioPollIntervalRef.current) clearInterval(callAudioPollIntervalRef.current);
+    
+    callAudioPollIntervalRef.current = setInterval(async () => {
+      try {
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+        const res = await fetch(`${API_URL}/api/calls/poll-audio/${callId}/${encodeURIComponent(currentUser.uid)}/${lastAudioTimestampRef.current}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.chunks && data.chunks.length > 0) {
+            console.log(`[Calls] Polled ${data.chunks.length} audio chunks`);
+            for (const chunk of data.chunks) {
+              if (chunk.timestamp > lastAudioTimestampRef.current) {
+                lastAudioTimestampRef.current = chunk.timestamp;
+              }
+              // Play base64 audio chunk immediately
+              playAudioChunk(chunk.audio);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[Calls] Audio polling failed:", err.message);
+      }
+    }, 1500);
+
+    // Audio streaming/recording loop (Sender side)
+    startAudioStreaming(callId);
+  };
+
+  // Helper to play base64 audio chunk dynamically
+  const playAudioChunk = async (base64Audio) => {
+    try {
+      const chunkPath = `${FileSystem.cacheDirectory}call_chunk_${Date.now()}.mp3`;
+      await FileSystem.writeAsStringAsync(chunkPath, base64Audio, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const chunkPlayer = AudioModule.createPlayer(chunkPath);
+      chunkPlayer.play();
+    } catch (err) {
+      console.warn("[Calls] Failed to play audio chunk:", err.message);
+    }
+  };
+
+  // Streaming audio recording loop
+  const startAudioStreaming = async (callId) => {
+    try {
+      const permission = await AudioModule.getRecordingPermissionsAsync();
+      if (permission.status !== "granted") {
+        await AudioModule.requestRecordingPermissionsAsync();
+      }
+
+      await AudioModule.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      // Simple low-latency recording loop
+      const streamRecord = async () => {
+        if (callStatus !== "connected" && callStatusPollIntervalRef.current === null && activeCallId === null) return;
+        
+        try {
+          const streamRecorder = AudioModule.createRecorder(COMPRESSED_AUDIO_OPTIONS);
+          callAudioRecorderRef.current = streamRecorder;
+          await streamRecorder.prepareToRecordAsync(COMPRESSED_AUDIO_OPTIONS);
+          await streamRecorder.record();
+
+          setTimeout(async () => {
+            try {
+              await streamRecorder.stop();
+              const uri = streamRecorder.uri;
+              if (uri && !callMuted) {
+                const base64 = await FileSystem.readAsStringAsync(uri, {
+                  encoding: FileSystem.EncodingType.Base64,
+                });
+                
+                // Upload chunk to server
+                const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+                fetch(`${API_URL}/api/calls/stream`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    callId,
+                    senderId: currentUser.uid,
+                    audio: base64
+                  })
+                }).catch(err => console.warn("[Calls] Failed to post audio chunk:", err.message));
+              }
+              // Clean up local temp file
+              if (uri) await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+            } catch (err) {
+              console.warn("[Calls] Recording chunk error:", err.message);
+            }
+            
+            // Recurse to keep recording next chunk
+            if (isRealTimeCall) {
+              streamRecord();
+            }
+          }, 1500);
+        } catch (err) {
+          console.error("[Calls] Recording stream initialization error:", err);
+        }
+      };
+
+      streamRecord();
+    } catch (err) {
+      console.error("[Calls] Audio streaming configuration error:", err);
+    }
+  };
+
+  // End / Hang up the call
+  const endCall = async (callId = activeCallId, statusText = "Call Ended") => {
+    stopRingtone();
+    setCallStatus("ended");
+    setIsRealTimeCall(false);
+    setActiveCallId(null);
+    setIncomingCallData(null);
+
+    // Clear duration timer
+    if (callDurationTimerRef.current) {
+      clearInterval(callDurationTimerRef.current);
+      callDurationTimerRef.current = null;
+    }
+
+    // Clear polling intervals
+    if (callStatusPollIntervalRef.current) {
+      clearInterval(callStatusPollIntervalRef.current);
+      callStatusPollIntervalRef.current = null;
+    }
+    if (callAudioPollIntervalRef.current) {
+      clearInterval(callAudioPollIntervalRef.current);
+      callAudioPollIntervalRef.current = null;
+    }
+
+    // Stop and clean up recording
+    try {
+      if (callAudioRecorderRef.current) {
+        await callAudioRecorderRef.current.stop();
+        callAudioRecorderRef.current = null;
+      }
+    } catch (_) {}
+
+    // Notify backend
+    if (callId) {
+      try {
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+        await fetch(`${API_URL}/api/calls/end`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ callId })
+        });
+      } catch (err) {
+        console.warn("[Calls] Failed to end call on backend:", err.message);
+      }
+    }
+
+    // Restore standard audio settings
+    try {
+      await AudioModule.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      });
+    } catch (_) {}
+
+    // Briefly alert user of status
+    Alert.alert("Call Status", statusText, [{ text: "OK" }], { cancelable: true });
+  };
+
+  // Foreground incoming call poll
+  useEffect(() => {
+    if (!currentUser || !currentUser.uid) return;
+
+    const pollInterval = setInterval(async () => {
+      // Don't poll if we are already in call view, or translation mode, or displaying an incoming call
+      if (isRealTimeCall || handsFreeActive || incomingCallData) return;
+
+      try {
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+        const res = await fetch(`${API_URL}/api/calls/poll-active/${encodeURIComponent(currentUser.uid)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.incomingCall) {
+            console.log("[Calls] Detected incoming call signal:", data.incomingCall);
+            setIncomingCallData(data.incomingCall);
+            playRingtone();
+          }
+        }
+      } catch (err) {
+        console.warn("[Calls] Foreground call signaling error:", err.message);
+      }
+    }, 3000);
+
+    return () => clearInterval(pollInterval);
+  }, [currentUser, isRealTimeCall, handsFreeActive, incomingCallData]);
+
+  // Handle call answered from background notification on mount/focus
+  useEffect(() => {
+    const checkPendingAnswer = async () => {
+      try {
+        const pendingCallId = await AsyncStorage.getItem("amani_pending_answer_call_id");
+        if (pendingCallId) {
+          console.log("[Calls] Found pending answered call from background:", pendingCallId);
+          await AsyncStorage.removeItem("amani_pending_answer_call_id");
+          
+          setIsRealTimeCall(true);
+          setCallStatus("connected");
+          setCallDuration(0);
+          setCallMuted(false);
+          setCallSpeakerActive(false);
+          setActiveCallId(pendingCallId);
+          
+          // Connect call
+          connectCall(pendingCallId);
+        }
+      } catch (err) {
+        console.warn("[Calls] Check pending answer error:", err);
+      }
+    };
+
+    checkPendingAnswer();
+  }, []);
 
   const recorder = useAudioRecorder(COMPRESSED_AUDIO_OPTIONS);
   const recorderState = useAudioRecorderState(recorder, 100);
@@ -930,9 +1336,7 @@ export default function ConversationScreen({ route, navigation }) {
         ? getLangDetails(currentUser.unityAILang)?.name || "AI"
         : getLangDetails(partnerLang).name;
     const userLangName = getLangDetails(currentUser.nativeLang).name;
-
-    const userMsgId = "msg_" + Date.now();
-    const partnerMsgId = "msg_" + (Date.now() + 1);
+    const isSameLanguage = currentUser.nativeLang === partnerLang;
 
     if (!isConnected) {
       Alert.alert(
@@ -947,12 +1351,13 @@ export default function ConversationScreen({ route, navigation }) {
     }
 
     try {
-      const result = await translateVoice(audioUri, partnerLang);
+      // Transcribe in user's native language if same language, otherwise translate to partner language
+      const result = await translateVoice(audioUri, isSameLanguage ? currentUser.nativeLang : partnerLang);
       const { transcription, translation } = result;
 
       // Update subtitle overlays
       setSubtitleUser(transcription);
-      setSubtitleReceived(translation);
+      setSubtitleReceived(isSameLanguage ? "" : translation);
 
       // Add user message to chat bubbles
       const userMsgId = "msg_" + Date.now();
@@ -962,8 +1367,8 @@ export default function ConversationScreen({ route, navigation }) {
         avatar: "🇺🇸",
         text: transcription,
         origLang: `${userLangName} (Original)`,
-        transText: translation,
-        transLang: `${partnerLangName} ${partnerId === "unity_ai" ? "(AI)" : "(Translated)"}`,
+        transText: isSameLanguage ? transcription : translation,
+        transLang: isSameLanguage ? "" : `${partnerLangName} ${partnerId === "unity_ai" ? "(AI)" : "(Translated)"}`,
       };
       setChatBubbles((prev) => [...prev, userMsg]);
 
@@ -972,129 +1377,112 @@ export default function ConversationScreen({ route, navigation }) {
         id: userMsgId,
         partner_id: partnerId,
         text: transcription,
-        trans_text: translation,
+        trans_text: isSameLanguage ? transcription : translation,
         sender: "user",
         orig_lang: `${userLangName} (Original)`,
-        trans_lang: `${partnerLangName} (Translated)`,
+        trans_lang: isSameLanguage ? "" : `${partnerLangName} (Translated)`,
         timestamp: Date.now(),
       });
       await updateContactLastMessageTime(partnerId, Date.now());
-
-      // Speak translation out loud (simulating playing on partner's end) - disabled as per user request to skip reading own messages
 
       // Clean up transient audio file immediately
       await FileSystem.deleteAsync(audioUri, { idempotent: true }).catch(
         (err) => console.warn("Failed to delete transient audio file:", err),
       );
 
-      // Add temporary typing bubble instantly
-      const partnerMsgId = "msg_" + (Date.now() + 1);
-      const tempPartnerMsg = {
-        id: partnerMsgId,
-        sender: "partner",
-        avatar: partnerFlag,
-        text: "...",
-        origLang: `${partnerLangName} (Original)`,
-        transText: "...",
-        transLang: `${userLangName} (Translated)`,
-      };
-      setChatBubbles((prev) => [...prev, tempPartnerMsg]);
+      if (partnerId === "unity_ai") {
+        // Add temporary typing bubble instantly
+        const partnerMsgId = "msg_" + (Date.now() + 1);
+        const tempPartnerMsg = {
+          id: partnerMsgId,
+          sender: "partner",
+          avatar: partnerFlag,
+          text: "...",
+          origLang: `${partnerLangName} (Original)`,
+          transText: "...",
+          transLang: `${userLangName} (Translated)`,
+        };
+        setChatBubbles((prev) => [...prev, tempPartnerMsg]);
 
-      // Simulate partner responding with voice (or AI)
-      setTimeout(async () => {
-        try {
-          let partnerResponseBase =
-            "I heard your voice message! Loud and clear.";
-          let partnerSpokenText = "";
+        // Simulate AI responding
+        setTimeout(async () => {
+          try {
+            let partnerResponseBase = "";
+            let partnerSpokenText = "";
 
-          if (partnerId === "unity_ai") {
             const aiReply = await chatWithAI(
-              translation,
+              isSameLanguage ? transcription : translation,
               [],
               currentUser.unityAILang || "en",
             );
             partnerSpokenText = aiReply;
-            partnerResponseBase = await translateText(
-              aiReply,
-              currentUser.nativeLang,
+            partnerResponseBase = isSameLanguage
+              ? aiReply
+              : await translateText(aiReply, currentUser.nativeLang);
+
+            const partnerMsg = {
+              ...tempPartnerMsg,
+              text: partnerSpokenText,
+              transText: partnerResponseBase,
+            };
+
+            setSubtitleReceived(`${partnerName} is talking...`);
+            setChatBubbles((prev) =>
+              prev.map((msg) => (msg.id === partnerMsgId ? partnerMsg : msg)),
             );
-          } else {
-            partnerSpokenText = await translateText(
-              partnerResponseBase,
-              partnerLang,
-            );
-          }
 
-          const partnerMsg = {
-            ...tempPartnerMsg,
-            text: partnerSpokenText,
-            transText: partnerResponseBase,
-          };
+            // Save partner response to SQLite
+            await saveChat({
+              id: partnerMsgId,
+              partner_id: partnerId,
+              text: partnerSpokenText,
+              trans_text: partnerResponseBase,
+              sender: "partner",
+              orig_lang: `${partnerLangName} (Original)`,
+              trans_lang: `${userLangName} (Translated)`,
+              timestamp: Date.now(),
+            });
+            await updateContactLastMessageTime(partnerId, Date.now());
 
-          setSubtitleReceived(
-            partnerId === "unity_ai"
-              ? `${partnerName} is talking...`
-              : partnerResponseBase,
-          );
-          setChatBubbles((prev) =>
-            prev.map((msg) => (msg.id === partnerMsgId ? partnerMsg : msg)),
-          );
+            const userLangCode = currentUser.nativeLang || "en";
+            const aiVoiceId = userLangCode.startsWith("en")
+              ? ttsVoices.female.en
+              : ttsVoices.female.es;
 
-          // Save partner response to SQLite
-          await saveChat({
-            id: partnerMsgId,
-            partner_id: partnerId,
-            text: partnerSpokenText,
-            trans_text: partnerResponseBase,
-            sender: "partner",
-            orig_lang: `${partnerLangName} (Original)`,
-            trans_lang: `${userLangName} (Translated)`,
-            timestamp: Date.now(),
-          });
-          await updateContactLastMessageTime(partnerId, Date.now());
+            Speech.speak(partnerResponseBase, {
+              language: userLangCode,
+              voice: aiVoiceId,
+              rate: currentUser.aiVoiceRate || 1.0,
+              pitch: currentUser.aiVoicePitch || 1.1,
+            });
 
-          const userLangCode = currentUser.nativeLang || "en";
-          const aiVoiceId = userLangCode.startsWith("en")
-            ? ttsVoices.female.en
-            : ttsVoices.female.es;
-
-          Speech.speak(partnerResponseBase, {
-            language: userLangCode,
-            voice: aiVoiceId,
-            rate: currentUser.aiVoiceRate || 1.0,
-            pitch: currentUser.aiVoicePitch || 1.1,
-          });
-
-          // Count consecutive partner messages before scheduling reply reminder
-          let consecutivePartnerMsgs = 0;
-          for (let idx = chatBubbles.length - 1; idx >= 0; idx--) {
-            if (chatBubbles[idx].sender === "partner") {
-              consecutivePartnerMsgs++;
-            } else if (chatBubbles[idx].sender === "user") {
-              break;
+            // Count consecutive partner messages before scheduling reply reminder
+            let consecutivePartnerMsgs = 0;
+            for (let idx = chatBubbles.length - 1; idx >= 0; idx--) {
+              if (chatBubbles[idx].sender === "partner") {
+                consecutivePartnerMsgs++;
+              } else if (chatBubbles[idx].sender === "user") {
+                break;
+              }
             }
-          }
-          // Add 1 for the newly received partner response
-          consecutivePartnerMsgs += 1;
+            consecutivePartnerMsgs += 1;
 
-          // Only schedule 2-minute reminder if they sent 2 or more messages without reply
-          if (consecutivePartnerMsgs >= 2) {
-            scheduleLocalNotification(
-              "Waiting for Reply",
-              `${partnerName} is waiting for your reply, maybe you forgot?`,
-              { seconds: 120 },
-              partnerId
+            if (consecutivePartnerMsgs >= 2) {
+              scheduleLocalNotification(
+                "Waiting for Reply",
+                `${partnerName} is waiting for your reply, maybe you forgot?`,
+                { seconds: 120 },
+                partnerId
+              );
+            }
+          } catch (err) {
+            console.error(
+              "Failed to translate simulated partner voice response:",
+              err,
             );
-          } else {
-            console.log(`[ConversationScreen] Skipped reply reminder: consecutive partner messages = ${consecutivePartnerMsgs}`);
           }
-        } catch (err) {
-          console.error(
-            "Failed to translate simulated partner voice response:",
-            err,
-          );
-        }
-      }, 3500);
+        }, 3500);
+      }
     } catch (error) {
       console.error("Voice translation error:", error);
       setSubtitleUser("Voice translation failed");
@@ -1122,20 +1510,25 @@ export default function ConversationScreen({ route, navigation }) {
     setInputText("");
     setSubtitleUser(text);
 
-    const waitMessages = [
-      `Waiting for ${partnerName}...`,
-      `${partnerName} is typing...`,
-    ];
-    setSubtitleReceived(
-      waitMessages[Math.floor(Math.random() * waitMessages.length)],
-    );
-
     const partnerLang = getLangCodeFromFlag(partnerFlag);
     const partnerLangName =
       partnerId === "unity_ai"
         ? getLangDetails(currentUser.unityAILang)?.name || "AI"
         : getLangDetails(partnerLang).name;
     const userLangName = getLangDetails(currentUser.nativeLang).name;
+    const isSameLanguage = currentUser.nativeLang === partnerLang;
+
+    if (partnerId === "unity_ai") {
+      const waitMessages = [
+        `Waiting for ${partnerName}...`,
+        `${partnerName} is typing...`,
+      ];
+      setSubtitleReceived(
+        waitMessages[Math.floor(Math.random() * waitMessages.length)],
+      );
+    } else {
+      setSubtitleReceived(partnerStatus || "Online");
+    }
 
     try {
       // Create user message with pending translation
@@ -1146,8 +1539,8 @@ export default function ConversationScreen({ route, navigation }) {
         avatar: "🇺🇸", // or get user flag from context
         text: text,
         origLang: `${userLangName} (Original)`,
-        transText: "...",
-        transLang: `${partnerLangName} ${partnerId === "unity_ai" ? "(AI)" : "(Translated)"}`,
+        transText: isSameLanguage ? text : "...",
+        transLang: isSameLanguage ? "" : `${partnerLangName} ${partnerId === "unity_ai" ? "(AI)" : "(Translated)"}`,
       };
       setChatBubbles((prev) => [...prev, userMsg]);
 
@@ -1156,10 +1549,10 @@ export default function ConversationScreen({ route, navigation }) {
           id: userMsgId,
           partner_id: partnerId,
           text: text,
-          trans_text: "...",
+          trans_text: isSameLanguage ? text : "...",
           sender: "user",
           orig_lang: `${userLangName} (Original)`,
-          trans_lang: `${partnerLangName} (Translated)`,
+          trans_lang: isSameLanguage ? "" : `${partnerLangName} (Translated)`,
           timestamp: Date.now(),
         });
         await updateContactLastMessageTime(partnerId, Date.now());
@@ -1167,47 +1560,76 @@ export default function ConversationScreen({ route, navigation }) {
         console.warn("Skipping SQLite save on Web:", dbError.message);
       }
 
-      // Create a temporary partner typing bubble
-      const partnerMsgId = "msg_" + (Date.now() + 1);
-      const tempPartnerMsg = {
-        id: partnerMsgId,
-        sender: "partner",
-        avatar: partnerFlag,
-        text: "...",
-        origLang: `${partnerLangName} (Original)`,
-        transText: "...",
-        transLang: `${userLangName} (Translated)`,
-      };
-      setChatBubbles((prev) => [...prev, tempPartnerMsg]);
+      if (partnerId === "unity_ai") {
+        // Create a temporary partner typing bubble
+        const partnerMsgId = "msg_" + (Date.now() + 1);
+        const tempPartnerMsg = {
+          id: partnerMsgId,
+          sender: "partner",
+          avatar: partnerFlag,
+          text: "...",
+          origLang: `${partnerLangName} (Original)`,
+          transText: "...",
+          transLang: `${userLangName} (Translated)`,
+        };
+        setChatBubbles((prev) => [...prev, tempPartnerMsg]);
 
-      // Enqueue job to get real AI response or translation in background
-      await messageQueue.enqueue({
-        id: "job_" + Date.now(),
-        type: partnerId === "unity_ai" ? "ai" : "translate",
-        partnerId,
-        partnerMsgId,
-        userMsgId,
-        partnerName: partnerId === "unity_ai" ? "Unity AI" : partnerLangName,
-        partnerAvatarUrl: partnerAvatar,
-        partnerLangName,
-        userLangName,
-        payload: {
-          text: text,
-          partnerLang,
-          userLang: currentUser.nativeLang,
-          targetLang: currentUser.unityAILang || "en", // For AI
-          history: [], // Omitted for brevity
-        },
-      });
+        // Enqueue job to get real AI response in background
+        await messageQueue.enqueue({
+          id: "job_" + Date.now(),
+          type: "ai",
+          partnerId,
+          partnerMsgId,
+          userMsgId,
+          partnerName: "Unity AI",
+          partnerAvatarUrl: partnerAvatar,
+          partnerLangName,
+          userLangName,
+          payload: {
+            text: text,
+            partnerLang,
+            userLang: currentUser.nativeLang,
+            targetLang: currentUser.unityAILang || "en", // For AI
+            history: [], // Omitted for brevity
+          },
+        });
+      } else if (!isSameLanguage) {
+        // Human contact & different language: translate user message in background for local reference
+        translateText(text, partnerLang)
+          .then(async (translatedText) => {
+            setChatBubbles((prev) =>
+              prev.map((msg) =>
+                msg.id === userMsgId ? { ...msg, transText: translatedText } : msg
+              )
+            );
+            try {
+              await saveChat({
+                id: userMsgId,
+                partner_id: partnerId,
+                text: text,
+                trans_text: translatedText,
+                sender: "user",
+                orig_lang: `${userLangName} (Original)`,
+                trans_lang: `${partnerLangName} (Translated)`,
+                timestamp: Date.now(),
+              });
+            } catch (dbErr) {
+              console.warn(dbErr);
+            }
+          })
+          .catch((err) => console.warn(err));
+      }
     } catch (error) {
       console.error("Text send error:", error);
       setSubtitleUser("Text send failed");
     }
   };
 
-  // Render unified bubble headers and dividers
   const renderBubble = (bubble) => {
     const isUser = bubble.sender === "user";
+    const partnerLang = getLangCodeFromFlag(partnerFlag);
+    const isSameLanguage = currentUser.nativeLang === partnerLang;
+
     let senderLabel = "";
     let metaLabel = "";
     let flagEmoji = "";
@@ -1320,10 +1742,10 @@ export default function ConversationScreen({ route, navigation }) {
                   isUser ? styles.whiteText : { color: colors.text },
                 ]}
               >
-                {isUser ? bubble.text : bubble.transText}
+                {isUser ? bubble.text : (isSameLanguage ? bubble.text : bubble.transText)}
               </Text>
 
-              {!isUser && (
+              {!isUser && !isSameLanguage && (
                 <>
                   <View
                     style={[
@@ -1404,7 +1826,7 @@ export default function ConversationScreen({ route, navigation }) {
                     { color: colors.danger, marginRight: 4 },
                   ]}
                 >
-                  You're offline
+                  {"You're offline"}
                 </Text>
                 <Svg
                   width="13"
@@ -1513,7 +1935,7 @@ export default function ConversationScreen({ route, navigation }) {
 
             <TouchableOpacity
               activeOpacity={0.8}
-              onPress={toggleHandsFree}
+              onPress={() => setMicMenuVisible(true)}
               style={{ borderRadius: 55 }}
             >
               <Animated.View
@@ -1695,7 +2117,7 @@ export default function ConversationScreen({ route, navigation }) {
                             backgroundColor: colors.primary,
                           },
                   ]}
-                  onPress={isOnline ? toggleHandsFree : undefined}
+                  onPress={isOnline ? () => setMicMenuVisible(true) : undefined}
                   activeOpacity={0.7}
                   disabled={!isOnline}
                 >
@@ -1755,6 +2177,249 @@ export default function ConversationScreen({ route, navigation }) {
           )}
         </View>
       </View>
+
+      {/* Smart Microphone Mode Selection Modal */}
+      <Modal
+        visible={micMenuVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setMicMenuVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity 
+            style={styles.modalDismissBg} 
+            activeOpacity={1} 
+            onPress={() => setMicMenuVisible(false)} 
+          />
+          <View style={[styles.sheetContent, { backgroundColor: colors.cardBg }]}>
+            <View style={styles.sheetHeader}>
+              <View style={styles.sheetHandle} />
+              <Text style={[styles.sheetTitle, { color: colors.text }]}>Choose Calling Mode</Text>
+              <Text style={[styles.sheetSubtitle, { color: colors.textMuted }]}>
+                {"Select how you'd like to voice chat with " + partnerName}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.optionCard, { borderColor: colors.border }]}
+              onPress={() => {
+                setMicMenuVisible(false);
+                toggleHandsFree();
+              }}
+            >
+              <View style={[styles.optionIconContainer, { backgroundColor: 'rgba(79, 70, 229, 0.1)' }]}>
+                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2">
+                  <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <Line x1="12" y1="19" x2="12" y2="22" />
+                </Svg>
+              </View>
+              <View style={styles.optionTextContainer}>
+                <Text style={[styles.optionTitle, { color: colors.text }]}>Translated Call</Text>
+                <Text style={[styles.optionDescription, { color: colors.textMuted }]}>
+                  AI translates your speech and plays translated voice to the partner
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.optionCard, { borderColor: colors.border }]}
+              onPress={startOutgoingCall}
+            >
+              <View style={[styles.optionIconContainer, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
+                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={colors.success || '#10B981'} strokeWidth="2">
+                  <Path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                </Svg>
+              </View>
+              <View style={styles.optionTextContainer}>
+                <Text style={[styles.optionTitle, { color: colors.text }]}>Direct Call</Text>
+                <Text style={[styles.optionDescription, { color: colors.textMuted }]}>
+                  Direct voice call without AI translation (WebRTC phone call style)
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.sheetCancelBtn, { backgroundColor: colors.border }]}
+              onPress={() => setMicMenuVisible(false)}
+            >
+              <Text style={[styles.sheetCancelText, { color: colors.text }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Foreground Incoming Call Notification Modal */}
+      <Modal
+        visible={!!incomingCallData}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.incomingCallPopup, { backgroundColor: colors.cardBg }]}>
+            <Text style={[styles.incomingCallTitle, { color: colors.text }]}>Incoming Call</Text>
+            <View style={styles.incomingAvatarContainer}>
+              <Image
+                source={
+                  incomingCallData?.callerAvatar
+                    ? { uri: incomingCallData.callerAvatar }
+                    : require("../../assets/default-avatar-2.jpg")
+                }
+                style={styles.incomingAvatar}
+              />
+            </View>
+            <Text style={[styles.incomingCallerName, { color: colors.text }]}>
+              {incomingCallData?.callerName || partnerName}
+            </Text>
+            <Text style={[styles.incomingCallerStatus, { color: colors.textMuted }]}>
+              is calling you...
+            </Text>
+
+            <View style={styles.incomingActions}>
+              <TouchableOpacity
+                style={[styles.incomingDeclineBtn, { backgroundColor: colors.danger }]}
+                onPress={rejectIncomingCall}
+              >
+                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+                  <Path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91" />
+                  <Line x1="23" y1="1" x2="1" y2="23" />
+                </Svg>
+                <Text style={styles.incomingDeclineText}>Decline</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.incomingAcceptBtn, { backgroundColor: colors.success || '#10B981' }]}
+                onPress={acceptIncomingCall}
+              >
+                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+                  <Path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                </Svg>
+                <Text style={styles.incomingAcceptText}>Answer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Full-Screen WebRTC Voice Call Overlay */}
+      <Modal
+        visible={isRealTimeCall}
+        transparent={false}
+        animationType="slide"
+      >
+        <LinearGradient
+          colors={["#0F172A", "#1E293B"]}
+          style={styles.callOverlayContainer}
+        >
+          <SafeAreaView style={styles.callSafeArea}>
+            {/* Top info */}
+            <View style={styles.callHeader}>
+              <Text style={styles.callTypeLabel}>DIRECT VOICE CALL</Text>
+              <Text style={styles.callTimer}>
+                {callStatus === "connected"
+                  ? `${Math.floor(callDuration / 60).toString().padStart(2, '0')}:${(callDuration % 60).toString().padStart(2, '0')}`
+                  : callStatus === "connecting"
+                  ? "Connecting..."
+                  : callStatus === "ringing"
+                  ? "Ringing..."
+                  : "Call Disconnected"}
+              </Text>
+            </View>
+
+            {/* Avatar & Pulse ripple */}
+            <View style={styles.callAvatarSection}>
+              <View style={styles.callAvatarGlowOuter}>
+                <View style={styles.callAvatarGlowInner}>
+                  <Image
+                    source={
+                      partnerAvatar
+                        ? { uri: partnerAvatar }
+                        : require("../../assets/default-avatar-2.jpg")
+                    }
+                    style={styles.callAvatar}
+                  />
+                </View>
+              </View>
+              <Text style={styles.callPartnerName}>{partnerName}</Text>
+              <Text style={styles.callStatusText}>
+                {callStatus === "connected"
+                  ? "End-to-End Voice Connection"
+                  : callStatus === "ringing"
+                  ? "Waiting for answer..."
+                  : "Establishing call..."}
+              </Text>
+            </View>
+
+            {/* Pulsating Waveform during call */}
+            {callStatus === "connected" && (
+              <View style={styles.callWaveformContainer}>
+                <View style={[styles.callWaveBar, { height: 25 }]} />
+                <View style={[styles.callWaveBar, { height: 40 }]} />
+                <View style={[styles.callWaveBar, { height: 60 }]} />
+                <View style={[styles.callWaveBar, { height: 30 }]} />
+                <View style={[styles.callWaveBar, { height: 15 }]} />
+              </View>
+            )}
+
+            {/* Action buttons */}
+            <View style={styles.callActionsContainer}>
+              {/* Mute Button */}
+              <TouchableOpacity
+                style={[
+                  styles.callActionButton,
+                  callMuted ? { backgroundColor: 'white' } : { backgroundColor: 'rgba(255,255,255,0.1)' }
+                ]}
+                onPress={() => setCallMuted(prev => !prev)}
+              >
+                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={callMuted ? 'black' : 'white'} strokeWidth="2">
+                  <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <Line x1="12" y1="19" x2="12" y2="22" />
+                  {callMuted && <Line x1="1" y1="1" x2="23" y2="23" stroke="red" strokeWidth="2.5" />}
+                </Svg>
+                <Text style={[styles.callActionLabel, { color: 'white' }]}>Mute</Text>
+              </TouchableOpacity>
+
+              {/* End Call Button */}
+              <TouchableOpacity
+                style={styles.callEndActionButton}
+                onPress={() => endCall(activeCallId, "Call Ended")}
+              >
+                <Svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                  <Path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                  <Line x1="23" y1="1" x2="1" y2="23" stroke="white" strokeWidth="2.5" />
+                </Svg>
+                <Text style={[styles.callActionLabel, { color: '#EF4444' }]}>End Call</Text>
+              </TouchableOpacity>
+
+              {/* Speaker Toggle Button */}
+              <TouchableOpacity
+                style={[
+                  styles.callActionButton,
+                  callSpeakerActive ? { backgroundColor: 'white' } : { backgroundColor: 'rgba(255,255,255,0.1)' }
+                ]}
+                onPress={async () => {
+                  try {
+                    const nextMode = !callSpeakerActive;
+                    setCallSpeakerActive(nextMode);
+                    await AudioModule.setAudioModeAsync({
+                      allowsRecordingIOS: true,
+                      playsInSilentModeIOS: true,
+                    });
+                  } catch (_) {}
+                }}
+              >
+                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={callSpeakerActive ? 'black' : 'white'} strokeWidth="2">
+                  <Polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <Path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                  <Path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                </Svg>
+                <Text style={[styles.callActionLabel, { color: 'white' }]}>Speaker</Text>
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
+        </LinearGradient>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -2060,5 +2725,266 @@ const styles = StyleSheet.create({
   micStatusLabel: {
     fontSize: 13,
     fontWeight: "600",
+  },
+
+  // Calling UI Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  modalDismissBg: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  sheetContent: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 24,
+    paddingTop: 14,
+    paddingBottom: 34,
+  },
+  sheetHeader: {
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(0,0,0,0.1)",
+    marginBottom: 14,
+  },
+  sheetTitle: {
+    fontSize: 19,
+    fontWeight: "800",
+    marginBottom: 4,
+    textAlign: "center",
+  },
+  sheetSubtitle: {
+    fontSize: 13,
+    textAlign: "center",
+    paddingHorizontal: 12,
+  },
+  optionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    marginBottom: 14,
+  },
+  optionIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  optionTextContainer: {
+    flex: 1,
+  },
+  optionTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 3,
+  },
+  optionDescription: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  sheetCancelBtn: {
+    height: 52,
+    borderRadius: 26,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 8,
+  },
+  sheetCancelText: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+
+  // Incoming Call Popup Styles
+  incomingCallPopup: {
+    marginHorizontal: 24,
+    marginBottom: 34,
+    borderRadius: 28,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  incomingCallTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 1.5,
+    marginBottom: 16,
+    opacity: 0.7,
+  },
+  incomingAvatarContainer: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    padding: 3,
+    backgroundColor: "#F1F5F9",
+    marginBottom: 16,
+  },
+  incomingAvatar: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 44,
+  },
+  incomingCallerName: {
+    fontSize: 20,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  incomingCallerStatus: {
+    fontSize: 13,
+    marginBottom: 24,
+  },
+  incomingActions: {
+    flexDirection: "row",
+    gap: 16,
+    width: "100%",
+  },
+  incomingDeclineBtn: {
+    flex: 1,
+    height: 50,
+    borderRadius: 25,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+  },
+  incomingDeclineText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  incomingAcceptBtn: {
+    flex: 1,
+    height: 50,
+    borderRadius: 25,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+  },
+  incomingAcceptText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  // Call screen overlay styles
+  callOverlayContainer: {
+    flex: 1,
+  },
+  callSafeArea: {
+    flex: 1,
+    justifyContent: "space-between",
+    paddingVertical: 24,
+  },
+  callHeader: {
+    alignItems: "center",
+    marginTop: 20,
+  },
+  callTypeLabel: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 2,
+    marginBottom: 6,
+  },
+  callTimer: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  callAvatarSection: {
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1,
+  },
+  callAvatarGlowOuter: {
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    backgroundColor: "rgba(255,255,255,0.03)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  callAvatarGlowInner: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  callAvatar: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+  },
+  callPartnerName: {
+    color: "white",
+    fontSize: 26,
+    fontWeight: "800",
+    marginBottom: 6,
+  },
+  callStatusText: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  callWaveformContainer: {
+    flexDirection: "row",
+    height: 60,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 20,
+  },
+  callWaveBar: {
+    width: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.25)",
+  },
+  callActionsContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 28,
+    marginBottom: 20,
+  },
+  callActionButton: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  callEndActionButton: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: "#EF4444",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  callActionLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 8,
+    position: "absolute",
+    bottom: -22,
   },
 });

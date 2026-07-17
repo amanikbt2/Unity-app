@@ -130,23 +130,12 @@ export const AppProvider = ({ children }) => {
         if (token) {
           // updateSettings is declared above (moved) so it's safe to call here
           updateSettings({ expoPushToken: token });
-          try {
-            const API_URL =
-              process.env.EXPO_PUBLIC_API_URL ||
-              "https://unity-3xc2.onrender.com";
-            await fetch(`${API_URL}/api/register-push`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ userKey: "UID-000000", token }),
-            });
-          } catch (err) {
-            console.error("Failed to register token with backend", err);
-          }
         }
       } catch (e) {
         console.error("Push notification setup error:", e);
       }
     };
+
     initNotifications();
 
     return () => clearTimeout(timer);
@@ -172,6 +161,22 @@ export const AppProvider = ({ children }) => {
         "amani_profile_settings",
         JSON.stringify(updated),
       );
+
+      // Register push token with backend using actual user UID
+      if (updated.expoPushToken && updated.uid) {
+        try {
+          const API_URL =
+            process.env.EXPO_PUBLIC_API_URL ||
+            "https://unity-3xc2.onrender.com";
+          fetch(`${API_URL}/api/register-push`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userKey: updated.uid, token: updated.expoPushToken }),
+          }).catch(err => console.warn("[AppContext] Backend token registration failed:", err.message));
+        } catch (err) {
+          console.warn("[AppContext] Failed to dispatch token registration fetch:", err);
+        }
+      }
 
       // If it's a real user, ensure they are in the saved accounts list
       if (updated.isRealUser && updated.email) {

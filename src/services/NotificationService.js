@@ -3,6 +3,8 @@ import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 
+import notifee, { AndroidImportance, AndroidCategory, EventType } from "@notifee/react-native";
+
 let activeChatPartnerId = null;
 
 export function setActiveChatPartnerId(id) {
@@ -14,6 +16,16 @@ export function setActiveChatPartnerId(id) {
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const data = notification.request.content.data || {};
+    if (data.type === 'incoming_call') {
+      console.log("[NotificationService] Intercepted incoming call push notification:", data);
+      displayIncomingCallNotification(data.callerName, data.callId, data.callerId);
+      return {
+        shouldShowAlert: false,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      };
+    }
+    
     if (activeChatPartnerId) {
       if (data.partnerId === activeChatPartnerId || data.type === 'chat') {
         console.log(`[NotificationService] Suppressing active partner notification: ${data.partnerId || 'chat'}`);
@@ -207,4 +219,105 @@ export async function displayMessageNotification(senderName, body, avatarUrl = "
   } catch (err) {
     console.warn("[NotificationService] displayMessageNotification failed:", err);
   }
+}
+
+/**
+ * Rich call notification using Notifee with custom Ringtone and Answer/Reject buttons.
+ */
+export async function displayIncomingCallNotification(callerName, callId, callerId) {
+  if (Platform.OS === 'web' || !notifee) return;
+
+  try {
+    await notifee.requestPermission();
+
+    const channelId = await notifee.createChannel({
+      id: 'incoming-call',
+      name: 'Incoming Call Alerts',
+      importance: AndroidImportance.HIGH,
+      sound: 'ringtone', // Custom sound file android/app/src/main/res/raw/ringtone.mp3
+      vibration: true,
+      vibrationPattern: [300, 500, 300, 500],
+    });
+
+    await notifee.displayNotification({
+      id: callId,
+      title: '📞 Incoming Voice Call',
+      body: `${callerName || 'Someone'} is calling you...`,
+      data: { callerId, callId },
+      android: {
+        channelId,
+        importance: AndroidImportance.HIGH,
+        category: AndroidCategory.CALL,
+        fullScreenIntent: true,
+        pressAction: {
+          id: 'default',
+          launchActivity: 'default',
+        },
+        actions: [
+          {
+            title: 'Answer',
+            pressAction: {
+              id: 'answer',
+              launchActivity: 'default',
+            },
+          },
+          {
+            title: 'Reject',
+            pressAction: {
+              id: 'reject',
+            },
+          },
+        ],
+      },
+      ios: {
+        sound: 'ringtone.mp3',
+        categoryId: 'incoming-call-category',
+      },
+    });
+  } catch (err) {
+    console.error("[NotificationService] displayIncomingCallNotification failed:", err);
+  }
+}
+
+// Setup background and foreground events for call interactions
+if (Platform.OS !== "web" && notifee) {
+  notifee.onBackgroundEvent(async ({ type, detail }) => {
+    const { notification, pressAction } = detail;
+    if (type === EventType.ACTION_PRESS) {
+      if (pressAction.id === 'answer') {
+        console.log('[NotificationService] User answered background call:', notification.id);
+        await AsyncStorage.setItem("amani_pending_answer_call_id", notification.id);
+        await AsyncStorage.setItem("amani_pending_answer_caller_id", notification.data?.callerId || "");
+      } else if (pressAction.id === 'reject') {
+        console.log('[NotificationService] User rejected background call:', notification.id);
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://unity-3xc2.onrender.com';
+        await fetch(`${API_URL}/api/calls/reject`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ callId: notification.id }),
+        }).catch(err => console.error("[NotificationService] Reject background call failed:", err));
+      }
+      await notifee.cancelNotification(notification.id);
+    }
+  });
+
+  notifee.onForegroundEvent(async ({ type, detail }) => {
+    const { notification, pressAction } = detail;
+    if (type === EventType.ACTION_PRESS) {
+      if (pressAction.id === 'answer') {
+        console.log('[NotificationService] User answered foreground call:', notification.id);
+        await AsyncStorage.setItem("amani_pending_answer_call_id", notification.id);
+        await AsyncStorage.setItem("amani_pending_answer_caller_id", notification.data?.callerId || "");
+      } else if (pressAction.id === 'reject') {
+        console.log('[NotificationService] User rejected foreground call:', notification.id);
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://unity-3xc2.onrender.com';
+        await fetch(`${API_URL}/api/calls/reject`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ callId: notification.id }),
+        }).catch(err => console.error("[NotificationService] Reject foreground call failed:", err));
+      }
+      await notifee.cancelNotification(notification.id);
+    }
+  });
 }
