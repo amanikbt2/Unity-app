@@ -250,10 +250,6 @@ export async function scheduleLocalNotification(title, body, trigger = null, par
   }
 }
 
-/**
- * Displays a local notification for an incoming chat message (foreground only).
- * For background/closed-app delivery, the backend calls /api/push-message instead.
- */
 export async function displayMessageNotification(senderName, body, avatarUrl = "", partnerId = "") {
   try {
     if (Platform.OS === 'web') {
@@ -266,13 +262,37 @@ export async function displayMessageNotification(senderName, body, avatarUrl = "
       return;
     }
 
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `💬 New message from ${senderName}`,
-        body: body,
-        data: { type: 'chat', senderName, partnerId },
+    await notifee.requestPermission();
+
+    const channelId = await notifee.createChannel({
+      id: 'chat-messages',
+      name: 'Chat Messages',
+      importance: AndroidImportance.HIGH,
+    });
+
+    await notifee.displayNotification({
+      title: `💬 New message from ${senderName}`,
+      body: body,
+      data: { type: 'chat', senderName, partnerId },
+      android: {
+        channelId,
+        importance: AndroidImportance.HIGH,
+        pressAction: {
+          id: 'default',
+          launchActivity: 'default',
+        },
+        actions: [
+          {
+            title: 'Reply',
+            pressAction: {
+              id: 'reply',
+            },
+            input: {
+              placeholder: 'Type your message...',
+            },
+          },
+        ],
       },
-      trigger: null,
     });
   } catch (err) {
     console.warn("[NotificationService] displayMessageNotification failed:", err);
@@ -354,6 +374,24 @@ if (Platform.OS !== "web" && notifee) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ callId: notification.id }),
         }).catch(err => console.error("[NotificationService] Reject background call failed:", err));
+      } else if (pressAction.id === 'reply') {
+        const replyText = detail.input;
+        const partnerId = notification.data?.partnerId;
+        const senderName = notification.data?.senderName || "User";
+        if (replyText && partnerId) {
+          console.log(`[NotificationService] Quick replying in background:`, replyText);
+          const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://unity-3xc2.onrender.com';
+          await fetch(`${API_URL}/api/push-message`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recipientId: partnerId,
+              senderName: senderName,
+              messageText: replyText,
+              type: 'chat'
+            }),
+          }).catch(err => console.error("[NotificationService] Background quick reply failed:", err));
+        }
       }
       await notifee.cancelNotification(notification.id);
     }
@@ -374,6 +412,24 @@ if (Platform.OS !== "web" && notifee) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ callId: notification.id }),
         }).catch(err => console.error("[NotificationService] Reject foreground call failed:", err));
+      } else if (pressAction.id === 'reply') {
+        const replyText = detail.input;
+        const partnerId = notification.data?.partnerId;
+        const senderName = notification.data?.senderName || "User";
+        if (replyText && partnerId) {
+          console.log(`[NotificationService] Quick replying in foreground:`, replyText);
+          const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://unity-3xc2.onrender.com';
+          await fetch(`${API_URL}/api/push-message`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recipientId: partnerId,
+              senderName: senderName,
+              messageText: replyText,
+              type: 'chat'
+            }),
+          }).catch(err => console.error("[NotificationService] Foreground quick reply failed:", err));
+        }
       }
       await notifee.cancelNotification(notification.id);
     }

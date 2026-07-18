@@ -57,6 +57,7 @@ import { AppContext } from "../context/AppContext";
 import * as Notifications from "expo-notifications";
 import { scheduleLocalNotification, setActiveChatPartnerId } from "../services/NotificationService";
 import UserProfilePopup from "../components/UserProfilePopup";
+import AudioWaveform from "../components/AudioWaveform";
 import {
   saveChat,
   getChats,
@@ -269,6 +270,10 @@ export default function ConversationScreen({ route, navigation }) {
   const lastAudioTimestampRef = useRef(0);
   const callAudioRecorderRef = useRef(null);
   const ringtonePlayerRef = useRef(null);
+  const [callSubtitlesList, setCallSubtitlesList] = useState([]);
+  const callSubtitlesPollIntervalRef = useRef(null);
+  const lastSubtitleTimestampRef = useRef(0);
+  const subtitleRecorderRef = useRef(null);
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -604,6 +609,106 @@ export default function ConversationScreen({ route, navigation }) {
 
     // Audio streaming/recording loop (Sender side)
     startAudioStreaming(callId);
+
+    // Subtitles polling loop (Receiver side)
+    lastSubtitleTimestampRef.current = Date.now();
+    setCallSubtitlesList([]);
+    if (callSubtitlesPollIntervalRef.current) clearInterval(callSubtitlesPollIntervalRef.current);
+    callSubtitlesPollIntervalRef.current = setInterval(async () => {
+      try {
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+        const res = await fetch(`${API_URL}/api/calls/subtitles/${callId}/${lastSubtitleTimestampRef.current}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.subtitles && data.subtitles.length > 0) {
+            setCallSubtitlesList(prev => {
+              const combined = [...prev, ...data.subtitles];
+              return combined.slice(-10); // Keep last 10 subtitles
+            });
+            for (const item of data.subtitles) {
+              if (item.timestamp > lastSubtitleTimestampRef.current) {
+                lastSubtitleTimestampRef.current = item.timestamp;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[Calls] Subtitles polling failed:", err.message);
+      }
+    }, 2000);
+
+    // Parallel Subtitle transcription loop (Sender side)
+    startCallSubtitlesRecording(callId);
+  };
+
+  // Parallel Subtitle transcription loop (Sender side - Non-blocking background promise thread)
+  const startCallSubtitlesRecording = async (callId) => {
+    let active = true;
+
+    const runSubtitleCapture = async () => {
+      if (!active || callStatus !== "connected") return;
+
+      try {
+        const subRecorder = AudioModule.createRecorder(COMPRESSED_AUDIO_OPTIONS);
+        subtitleRecorderRef.current = subRecorder;
+        await subRecorder.prepareToRecordAsync(COMPRESSED_AUDIO_OPTIONS);
+        await subRecorder.record();
+
+        setTimeout(async () => {
+          try {
+            await subRecorder.stop();
+            const uri = subRecorder.uri;
+            if (uri && active) {
+              const partnerLang = getLangCodeFromFlag(partnerFlag);
+              translateVoice(uri, partnerLang)
+                .then(async (result) => {
+                  if (result && result.transcription && result.transcription.trim()) {
+                    const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+                    fetch(`${API_URL}/api/calls/subtitles`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        callId,
+                        senderId: currentUser.uid,
+                        text: result.transcription,
+                        translation: result.translation
+                      })
+                    }).catch(e => console.warn("[Subtitles] Failed to upload subtitles:", e.message));
+
+                    // Add locally for instant response
+                    setCallSubtitlesList(prev => [
+                      ...prev,
+                      {
+                        senderId: currentUser.uid,
+                        text: result.transcription,
+                        translation: result.translation,
+                        timestamp: Date.now()
+                      }
+                    ].slice(-10));
+                  }
+                })
+                .catch(err => console.warn("[Subtitles] Background STT failed:", err.message))
+                .finally(async () => {
+                  await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+                });
+            }
+          } catch (err) {
+            console.warn("[Subtitles] Stopped recording error:", err.message);
+          }
+
+          if (active) {
+            runSubtitleCapture();
+          }
+        }, 5000);
+      } catch (err) {
+        console.warn("[Subtitles] Setup failed:", err.message);
+        if (active) {
+          setTimeout(runSubtitleCapture, 2000);
+        }
+      }
+    };
+
+    runSubtitleCapture();
   };
 
   // Helper to play base64 audio chunk dynamically
@@ -709,12 +814,23 @@ export default function ConversationScreen({ route, navigation }) {
       clearInterval(callAudioPollIntervalRef.current);
       callAudioPollIntervalRef.current = null;
     }
+    if (callSubtitlesPollIntervalRef.current) {
+      clearInterval(callSubtitlesPollIntervalRef.current);
+      callSubtitlesPollIntervalRef.current = null;
+    }
+    setCallSubtitlesList([]);
 
     // Stop and clean up recording
     try {
       if (callAudioRecorderRef.current) {
         await callAudioRecorderRef.current.stop();
         callAudioRecorderRef.current = null;
+      }
+    } catch (_) {}
+    try {
+      if (subtitleRecorderRef.current) {
+        await subtitleRecorderRef.current.stop();
+        subtitleRecorderRef.current = null;
       }
     } catch (_) {}
 
@@ -2170,15 +2286,19 @@ export default function ConversationScreen({ route, navigation }) {
                     <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                   </Svg>
                 </TouchableOpacity>
-                <Text
-                  style={[styles.micStatusLabel, { color: colors.textMuted }]}
-                >
-                  {isOnline
-                    ? isRecording
-                      ? "Recording..."
-                      : "Hold mic to speak"
-                    : "The user is currently offline"}
-                </Text>
+                {isOnline && isRecording ? (
+                  <AudioWaveform
+                    metering={recorderState.metering}
+                    isRecording={isRecording}
+                    color={colors.primary}
+                  />
+                ) : (
+                  <Text
+                    style={[styles.micStatusLabel, { color: colors.textMuted }]}
+                  >
+                    {isOnline ? "Hold mic to speak" : "The user is currently offline"}
+                  </Text>
+                )}
               </View>
 
               {/* Keyboard Toggle Icon on the RIGHT */}
@@ -2395,6 +2515,36 @@ export default function ConversationScreen({ route, navigation }) {
                 <View style={[styles.callWaveBar, { height: 30 }]} />
                 <View style={[styles.callWaveBar, { height: 15 }]} />
               </View>
+            )}
+
+            {/* Real-time Call Subtitles Overlay */}
+            {callStatus === "connected" && callSubtitlesList.length > 0 && (
+              <ScrollView 
+                style={styles.callSubtitlesScroll} 
+                contentContainerStyle={styles.callSubtitlesContent}
+                ref={ref => ref?.scrollToEnd({ animated: true })}
+              >
+                {callSubtitlesList.map((item, index) => {
+                  const isMe = item.senderId === currentUser.uid;
+                  return (
+                    <View 
+                      key={index} 
+                      style={[
+                        styles.subtitleBubble, 
+                        isMe ? styles.subtitleBubbleMe : styles.subtitleBubblePartner
+                      ]}
+                    >
+                      <Text style={styles.subtitleSender}>
+                        {isMe ? "Me" : partnerName}
+                      </Text>
+                      <Text style={styles.subtitleText}>{item.text}</Text>
+                      {item.translation && item.translation !== item.text && (
+                        <Text style={styles.subtitleTranslationText}>{item.translation}</Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </ScrollView>
             )}
 
             {/* Action buttons */}
@@ -2993,6 +3143,48 @@ const styles = StyleSheet.create({
     width: 4,
     borderRadius: 2,
     backgroundColor: "rgba(255,255,255,0.25)",
+  },
+  callSubtitlesScroll: {
+    maxHeight: 120,
+    width: "85%",
+    alignSelf: "center",
+    marginBottom: 20,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    borderRadius: 12,
+    padding: 8,
+  },
+  callSubtitlesContent: {
+    gap: 8,
+  },
+  subtitleBubble: {
+    borderRadius: 8,
+    padding: 8,
+    maxWidth: "90%",
+  },
+  subtitleBubbleMe: {
+    backgroundColor: "rgba(139, 92, 246, 0.15)",
+    alignSelf: "flex-end",
+  },
+  subtitleBubblePartner: {
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    alignSelf: "flex-start",
+  },
+  subtitleSender: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "rgba(255, 255, 255, 0.5)",
+    marginBottom: 2,
+    textTransform: "uppercase",
+  },
+  subtitleText: {
+    fontSize: 13,
+    color: "rgba(255, 255, 255, 0.9)",
+  },
+  subtitleTranslationText: {
+    fontSize: 12,
+    color: "#a78bfa",
+    fontStyle: "italic",
+    marginTop: 2,
   },
   callActionsContainer: {
     flexDirection: "row",
