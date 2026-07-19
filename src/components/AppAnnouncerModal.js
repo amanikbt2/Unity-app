@@ -12,6 +12,7 @@ import {
   Platform,
   TextInput,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppContext } from '../context/AppContext';
@@ -63,10 +64,25 @@ const AppAnnouncerModal = () => {
         // Check if user has already seen this specific popup ID
         const seenStatus = await AsyncStorage.getItem(`@seen_popup_${latestPopup.id}`);
         if (!seenStatus) {
-          setPopup(latestPopup);
-          setFormAnswers({});
-          setSubmitted(false);
-          setTimeout(() => setVisible(true), 1500); // Small delay so it pops up nicely after load
+          // If it's a native alert style, show immediately without modal state
+          if (latestPopup.displayStyle === 'alert') {
+            await AsyncStorage.setItem(`@seen_popup_${latestPopup.id}`, 'true');
+            const name = currentUser?.username || currentUser?.name || 'User';
+            const title = (latestPopup.title || '').replace(/\{name\}/gi, name);
+            const message = (latestPopup.text || '').replace(/\{name\}/gi, name);
+            const buttons = (latestPopup.alertButtons || []).map(btn => ({
+              text: btn.label,
+              style: btn.style || 'default',
+            }));
+            setTimeout(() => {
+              Alert.alert(title, message, buttons.length > 0 ? buttons : [{ text: 'OK' }]);
+            }, 1500);
+          } else {
+            setPopup(latestPopup);
+            setFormAnswers({});
+            setSubmitted(false);
+            setTimeout(() => setVisible(true), 1500);
+          }
         }
       }
     } catch (error) {
