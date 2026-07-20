@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   StyleSheet,
@@ -328,7 +328,9 @@ const getPostMediaTypeFromAsset = (assetType, uri) => {
 const getPostDisplayText = (post) =>
   (post?.description || post?.content || "").trim();
 
-export default function HomeScreen({ navigation }) {
+const getCurrentTimestamp = () => Date.now();
+
+export default function HomeScreen({ route, navigation }) {
   const { currentUser, getLangDetails, getLangDetailsFromFlag, LANGS } =
     useContext(AppContext);
   const insets = useSafeAreaInsets();
@@ -339,6 +341,7 @@ export default function HomeScreen({ navigation }) {
   const [contacts, setContacts] = useState(INITIAL_CONTACTS);
   const [syncedCount, setSyncedCount] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
+  const handleImportContactsRef = useRef(null);
   const [imported, setImported] = useState(false);
   const [showImportSuccess, setShowImportSuccess] = useState(false);
   const [contactSearchText, setContactSearchText] = useState("");
@@ -452,7 +455,7 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   /**
-   * Auto-sync contacts on app open (once per day).
+   * Auto-sync contacts on app open (weekly interval or upon new login/signup).
    * Runs silently in the background. Shows inline success/fail.
    */
   useEffect(() => {
@@ -460,18 +463,32 @@ export default function HomeScreen({ navigation }) {
 
     const autoSync = async () => {
       try {
-        const todayStr = new Date().toISOString().split("T")[0];
-        const lastSyncDate = await getLastAutoSyncDate();
-        if (lastSyncDate === todayStr) {
-          console.log("[Contacts] Already auto-synced today:", todayStr);
-          // Still load existing contacts from DB
+        const justLoggedIn = route?.params?.justLoggedIn;
+        const lastSyncTime = await getLastAutoSyncDate();
+        let lastSyncMs = 0;
+        if (lastSyncTime) {
+          const parsed = Number(lastSyncTime);
+          if (!isNaN(parsed) && parsed > 0) {
+            lastSyncMs = parsed;
+          } else {
+            lastSyncMs = new Date(lastSyncTime).getTime() || 0;
+          }
+        }
+
+        const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+        const isWeeklyDue = !lastSyncMs || (getCurrentTimestamp() - lastSyncMs > SEVEN_DAYS_MS);
+
+        if (!justLoggedIn && !isWeeklyDue) {
+          console.log("[Contacts] App open: Using static DB contacts (synced within last 7 days).");
           const existing = await getDbContacts();
           if (existing && existing.length > 0) setContacts(existing);
           return;
         }
 
-        console.log("[Contacts] Starting automatic daily contact sync...");
-        await handleImportContacts(true);
+        console.log("[Contacts] Starting contact sync (Login/Account creation or 7-day interval)...");
+        if (handleImportContactsRef.current) {
+          await handleImportContactsRef.current(true);
+        }
       } catch (err) {
         console.error("[Contacts] Auto-sync trigger error:", err);
       }
@@ -482,7 +499,7 @@ export default function HomeScreen({ navigation }) {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [route?.params?.justLoggedIn]);
 
   useEffect(() => {
     let isActive = true;
@@ -885,12 +902,21 @@ export default function HomeScreen({ navigation }) {
     setIsImporting(true);
     trackEvent("started_contact_import", currentUser, { auto: isAuto });
     try {
-      // Daily check: skip if already synced today (only for auto mode)
-      if (isAuto) {
-        const todayStr = new Date().toISOString().split("T")[0];
-        const lastSyncDate = await getLastAutoSyncDate();
-        if (lastSyncDate === todayStr) {
-          console.log("[Contacts] Already auto-synced today, skipping.");
+      // Weekly check: skip if already synced within last 7 days (only for auto mode without fresh login)
+      if (isAuto && !route?.params?.justLoggedIn) {
+        const lastSyncTime = await getLastAutoSyncDate();
+        let lastSyncMs = 0;
+        if (lastSyncTime) {
+          const parsed = Number(lastSyncTime);
+          if (!isNaN(parsed) && parsed > 0) {
+            lastSyncMs = parsed;
+          } else {
+            lastSyncMs = new Date(lastSyncTime).getTime() || 0;
+          }
+        }
+        const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+        if (lastSyncMs > 0 && (getCurrentTimestamp() - lastSyncMs < SEVEN_DAYS_MS)) {
+          console.log("[Contacts] Already auto-synced within last 7 days, skipping.");
           setIsImporting(false);
           return;
         }
@@ -1073,12 +1099,11 @@ export default function HomeScreen({ navigation }) {
           setTimeout(() => setShowImportSuccess(false), 15000);
         }
 
-        // Mark today as synced
-        const todayStr = new Date().toISOString().split("T")[0];
-        await saveLastAutoSyncDate(todayStr);
-        await saveLastImportCheckTime(Date.now());
+        // Mark timestamp as synced
+        await saveLastAutoSyncDate(String(getCurrentTimestamp()));
+        await saveLastImportCheckTime(getCurrentTimestamp());
         console.log(
-          `[Contacts] Sync complete: ${formattedContacts.length} contacts`,
+          `[Contacts] Sync complete: ${processedCount} contacts`,
         );
       } else {
         console.log("[Contacts] No contacts found on device.");
@@ -1097,6 +1122,9 @@ export default function HomeScreen({ navigation }) {
       setIsImporting(false);
     }
   };
+  useEffect(() => {
+    handleImportContactsRef.current = handleImportContacts;
+  });
 
   const handleConfirmAddContact = (name) => {
     Alert.alert(

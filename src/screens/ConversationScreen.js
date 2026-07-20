@@ -226,14 +226,14 @@ export default function ConversationScreen({ route, navigation }) {
     partnerId === "Me" ||
     partnerName === currentUser?.name;
 
+  const isOfflineStatus =
+    partnerStatus &&
+    /offline|disconnected|inactive|away/.test(partnerStatus.trim().toLowerCase());
+
   const isOnline =
     isSelfChat || partnerId === "unity_ai"
       ? true
-      : partnerStatus
-        ? /online|available|ready to chat|connected|active/.test(
-            partnerStatus.trim().toLowerCase(),
-          )
-        : false;
+      : !isOfflineStatus;
 
   const [isKeyboardMode, setIsKeyboardMode] = useState(isSelfChat ? true : false);
   const [inputText, setInputText] = useState("");
@@ -497,10 +497,10 @@ export default function ConversationScreen({ route, navigation }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          callerId: currentUser.uid,
+          callerId: currentUser?.uid || currentUser?.id || currentUser?.email,
           partnerId: partnerId,
-          callerName: currentUser.name,
-          callerAvatar: currentUser.avatar || ""
+          callerName: currentUser?.name || "User",
+          callerAvatar: currentUser?.avatar || ""
         })
       });
 
@@ -862,7 +862,8 @@ export default function ConversationScreen({ route, navigation }) {
 
   // Foreground incoming call poll
   useEffect(() => {
-    if (!currentUser || !currentUser.uid) return;
+    const myUid = currentUser?.uid || currentUser?.id || currentUser?.email;
+    if (!currentUser || !myUid) return;
 
     const pollInterval = setInterval(async () => {
       // Don't poll if we are already in call view, or translation mode, or displaying an incoming call
@@ -870,7 +871,7 @@ export default function ConversationScreen({ route, navigation }) {
 
       try {
         const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
-        const res = await fetch(`${API_URL}/api/calls/poll-active/${encodeURIComponent(currentUser.uid)}`);
+        const res = await fetch(`${API_URL}/api/calls/poll-active/${encodeURIComponent(myUid)}`);
         if (res.ok) {
           const data = await res.json();
           if (data.success && data.incomingCall) {

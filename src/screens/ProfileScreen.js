@@ -224,14 +224,20 @@ export default function ProfileScreen({ route, navigation }) {
       if (existingProfile) {
         await updateSettings({
           ...existingProfile,
+          uid: existingProfile.uid || existingProfile.email || devEmail,
+          id: existingProfile.id || existingProfile.email || devEmail,
+          status: "Available on Xaylite",
           isRealUser: true,
         });
       } else {
         await updateSettings({
+          uid: devEmail,
+          id: devEmail,
           name: devName,
           email: devEmail,
           avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&h=300&q=80",
           bio: "System Administrator",
+          status: "Available on Xaylite",
           isRealUser: true,
         });
       }
