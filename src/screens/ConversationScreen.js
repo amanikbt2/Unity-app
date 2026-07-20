@@ -226,8 +226,13 @@ export default function ConversationScreen({ route, navigation }) {
     partnerId === "Me" ||
     partnerName === currentUser?.name;
 
-  // All registered Xaylite users are online & reachable 24/7 via FCM Push Notifications (WhatsApp style)
-  const isOnline = true;
+  const partnerIsOnlineParam = route.params?.isOnline;
+  const isOnline =
+    isSelfChat || partnerId === "unity_ai"
+      ? true
+      : (typeof partnerIsOnlineParam === "boolean"
+          ? partnerIsOnlineParam
+          : !/offline|disconnected|inactive|away/.test((partnerStatus || "").toLowerCase()));
 
   const [isKeyboardMode, setIsKeyboardMode] = useState(isSelfChat ? true : false);
   const [inputText, setInputText] = useState("");
@@ -705,15 +710,24 @@ export default function ConversationScreen({ route, navigation }) {
     runSubtitleCapture();
   };
 
-  // Helper to play base64 audio chunk dynamically
+  // Helper to play base64 audio chunk dynamically (supports Web & Native)
   const playAudioChunk = async (base64Audio) => {
     try {
-      const chunkPath = `${FileSystem.cacheDirectory}call_chunk_${Date.now()}.mp3`;
-      await FileSystem.writeAsStringAsync(chunkPath, base64Audio, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      const chunkPlayer = AudioModule.createPlayer(chunkPath);
-      chunkPlayer.play();
+      if (!base64Audio) return;
+      if (Platform.OS === "web") {
+        const audioSrc = base64Audio.startsWith("data:")
+          ? base64Audio
+          : `data:audio/wav;base64,${base64Audio}`;
+        const audio = new Audio(audioSrc);
+        audio.play().catch(err => console.warn("[Calls Web] Audio play error:", err.message));
+      } else {
+        const chunkPath = `${FileSystem.cacheDirectory}call_chunk_${getCurrentTimestamp()}.mp3`;
+        await FileSystem.writeAsStringAsync(chunkPath, base64Audio, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const chunkPlayer = AudioModule.createPlayer(chunkPath);
+        chunkPlayer.play();
+      }
     } catch (err) {
       console.warn("[Calls] Failed to play audio chunk:", err.message);
     }
@@ -854,17 +868,36 @@ export default function ConversationScreen({ route, navigation }) {
     Alert.alert("Call Status", statusText, [{ text: "OK" }], { cancelable: true });
   };
 
-  // Foreground incoming call poll
+  // Foreground incoming call & call status poll
   useEffect(() => {
     const myUid = currentUser?.uid || currentUser?.id || currentUser?.email;
     if (!currentUser || !myUid) return;
 
     const pollInterval = setInterval(async () => {
-      // Don't poll if we are already in call view, or translation mode, or displaying an incoming call
-      if (isRealTimeCall || handsFreeActive || incomingCallData) return;
+      if (isRealTimeCall || handsFreeActive) return;
+
+      const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+
+      // If displaying an incoming call popup, check if the caller cancelled or hung up
+      if (incomingCallData) {
+        try {
+          const res = await fetch(`${API_URL}/api/calls/status/${incomingCallData.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.status === "ended" || data.status === "rejected") {
+              console.log("[Calls] Incoming call was cancelled/ended by caller.");
+              setIncomingCallData(null);
+              stopRingtone();
+            }
+          } else {
+            setIncomingCallData(null);
+            stopRingtone();
+          }
+        } catch (_) {}
+        return;
+      }
 
       try {
-        const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
         const res = await fetch(`${API_URL}/api/calls/poll-active/${encodeURIComponent(myUid)}`);
         if (res.ok) {
           const data = await res.json();
@@ -2406,7 +2439,7 @@ export default function ConversationScreen({ route, navigation }) {
         transparent={true}
         animationType="fade"
       >
-        <View style={styles.modalOverlay}>
+        <View style={[styles.modalOverlay, { paddingBottom: Math.max(insets.bottom + 24, 50) }]}>
           <View style={[styles.incomingCallPopup, { backgroundColor: colors.cardBg }]}>
             <Text style={[styles.incomingCallTitle, { color: colors.text }]}>Incoming Call</Text>
             <View style={styles.incomingAvatarContainer}>
@@ -2501,14 +2534,14 @@ export default function ConversationScreen({ route, navigation }) {
               </Text>
             </View>
 
-            {/* Pulsating Waveform during call */}
+            {/* Dynamic Green Audio Waveform Visualizer during call */}
             {callStatus === "connected" && (
-              <View style={styles.callWaveformContainer}>
-                <View style={[styles.callWaveBar, { height: 25 }]} />
-                <View style={[styles.callWaveBar, { height: 40 }]} />
-                <View style={[styles.callWaveBar, { height: 60 }]} />
-                <View style={[styles.callWaveBar, { height: 30 }]} />
-                <View style={[styles.callWaveBar, { height: 15 }]} />
+              <View style={{ marginVertical: 18, alignItems: "center" }}>
+                <AudioWaveform
+                  metering={recorderState.metering || -35}
+                  isRecording={callStatus === "connected" && !callMuted}
+                  color="#10B981"
+                />
               </View>
             )}
 

@@ -1461,7 +1461,15 @@ export default function HomeScreen({ route, navigation }) {
     isMe: true,
   };
 
-  const isOnlineContact = (item) => item?.isMe || item?.isUnityUser !== false || isOnlineStatus(item?.status);
+  const isOnlineContact = (item) => {
+    if (item?.isMe || item?.id === "unity_ai") return true;
+    if (typeof item?.isOnline === "boolean") return item.isOnline;
+    if (item?.lastActive) {
+      const lastActiveTs = new Date(item.lastActive).getTime();
+      return (Date.now() - lastActiveTs) <= 300000;
+    }
+    return isOnlineStatus(item?.status);
+  };
 
   const filteredContacts = contacts.filter((c) => {
     if (c.id === "unity_ai") return true;

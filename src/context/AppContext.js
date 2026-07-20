@@ -257,6 +257,25 @@ export const AppProvider = ({ children }) => {
     init();
   }, []);
 
+  // Send periodic heartbeat when user is active to report real-time online status
+  useEffect(() => {
+    if (!currentUser.isRealUser || !currentUser.uid) return;
+
+    const sendHeartbeat = () => {
+      const API_URL =
+        process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+      fetch(`${API_URL}/api/users/heartbeat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid: currentUser.uid }),
+      }).catch((err) => console.warn("[AppContext] Heartbeat error:", err.message));
+    };
+
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 60000); // 60s
+    return () => clearInterval(interval);
+  }, [currentUser.uid, currentUser.isRealUser]);
+
   const logoutUser = async () => {
     try {
       // Keep the user in savedAccounts (already handled during updateSettings)
