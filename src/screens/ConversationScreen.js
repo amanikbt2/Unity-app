@@ -559,6 +559,23 @@ export default function ConversationScreen({ route, navigation }) {
         if (data.success && data.callId) {
           setActiveCallId(data.callId);
           startStatusPolling(data.callId);
+
+          // Send background push notification to target user so their device rings with Answer/Decline buttons
+          if (partnerId && partnerId !== "unity_ai") {
+            fetch(`${API_URL}/api/push-message`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                recipientId: partnerId,
+                senderName: currentUser?.name || "User",
+                messageText: "📞 Incoming Voice Call...",
+                type: "incoming_call",
+                callId: data.callId,
+                callerId: currentUser?.uid || currentUser?.id || currentUser?.email,
+                callerName: currentUser?.name || "User"
+              })
+            }).catch(err => console.warn("[Calls Push] Push send failed:", err.message));
+          }
         } else {
           throw new Error("Failed to initialize call session");
         }
@@ -974,29 +991,29 @@ export default function ConversationScreen({ route, navigation }) {
   }, [currentUser, isRealTimeCall, handsFreeActive, incomingCallData]);
 
   // Handle call answered from background notification on mount/focus
-  useEffect(() => {
-    const checkPendingAnswer = async () => {
-      try {
-        const pendingCallId = await AsyncStorage.getItem("amani_pending_answer_call_id");
-        if (pendingCallId) {
-          console.log("[Calls] Found pending answered call from background:", pendingCallId);
-          await AsyncStorage.removeItem("amani_pending_answer_call_id");
-          
-          setIsRealTimeCall(true);
-          setCallStatus("connected");
-          setCallDuration(0);
-          setCallMuted(false);
-          setCallSpeakerActive(false);
-          setActiveCallId(pendingCallId);
-          
-          // Connect call
-          connectCall(pendingCallId);
-        }
-      } catch (err) {
-        console.warn("[Calls] Check pending answer error:", err);
+  const checkPendingAnswer = async () => {
+    try {
+      const pendingCallId = await AsyncStorage.getItem("amani_pending_answer_call_id");
+      if (pendingCallId) {
+        console.log("[Calls] Found pending answered call from background:", pendingCallId);
+        await AsyncStorage.removeItem("amani_pending_answer_call_id");
+        
+        setIsRealTimeCall(true);
+        setCallStatus("connected");
+        setCallDuration(0);
+        setCallMuted(false);
+        setCallSpeakerActive(false);
+        setActiveCallId(pendingCallId);
+        
+        // Connect call
+        connectCall(pendingCallId);
       }
-    };
+    } catch (err) {
+      console.warn("[Calls] Check pending answer error:", err);
+    }
+  };
 
+  useEffect(() => {
     checkPendingAnswer();
   }, []);
 
@@ -1061,6 +1078,7 @@ export default function ConversationScreen({ route, navigation }) {
       try {
         if (nextAppState === "active") {
           setActiveChatPartnerId(partnerId);
+          checkPendingAnswer();
         } else {
           setActiveChatPartnerId(null);
           // Stop recording when app goes to background to prevent hot mic

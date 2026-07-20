@@ -1526,7 +1526,7 @@ export default function HomeScreen({ route, navigation }) {
               {activeTab === "chats"
                 ? "Chats"
                 : activeTab === "updates"
-                  ? "Updates"
+                  ? "Issues"
                   : activeTab === "contacts"
                     ? "Contacts"
                     : "Calls"}
@@ -2525,7 +2525,7 @@ export default function HomeScreen({ route, navigation }) {
                     { color: colors.textDimmed, margin: 0 },
                   ]}
                 >
-                  Recent Updates
+                  Recent Issues
                 </Text>
               ) : (
                 <View
@@ -3604,7 +3604,7 @@ export default function HomeScreen({ route, navigation }) {
               },
             ]}
           >
-            Updates
+            Issues
           </Text>
         </TouchableOpacity>
       </View>

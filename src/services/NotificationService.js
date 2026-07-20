@@ -18,7 +18,7 @@ Notifications.setNotificationHandler({
     const data = notification.request.content.data || {};
     if (data.type === 'incoming_call') {
       console.log("[NotificationService] Intercepted incoming call push notification:", data);
-      displayIncomingCallNotification(data.callerName, data.callId, data.callerId);
+      displayIncomingCallNotification(data.callerName || data.senderName, data.callId, data.callerId);
       return {
         shouldShowAlert: false,
         shouldPlaySound: false,
@@ -43,6 +43,41 @@ Notifications.setNotificationHandler({
     };
   },
 });
+
+// Intercept background/foreground push notifications when received
+if (Platform.OS !== 'web') {
+  try {
+    Notifications.addNotificationReceivedListener((notification) => {
+      const data = notification.request.content.data || {};
+      console.log("[NotificationService] Push notification received:", data);
+      if (data.type === 'incoming_call') {
+        displayIncomingCallNotification(data.callerName || data.senderName, data.callId, data.callerId);
+      }
+    });
+
+    Notifications.addNotificationResponseReceivedListener(async (response) => {
+      const data = response.notification.request.content.data || {};
+      const actionIdentifier = response.actionIdentifier;
+      console.log("[NotificationService] Push notification action tapped:", actionIdentifier, data);
+
+      if (data.type === 'incoming_call') {
+        if (actionIdentifier === 'answer' || actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
+          await AsyncStorage.setItem("amani_pending_answer_call_id", data.callId || "");
+          await AsyncStorage.setItem("amani_pending_answer_caller_id", data.callerId || "");
+        } else if (actionIdentifier === 'reject') {
+          const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://unity-3xc2.onrender.com';
+          await fetch(`${API_URL}/api/calls/reject`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ callId: data.callId }),
+          }).catch(err => console.error("[NotificationService] Reject background call tap error:", err));
+        }
+      }
+    });
+  } catch (err) {
+    console.warn("[NotificationService] Failed to attach notification listeners:", err);
+  }
+}
 
 let BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://unity-3xc2.onrender.com';
 
@@ -312,16 +347,18 @@ export async function displayIncomingCallNotification(callerName, callId, caller
       id: 'incoming-call',
       name: 'Incoming Call Alerts',
       importance: AndroidImportance.HIGH,
-      sound: 'ringtone', // Custom sound file android/app/src/main/res/raw/ringtone.mp3
+      sound: 'ringtone',
       vibration: true,
       vibrationPattern: [300, 500, 300, 500],
     });
 
+    const notifId = callId || `call_${Date.now()}`;
+
     await notifee.displayNotification({
-      id: callId,
+      id: notifId,
       title: '📞 Incoming Voice Call',
       body: `${callerName || 'Someone'} is calling you...`,
-      data: { callerId, callId },
+      data: { type: 'incoming_call', callerId: callerId || '', callId: notifId, callerName: callerName || 'Someone' },
       android: {
         channelId,
         importance: AndroidImportance.HIGH,
@@ -340,7 +377,7 @@ export async function displayIncomingCallNotification(callerName, callId, caller
             },
           },
           {
-            title: 'Reject',
+            title: 'Decline',
             pressAction: {
               id: 'reject',
             },
@@ -362,17 +399,19 @@ if (Platform.OS !== "web" && notifee) {
   notifee.onBackgroundEvent(async ({ type, detail }) => {
     const { notification, pressAction } = detail;
     if (type === EventType.ACTION_PRESS) {
-      if (pressAction.id === 'answer') {
-        console.log('[NotificationService] User answered background call:', notification.id);
-        await AsyncStorage.setItem("amani_pending_answer_call_id", notification.id);
-        await AsyncStorage.setItem("amani_pending_answer_caller_id", notification.data?.callerId || "");
+      const activeCallId = notification.data?.callId || notification.id;
+      const activeCallerId = notification.data?.callerId || "";
+      if (pressAction.id === 'answer' || pressAction.id === 'default') {
+        console.log('[NotificationService] User answered background call:', activeCallId);
+        await AsyncStorage.setItem("amani_pending_answer_call_id", activeCallId);
+        await AsyncStorage.setItem("amani_pending_answer_caller_id", activeCallerId);
       } else if (pressAction.id === 'reject') {
-        console.log('[NotificationService] User rejected background call:', notification.id);
+        console.log('[NotificationService] User rejected background call:', activeCallId);
         const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://unity-3xc2.onrender.com';
         await fetch(`${API_URL}/api/calls/reject`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ callId: notification.id }),
+          body: JSON.stringify({ callId: activeCallId }),
         }).catch(err => console.error("[NotificationService] Reject background call failed:", err));
       } else if (pressAction.id === 'reply') {
         const replyText = detail.input;
@@ -400,17 +439,19 @@ if (Platform.OS !== "web" && notifee) {
   notifee.onForegroundEvent(async ({ type, detail }) => {
     const { notification, pressAction } = detail;
     if (type === EventType.ACTION_PRESS) {
-      if (pressAction.id === 'answer') {
-        console.log('[NotificationService] User answered foreground call:', notification.id);
-        await AsyncStorage.setItem("amani_pending_answer_call_id", notification.id);
-        await AsyncStorage.setItem("amani_pending_answer_caller_id", notification.data?.callerId || "");
+      const activeCallId = notification.data?.callId || notification.id;
+      const activeCallerId = notification.data?.callerId || "";
+      if (pressAction.id === 'answer' || pressAction.id === 'default') {
+        console.log('[NotificationService] User answered foreground call:', activeCallId);
+        await AsyncStorage.setItem("amani_pending_answer_call_id", activeCallId);
+        await AsyncStorage.setItem("amani_pending_answer_caller_id", activeCallerId);
       } else if (pressAction.id === 'reject') {
-        console.log('[NotificationService] User rejected foreground call:', notification.id);
+        console.log('[NotificationService] User rejected foreground call:', activeCallId);
         const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://unity-3xc2.onrender.com';
         await fetch(`${API_URL}/api/calls/reject`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ callId: notification.id }),
+          body: JSON.stringify({ callId: activeCallId }),
         }).catch(err => console.error("[NotificationService] Reject foreground call failed:", err));
       } else if (pressAction.id === 'reply') {
         const replyText = detail.input;
