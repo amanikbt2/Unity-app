@@ -1472,7 +1472,7 @@ export default function HomeScreen({ route, navigation }) {
     if (typeof item?.isOnline === "boolean") return item.isOnline;
     if (item?.lastActive) {
       const lastActiveTs = new Date(item.lastActive).getTime();
-      return (Date.now() - lastActiveTs) <= 300000;
+      return (getCurrentTimestamp() - lastActiveTs) <= 300000;
     }
     return isOnlineStatus(item?.status);
   };

@@ -41,7 +41,11 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
   useAudioPlayer,
-  AudioModule,
+  createAudioRecorder,
+  createAudioPlayer,
+  setAudioModeAsync,
+  requestRecordingPermissionsAsync,
+  getRecordingPermissionsAsync,
   AudioQuality,
   IOSOutputFormat,
 } from "expo-audio";
@@ -233,6 +237,50 @@ export default function ConversationScreen({ route, navigation }) {
       : (typeof partnerIsOnlineParam === "boolean"
           ? partnerIsOnlineParam
           : !/offline|disconnected|inactive|away/.test((partnerStatus || "").toLowerCase()));
+
+  const [bothInRoom, setBothInRoom] = useState(false);
+  const [partnerOnline, setPartnerOnline] = useState(
+    typeof partnerIsOnlineParam === "boolean" ? partnerIsOnlineParam : true
+  );
+
+  // Track if both users are actively in this conversation room
+  useEffect(() => {
+    if (!currentUser?.uid || !partnerId || isSelfChat || partnerId === "unity_ai") return;
+    const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+
+    // Register room presence on mount
+    fetch(`${API_URL}/api/users/room-presence`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ uid: currentUser.uid, partnerId, active: true }),
+    }).catch(() => {});
+
+    // Poll room presence every 4 seconds
+    const checkRoomPresence = async () => {
+      try {
+        const res = await fetch(
+          `${API_URL}/api/users/room-presence/${encodeURIComponent(currentUser.uid)}/${encodeURIComponent(partnerId)}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setBothInRoom(!!data.bothInRoom);
+          setPartnerOnline(!!data.isOnline);
+        }
+      } catch (e) {}
+    };
+
+    checkRoomPresence();
+    const presenceInterval = setInterval(checkRoomPresence, 4000);
+
+    return () => {
+      clearInterval(presenceInterval);
+      fetch(`${API_URL}/api/users/room-presence`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid: currentUser.uid, partnerId: null, active: false }),
+      }).catch(() => {});
+    };
+  }, [currentUser?.uid, partnerId, isSelfChat]);
 
   const [isKeyboardMode, setIsKeyboardMode] = useState(isSelfChat ? true : false);
   const [inputText, setInputText] = useState("");
@@ -426,7 +474,10 @@ export default function ConversationScreen({ route, navigation }) {
     try {
       if (ringtonePlayer) {
         ringtonePlayer.loop = true;
-        ringtonePlayer.play();
+        const res = ringtonePlayer.play();
+        if (res && typeof res.catch === "function") {
+          res.catch(err => console.warn("[Calls] Ringtone play error or autoplay blocked:", err.message));
+        }
       }
     } catch (err) {
       console.warn("[Calls] Failed to play ringtone:", err);
@@ -648,7 +699,7 @@ export default function ConversationScreen({ route, navigation }) {
       if (!active || callStatus !== "connected") return;
 
       try {
-        const subRecorder = AudioModule.createRecorder(COMPRESSED_AUDIO_OPTIONS);
+        const subRecorder = createAudioRecorder(COMPRESSED_AUDIO_OPTIONS);
         subtitleRecorderRef.current = subRecorder;
         await subRecorder.prepareToRecordAsync(COMPRESSED_AUDIO_OPTIONS);
         await subRecorder.record();
@@ -715,9 +766,16 @@ export default function ConversationScreen({ route, navigation }) {
     try {
       if (!base64Audio) return;
       if (Platform.OS === "web") {
-        const audioSrc = base64Audio.startsWith("data:")
-          ? base64Audio
-          : `data:audio/wav;base64,${base64Audio}`;
+        let audioSrc = base64Audio;
+        if (!base64Audio.startsWith("data:")) {
+          let mime = "audio/webm";
+          if (base64Audio.startsWith("UklGR")) mime = "audio/wav";
+          else if (base64Audio.startsWith("GkXf")) mime = "audio/webm";
+          else if (base64Audio.startsWith("SUQz") || base64Audio.startsWith("//") || base64Audio.startsWith("/v")) mime = "audio/mpeg";
+          else if (base64Audio.startsWith("AAAA")) mime = "audio/mp4";
+          
+          audioSrc = `data:${mime};base64,${base64Audio}`;
+        }
         const audio = new Audio(audioSrc);
         audio.play().catch(err => console.warn("[Calls Web] Audio play error:", err.message));
       } else {
@@ -725,7 +783,7 @@ export default function ConversationScreen({ route, navigation }) {
         await FileSystem.writeAsStringAsync(chunkPath, base64Audio, {
           encoding: FileSystem.EncodingType.Base64,
         });
-        const chunkPlayer = AudioModule.createPlayer(chunkPath);
+        const chunkPlayer = createAudioPlayer(chunkPath);
         chunkPlayer.play();
       }
     } catch (err) {
@@ -736,12 +794,12 @@ export default function ConversationScreen({ route, navigation }) {
   // Streaming audio recording loop
   const startAudioStreaming = async (callId) => {
     try {
-      const permission = await AudioModule.getRecordingPermissionsAsync();
+      const permission = await getRecordingPermissionsAsync();
       if (permission.status !== "granted") {
-        await AudioModule.requestRecordingPermissionsAsync();
+        await requestRecordingPermissionsAsync();
       }
 
-      await AudioModule.setAudioModeAsync({
+      await setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
       });
@@ -751,7 +809,7 @@ export default function ConversationScreen({ route, navigation }) {
         if (callStatus !== "connected" && callStatusPollIntervalRef.current === null && activeCallId === null) return;
         
         try {
-          const streamRecorder = AudioModule.createRecorder(COMPRESSED_AUDIO_OPTIONS);
+          const streamRecorder = createAudioRecorder(COMPRESSED_AUDIO_OPTIONS);
           callAudioRecorderRef.current = streamRecorder;
           await streamRecorder.prepareToRecordAsync(COMPRESSED_AUDIO_OPTIONS);
           await streamRecorder.record();
@@ -858,7 +916,7 @@ export default function ConversationScreen({ route, navigation }) {
 
     // Restore standard audio settings
     try {
-      await AudioModule.setAudioModeAsync({
+      await setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
       });
@@ -1285,7 +1343,7 @@ export default function ConversationScreen({ route, navigation }) {
   // Request microphone permissions on component mount
   useEffect(() => {
     async function getPermission() {
-      const { status } = await AudioModule.requestRecordingPermissionsAsync();
+      const { status } = await requestRecordingPermissionsAsync();
       if (status !== "granted") {
         console.warn("Microphone permission not granted");
       }
@@ -1446,7 +1504,7 @@ export default function ConversationScreen({ route, navigation }) {
 
       try {
         await recorder.stop();
-        await AudioModule.setAudioModeAsync({
+        await setAudioModeAsync({
           allowsRecordingIOS: false,
           playsInSilentModeIOS: true,
         });
@@ -1460,9 +1518,9 @@ export default function ConversationScreen({ route, navigation }) {
       setSubtitleUser("Listening...");
 
       try {
-        const permission = await AudioModule.getRecordingPermissionsAsync();
+        const permission = await getRecordingPermissionsAsync();
         if (permission.status !== "granted") {
-          const request = await AudioModule.requestRecordingPermissionsAsync();
+          const request = await requestRecordingPermissionsAsync();
           if (request.status !== "granted") {
             alert("Microphone permission required.");
             setHandsFreeActive(false);
@@ -1470,7 +1528,7 @@ export default function ConversationScreen({ route, navigation }) {
           }
         }
 
-        await AudioModule.setAudioModeAsync({
+        await setAudioModeAsync({
           allowsRecordingIOS: true,
           playsInSilentModeIOS: true,
         });
@@ -1994,9 +2052,18 @@ export default function ConversationScreen({ route, navigation }) {
             </Text>
             {isConnected ? (
               <Text
-                style={[styles.partnerStatusText, { color: colors.textMuted }]}
+                style={[
+                  styles.partnerStatusText,
+                  { color: bothInRoom ? (colors.success || "#4CAF50") : colors.textMuted },
+                ]}
               >
-                Connected 🟢
+                {isSelfChat || partnerId === "unity_ai"
+                  ? "Connected 🟢"
+                  : bothInRoom
+                  ? "Connected 🟢"
+                  : partnerOnline
+                  ? `reminding ${partnerName ? partnerName.split(" ")[0] : "partner"}, online`
+                  : "Offline 🔴"}
               </Text>
             ) : (
               <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -2616,10 +2683,10 @@ export default function ConversationScreen({ route, navigation }) {
                   try {
                     const nextMode = !callSpeakerActive;
                     setCallSpeakerActive(nextMode);
-                    await AudioModule.setAudioModeAsync({
-                      allowsRecordingIOS: true,
+                    await setAudioModeAsync({
                       playsInSilentModeIOS: true,
-                    });
+                      allowsRecordingIOS: true,
+                    }).catch(() => {});
                   } catch (_) {}
                 }}
               >
