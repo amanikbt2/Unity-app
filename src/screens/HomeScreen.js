@@ -261,9 +261,11 @@ const normalizePost = (post) => {
       ? post.images
       : Array.isArray(post?.imageUrls)
         ? post.imageUrls
-        : post?.image
-          ? [post.image]
-          : [],
+        : Array.isArray(post?.imageUris)
+          ? post.imageUris
+          : post?.image
+            ? [post.image]
+            : [],
     images_local_paths: Array.isArray(post?.images_local_paths)
       ? post.images_local_paths
       : [],
@@ -368,6 +370,8 @@ export default function HomeScreen({ route, navigation }) {
   const [activeCommentsPostId, setActiveCommentsPostId] = useState(null);
   const [newCommentText, setNewCommentText] = useState("");
   const [postTranslations, setPostTranslations] = useState({});
+  const [translationsShown, setTranslationsShown] = useState({}); // tracks which posts user tapped 'See Translation'
+  const [translatingPosts, setTranslatingPosts] = useState({}); // loading state per post
   const [expandedPosts, setExpandedPosts] = useState({});
 
   // Post Options Bottom Sheet state
@@ -501,38 +505,9 @@ export default function HomeScreen({ route, navigation }) {
     };
   }, [route?.params?.justLoggedIn]);
 
-  useEffect(() => {
-    let isActive = true;
-    const targetLang = getPostTranslationTarget(currentUser.nativeLang || "en");
+  // NOTE: Auto-translation disabled — users tap 'See Translation' per post (Facebook style)
+  // The postTranslations state is populated on-demand via handleSeeTranslation()
 
-    (async () => {
-      const nextTranslations = {};
-      const postsToTranslate = normalizePosts(posts).slice(0, 12);
-      for (const post of postsToTranslate) {
-        if (!isActive) break;
-        const sourceText = getPostDisplayText(post);
-        if (!sourceText) continue;
-
-        try {
-          const translated = await translateText(sourceText, targetLang.code);
-          if (isActive && translated?.trim()) {
-            nextTranslations[post.id] = translated.trim();
-            // Update state incrementally so UI doesn't wait for all
-            setPostTranslations((prev) => ({
-              ...prev,
-              [post.id]: translated.trim(),
-            }));
-          }
-        } catch (error) {
-          console.warn("[HomeScreen] Post translation failed:", error);
-        }
-      }
-    })();
-
-    return () => {
-      isActive = false;
-    };
-  }, [posts, currentUser.nativeLang]);
 
   // Background Pre-fetching function (TikTok style)
   const preFetchServerData = async () => {
@@ -869,6 +844,36 @@ export default function HomeScreen({ route, navigation }) {
         profile.authorName,
     });
     setProfilePopupVisible(true);
+  };
+
+  const handleSeeTranslation = async (post) => {
+    const postId = post.id;
+    // If already shown, just toggle hide
+    if (translationsShown[postId]) {
+      setTranslationsShown((prev) => ({ ...prev, [postId]: false }));
+      return;
+    }
+    // If we already fetched it, just show
+    if (postTranslations[postId]) {
+      setTranslationsShown((prev) => ({ ...prev, [postId]: true }));
+      return;
+    }
+    // Fetch translation on demand
+    const targetLang = getPostTranslationTarget(currentUser.nativeLang || "en");
+    const sourceText = getPostDisplayText(post);
+    if (!sourceText) return;
+    setTranslatingPosts((prev) => ({ ...prev, [postId]: true }));
+    try {
+      const translated = await translateText(sourceText, targetLang.code);
+      if (translated?.trim()) {
+        setPostTranslations((prev) => ({ ...prev, [postId]: translated.trim() }));
+        setTranslationsShown((prev) => ({ ...prev, [postId]: true }));
+      }
+    } catch (e) {
+      console.warn("[HomeScreen] On-demand translation failed:", e);
+    } finally {
+      setTranslatingPosts((prev) => ({ ...prev, [postId]: false }));
+    }
   };
 
   const handlePostLike = async (postId) => {
@@ -1238,6 +1243,7 @@ export default function HomeScreen({ route, navigation }) {
       likes: 0,
       liked: false,
       comments: [],
+      images: newPostImages, // show images immediately in optimistic post
     };
 
     setPosts((prev) => [optimisticPost, ...prev]);
@@ -2777,11 +2783,31 @@ export default function HomeScreen({ route, navigation }) {
                                 </Text>
                               </TouchableOpacity>
                             )}
-                            {translationText ? (
-                              <Text style={styles.postTranslationText}>
-                                {translationText}
-                              </Text>
-                            ) : null}
+                            {/* Facebook-style See Translation button */}
+                            <TouchableOpacity
+                              onPress={() => handleSeeTranslation(post)}
+                              activeOpacity={0.7}
+                              style={{ marginTop: 6 }}
+                            >
+                              {translatingPosts[post.id] ? (
+                                <Text style={[styles.postSeeMoreText, { color: colors.primary }]}>
+                                  Translating...
+                                </Text>
+                              ) : translationsShown[post.id] && postTranslations[post.id] ? (
+                                <>
+                                  <Text style={[styles.postTranslationText, { color: 'rgba(255,255,255,0.75)' }]}>
+                                    {postTranslations[post.id]}
+                                  </Text>
+                                  <Text style={[styles.postSeeMoreText, { color: 'rgba(255,255,255,0.5)', marginTop: 4 }]}>
+                                    See original
+                                  </Text>
+                                </>
+                              ) : (
+                                <Text style={[styles.postSeeMoreText, { color: 'rgba(255,255,255,0.6)' }]}>
+                                  🌐 See Translation
+                                </Text>
+                              )}
+                            </TouchableOpacity>
                           </LinearGradient>
                         );
                       }
@@ -2887,11 +2913,31 @@ export default function HomeScreen({ route, navigation }) {
                             </TouchableOpacity>
                           )}
 
-                          {translationText ? (
-                            <Text style={styles.postTranslationText}>
-                              {translationText}
-                            </Text>
-                          ) : null}
+                          {/* Facebook-style See Translation button */}
+                          <TouchableOpacity
+                            onPress={() => handleSeeTranslation(post)}
+                            activeOpacity={0.7}
+                            style={{ marginTop: 4 }}
+                          >
+                            {translatingPosts[post.id] ? (
+                              <Text style={[styles.postSeeMoreText, { color: colors.primary }]}>
+                                Translating...
+                              </Text>
+                            ) : translationsShown[post.id] && postTranslations[post.id] ? (
+                              <>
+                                <Text style={[styles.postTranslationText, { color: colors.textMuted }]}>
+                                  {postTranslations[post.id]}
+                                </Text>
+                                <Text style={[styles.postSeeMoreText, { marginTop: 4 }]}>
+                                  See original
+                                </Text>
+                              </>
+                            ) : (
+                              <Text style={styles.postSeeMoreText}>
+                                🌐 See Translation
+                              </Text>
+                            )}
+                          </TouchableOpacity>
                         </>
                       );
                     })()}
