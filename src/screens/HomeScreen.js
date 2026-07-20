@@ -2230,7 +2230,15 @@ export default function HomeScreen({ route, navigation }) {
                           );
                         }}
                       >
-                        <View style={styles.avatarContainer}>
+                        <TouchableOpacity
+                          activeOpacity={0.85}
+                          hitSlop={6}
+                          onPress={(e) => {
+                            e.stopPropagation && e.stopPropagation();
+                            openProfilePopup(contact);
+                          }}
+                          style={styles.avatarContainer}
+                        >
                           <Image
                             source={typeof contact.avatar === "number" ? contact.avatar : { uri: contact.avatar }}
                             style={styles.avatar}
@@ -2251,7 +2259,7 @@ export default function HomeScreen({ route, navigation }) {
                           >
                             {renderFlagOrEmoji(contact.flag)}
                           </View>
-                        </View>
+                        </TouchableOpacity>
                         <View style={styles.convDetails}>
                           <View style={styles.convHeader}>
                             <Text
@@ -2409,18 +2417,24 @@ export default function HomeScreen({ route, navigation }) {
                         },
                       ]}
                     >
-                      <Image
-                        source={typeof (person.avatar_local_path || person.avatar) === "number" ? (person.avatar_local_path || person.avatar) : { uri: person.avatar_local_path || person.avatar }}
-                        style={styles.exploreImage}
-                      />
-                      <View
-                        style={[
-                          styles.exploreFlagBadge,
-                          { backgroundColor: colors.bg },
-                        ]}
+                      <TouchableOpacity
+                        activeOpacity={0.85}
+                        onPress={() => openProfilePopup(person)}
+                        style={{ position: 'relative' }}
                       >
-                        {renderFlagOrEmoji(person.flag)}
-                      </View>
+                        <Image
+                          source={typeof (person.avatar_local_path || person.avatar) === "number" ? (person.avatar_local_path || person.avatar) : { uri: person.avatar_local_path || person.avatar }}
+                          style={styles.exploreImage}
+                        />
+                        <View
+                          style={[
+                            styles.exploreFlagBadge,
+                            { backgroundColor: colors.bg },
+                          ]}
+                        >
+                          {renderFlagOrEmoji(person.flag)}
+                        </View>
+                      </TouchableOpacity>
                       <View style={styles.exploreCardDetails}>
                         <Text
                           style={[styles.exploreName, { color: colors.text }]}
