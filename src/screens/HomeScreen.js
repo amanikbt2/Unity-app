@@ -1461,7 +1461,7 @@ export default function HomeScreen({ route, navigation }) {
     isMe: true,
   };
 
-  const isOnlineContact = (item) => item?.isMe || isOnlineStatus(item?.status);
+  const isOnlineContact = (item) => item?.isMe || item?.isUnityUser !== false || isOnlineStatus(item?.status);
 
   const filteredContacts = contacts.filter((c) => {
     if (c.id === "unity_ai") return true;

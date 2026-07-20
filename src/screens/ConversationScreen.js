@@ -226,14 +226,8 @@ export default function ConversationScreen({ route, navigation }) {
     partnerId === "Me" ||
     partnerName === currentUser?.name;
 
-  const isOfflineStatus =
-    partnerStatus &&
-    /offline|disconnected|inactive|away/.test(partnerStatus.trim().toLowerCase());
-
-  const isOnline =
-    isSelfChat || partnerId === "unity_ai"
-      ? true
-      : !isOfflineStatus;
+  // All registered Xaylite users are online & reachable 24/7 via FCM Push Notifications (WhatsApp style)
+  const isOnline = true;
 
   const [isKeyboardMode, setIsKeyboardMode] = useState(isSelfChat ? true : false);
   const [inputText, setInputText] = useState("");
