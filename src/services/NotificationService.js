@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import Constants from "expo-constants";
 
 import notifee, { AndroidImportance, AndroidCategory, EventType } from "@notifee/react-native";
+import { saveCallLog } from "./DatabaseService";
 
 let activeChatPartnerId = null;
 
@@ -407,6 +408,15 @@ if (Platform.OS !== "web" && notifee) {
         await AsyncStorage.setItem("amani_pending_answer_caller_id", activeCallerId);
       } else if (pressAction.id === 'reject') {
         console.log('[NotificationService] User rejected background call:', activeCallId);
+        saveCallLog({
+          id: activeCallId,
+          partnerId: activeCallerId,
+          partnerName: notification.data?.callerName || "User",
+          callType: "missed",
+          status: "rejected",
+          duration: 0,
+          timestamp: Date.now(),
+        }).catch(() => {});
         const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://unity-3xc2.onrender.com';
         await fetch(`${API_URL}/api/calls/reject`, {
           method: "POST",

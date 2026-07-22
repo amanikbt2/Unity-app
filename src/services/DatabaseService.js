@@ -11,6 +11,7 @@ class MockDatabase {
       posts: [],
       explore_profiles: [],
       pending_posts: [],
+      call_logs: [],
     };
     if (Platform.OS === "web") {
       try {
@@ -58,6 +59,14 @@ class MockDatabase {
         const pk = newRow.id;
         this.tables[tableName] = this.tables[tableName].filter(r => r.id !== pk);
         this.tables[tableName].push(newRow);
+
+        if (tableName === "call_logs") {
+          this.tables.call_logs.sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
+          if (this.tables.call_logs.length > 15) {
+            this.tables.call_logs = this.tables.call_logs.slice(0, 15);
+          }
+        }
+
         this.save();
       }
     } else if (sql.includes("UPDATE contacts")) {
@@ -345,11 +354,39 @@ function normalizeExploreRow(row) {
 
 
 
+function normalizeCallLogRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    partnerId: row.partner_id || row.partnerId || "",
+    partnerName: row.partner_name || row.partnerName || "User",
+    partnerAvatar: row.partner_avatar || row.partnerAvatar || "",
+    callType: row.call_type || row.callType || "incoming", // 'incoming' | 'outgoing' | 'missed'
+    status: row.status || "ended",
+    duration: Number(row.duration || 0),
+    timestamp: Number(row.timestamp || Date.now()),
+  };
+}
+
 /**
  * Initializes database tables.
  */
 export async function initDatabase() {
   try {
+    // Create call_logs table
+    await dbExecAsync(`
+      CREATE TABLE IF NOT EXISTS call_logs (
+        id TEXT PRIMARY KEY,
+        partner_id TEXT,
+        partner_name TEXT,
+        partner_avatar TEXT,
+        call_type TEXT,
+        status TEXT,
+        duration INTEGER DEFAULT 0,
+        timestamp INTEGER
+      );
+    `);
+
     // Create contacts table
     await dbExecAsync(`
       CREATE TABLE IF NOT EXISTS contacts (
@@ -759,6 +796,54 @@ export async function saveExploreProfiles(profilesArray) {
 }
 
 /* ==========================================================================
+   CALL LOGS DATABASE OPERATIONS
+   ========================================================================== */
+
+export async function getCallLogs() {
+  try {
+    const rows = await dbGetAllAsync(
+      "SELECT * FROM call_logs ORDER BY timestamp DESC LIMIT 15;"
+    );
+    return rows.map(normalizeCallLogRow).filter(Boolean);
+  } catch (error) {
+    console.error("[Database] getCallLogs error:", error);
+    return [];
+  }
+}
+
+export async function saveCallLog(logData) {
+  try {
+    if (!logData) return false;
+    const id = logData.id || `call_log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    await dbRunAsync(
+      `INSERT OR REPLACE INTO call_logs (id, partner_id, partner_name, partner_avatar, call_type, status, duration, timestamp) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+      [
+        id,
+        logData.partnerId || logData.partner_id || "",
+        logData.partnerName || logData.partner_name || "User",
+        logData.partnerAvatar || logData.partner_avatar || "",
+        logData.callType || logData.type || "incoming",
+        logData.status || "ended",
+        Number(logData.duration || 0),
+        Number(logData.timestamp || Date.now()),
+      ]
+    );
+
+    // Smart Storage Cap: Keep strictly the 15 most recent calls locally to save phone storage
+    await dbExecAsync(
+      `DELETE FROM call_logs WHERE id NOT IN (
+         SELECT id FROM call_logs ORDER BY timestamp DESC LIMIT 15
+       );`
+    );
+    return true;
+  } catch (error) {
+    console.error("[Database] saveCallLog error:", error);
+    return false;
+  }
+}
+
+/* ==========================================================================
    CLEANUP & RESET
    ========================================================================== */
 
@@ -768,6 +853,7 @@ export async function clearDatabase() {
     await dbExecAsync("DELETE FROM contacts;");
     await dbExecAsync("DELETE FROM posts;");
     await dbExecAsync("DELETE FROM explore_profiles;");
+    await dbExecAsync("DELETE FROM call_logs;");
     console.log("[Database] Database tables cleared.");
     return true;
   } catch (error) {

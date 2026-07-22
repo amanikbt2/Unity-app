@@ -50,6 +50,7 @@ import {
   savePosts as saveDbPosts,
   getExploreProfiles as getDbExplore,
   saveExploreProfiles as saveDbExplore,
+  getCallLogs as getDbCallLogs,
   hasUnsyncedContacts,
   getUnsyncedContactsCount,
   savePendingPost,
@@ -338,6 +339,7 @@ export default function HomeScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState("chats");
   const [callsFilter, setCallsFilter] = useState("all");
+  const [callLogs, setCallLogs] = useState([]);
   const [onboardingVisible, setOnboardingVisible] = useState(false);
   const [contactsFilter, setContactsFilter] = useState("my");
   const [contacts, setContacts] = useState(INITIAL_CONTACTS);
@@ -642,7 +644,7 @@ export default function HomeScreen({ route, navigation }) {
 
   useFocusEffect(
     React.useCallback(() => {
-      async function refreshContacts() {
+      async function refreshData() {
         try {
           const latestContacts = await getDbContacts();
           if (latestContacts && latestContacts.length > 0) {
@@ -651,8 +653,14 @@ export default function HomeScreen({ route, navigation }) {
         } catch (e) {
           console.error("Failed to refresh contacts on focus:", e);
         }
+        try {
+          const logs = await getDbCallLogs();
+          setCallLogs(logs);
+        } catch (e) {
+          console.error("Failed to refresh call logs on focus:", e);
+        }
       }
-      refreshContacts();
+      refreshData();
     }, []),
   );
 
@@ -3084,121 +3092,162 @@ export default function HomeScreen({ route, navigation }) {
               ))}
             </ScrollView>
 
-            {isDev ? (
-              <View
-                style={[
-                  styles.convList,
-                  { backgroundColor: colors.cardBg, borderColor: colors.border },
-                ]}
-              >
-                <View
-                  style={[styles.convCard, { borderBottomColor: colors.border }]}
-                >
-                  <View style={styles.avatarContainer}>
-                    <Image
-                      source={{
-                        uri: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
-                      }}
-                      style={styles.avatar}
-                    />
-                    <View
-                      style={[
-                        styles.callIndicatorBadge,
-                        { backgroundColor: "#10B981" },
-                      ]}
-                    >
-                      <Text style={styles.callArrow}>↗</Text>
-                    </View>
-                  </View>
-                  <View style={styles.convDetails}>
-                    <View style={styles.convHeader}>
-                      <Text style={[styles.partnerName, { color: colors.text }]}>
-                        Sophia Martinez
-                      </Text>
-                      <Text
-                        style={[styles.convTime, { color: colors.textDimmed }]}
-                      >
-                        10m ago
-                      </Text>
-                    </View>
-                    <Text
-                      style={[styles.convPreview, { color: colors.textMuted }]}
-                    >
-                      Outgoing translation call • 4m 12s
-                    </Text>
-                  </View>
-                </View>
+            {(() => {
+              const displayedCallLogs = callLogs.filter((log) => {
+                if (callsFilter === "all") return true;
+                if (callsFilter === "missed") return log.callType === "missed" || log.status === "rejected" || log.status === "missed";
+                if (callsFilter === "outgoing") return log.callType === "outgoing";
+                if (callsFilter === "incoming") return log.callType === "incoming" && log.status !== "rejected" && log.status !== "missed";
+                return true;
+              });
 
-                <View style={[styles.convCard, { borderBottomWidth: 0 }]}>
-                  <View style={styles.avatarContainer}>
-                    <Image
-                      source={{
-                        uri: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
-                      }}
-                      style={styles.avatar}
-                    />
-                    <View
-                      style={[
-                        styles.callIndicatorBadge,
-                        { backgroundColor: "#EF4444" },
-                      ]}
-                    >
-                      <Text style={styles.callArrow}>↙</Text>
-                    </View>
+              const formatCallDuration = (seconds) => {
+                if (!seconds || seconds <= 0) return "0s";
+                const mins = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+              };
+
+              if (displayedCallLogs.length > 0) {
+                return (
+                  <View
+                    style={[
+                      styles.convList,
+                      { backgroundColor: colors.cardBg, borderColor: colors.border },
+                    ]}
+                  >
+                    {displayedCallLogs.map((log, index) => {
+                      const isMissed = log.callType === "missed" || log.status === "rejected" || log.status === "missed";
+                      const isOutgoing = log.callType === "outgoing";
+                      const badgeColor = isMissed ? "#EF4444" : isOutgoing ? "#8B5CF6" : "#10B981";
+                      const arrowIcon = isMissed ? "↙" : isOutgoing ? "↗" : "↙";
+
+                      let timeAgo = "Just now";
+                      if (log.timestamp) {
+                        const diffMins = Math.floor((Date.now() - log.timestamp) / 60000);
+                        if (diffMins < 1) timeAgo = "Just now";
+                        else if (diffMins < 60) timeAgo = `${diffMins}m ago`;
+                        else if (diffMins < 1440) timeAgo = `${Math.floor(diffMins / 60)}h ago`;
+                        else timeAgo = new Date(log.timestamp).toLocaleDateString([], { month: "short", day: "numeric" });
+                      }
+
+                      let subtitle = "";
+                      if (isMissed) {
+                        subtitle = "Missed call";
+                      } else if (isOutgoing) {
+                        subtitle = `Outgoing call • ${formatCallDuration(log.duration)}`;
+                      } else {
+                        subtitle = `Incoming call • ${formatCallDuration(log.duration)}`;
+                      }
+
+                      return (
+                        <TouchableOpacity
+                          key={log.id || `call_${index}`}
+                          onPress={() =>
+                            navigation.navigate("Conversation", {
+                              partnerId: log.partnerId,
+                              partnerName: log.partnerName,
+                              partnerAvatar: log.partnerAvatar,
+                            })
+                          }
+                          style={[
+                            styles.convCard,
+                            {
+                              borderBottomColor: colors.border,
+                              borderBottomWidth: index === displayedCallLogs.length - 1 ? 0 : 1,
+                            },
+                          ]}
+                        >
+                          <View style={styles.avatarContainer}>
+                            <Image
+                              source={
+                                log.partnerAvatar &&
+                                typeof log.partnerAvatar === "string" &&
+                                log.partnerAvatar.startsWith("http")
+                                  ? { uri: log.partnerAvatar }
+                                  : require("../../assets/default-avatar-1.jpg")
+                              }
+                              style={styles.avatar}
+                            />
+                            <View
+                              style={[
+                                styles.callIndicatorBadge,
+                                { backgroundColor: badgeColor },
+                              ]}
+                            >
+                              <Text style={styles.callArrow}>{arrowIcon}</Text>
+                            </View>
+                          </View>
+                          <View style={styles.convDetails}>
+                            <View style={styles.convHeader}>
+                              <Text style={[styles.partnerName, { color: isMissed ? "#EF4444" : colors.text }]}>
+                                {log.partnerName || "User"}
+                              </Text>
+                              <Text style={[styles.convTime, { color: colors.textDimmed }]}>
+                                {timeAgo}
+                              </Text>
+                            </View>
+                            <Text style={[styles.convPreview, { color: isMissed ? "#EF4444" : colors.textMuted }]}>
+                              {subtitle}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            onPress={() =>
+                              navigation.navigate("Conversation", {
+                                partnerId: log.partnerId,
+                                partnerName: log.partnerName,
+                                partnerAvatar: log.partnerAvatar,
+                              })
+                            }
+                            style={{ padding: 10 }}
+                          >
+                            <Ionicons name="call-outline" size={20} color={colors.primary} />
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
-                  <View style={styles.convDetails}>
-                    <View style={styles.convHeader}>
-                      <Text style={[styles.partnerName, { color: colors.text }]}>
-                        Kenji Sato
-                      </Text>
-                      <Text
-                        style={[styles.convTime, { color: colors.textDimmed }]}
-                      >
-                        Yesterday
-                      </Text>
-                    </View>
-                    <Text
-                      style={[styles.convPreview, { color: colors.textMuted }]}
-                    >
-                      Incoming translation call • 12m 40s
-                    </Text>
-                  </View>
+                );
+              }
+
+              return (
+                <View
+                  style={{
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingVertical: 40,
+                    paddingHorizontal: 20,
+                    backgroundColor: colors.cardBg,
+                    borderRadius: 24,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      fontWeight: "600",
+                      color: colors.text,
+                      marginBottom: 6,
+                    }}
+                  >
+                    No call history
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      color: colors.textMuted,
+                      textAlign: "center",
+                    }}
+                  >
+                    {callsFilter === "all"
+                      ? "Your call history will appear here (up to 15 latest calls saved in phone storage)."
+                      : `No ${callsFilter} calls found.`}
+                  </Text>
                 </View>
-              </View>
-            ) : (
-              <View
-                style={{
-                  alignItems: "center",
-                  justifyContent: "center",
-                  paddingVertical: 40,
-                  paddingHorizontal: 20,
-                  backgroundColor: colors.cardBg,
-                  borderRadius: 24,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                }}
-              >
-                <Text
-                  style={{
-                    fontSize: 16,
-                    fontWeight: "600",
-                    color: colors.text,
-                    marginBottom: 6,
-                  }}
-                >
-                  No recent calls
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 14,
-                    color: colors.textMuted,
-                    textAlign: "center",
-                  }}
-                >
-                  Your translation call history will appear here.
-                </Text>
-              </View>
-            )}
+              );
+            })()}
+          </View>
           </View>
         )}
       </ScrollView>

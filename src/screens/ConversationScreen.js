@@ -68,6 +68,7 @@ import {
   clearContactUnread,
   updateContactLastMessageTime,
   saveContacts,
+  saveCallLog,
 } from "../services/DatabaseService";
 import { messageQueue } from "../services/MessageQueue";
 
@@ -311,6 +312,7 @@ export default function ConversationScreen({ route, navigation }) {
   const isSpeakingRef = useRef(false);
 
   // Calling Refs
+  const activeCallIdRef = useRef(null);
   const callDurationTimerRef = useRef(null);
   const callStatusPollIntervalRef = useRef(null);
   const callAudioPollIntervalRef = useRef(null);
@@ -622,6 +624,18 @@ export default function ConversationScreen({ route, navigation }) {
   const rejectIncomingCall = async () => {
     if (!incomingCallData) return;
     const callId = incomingCallData.id;
+
+    saveCallLog({
+      id: callId,
+      partnerId: incomingCallData.callerId || partnerId,
+      partnerName: incomingCallData.callerName || partnerInfo?.name || "User",
+      partnerAvatar: incomingCallData.callerAvatar || partnerInfo?.avatar || "",
+      callType: "missed",
+      status: "rejected",
+      duration: 0,
+      timestamp: Date.now(),
+    }).catch(() => {});
+
     setIncomingCallData(null);
     stopRingtone();
 
@@ -641,6 +655,7 @@ export default function ConversationScreen({ route, navigation }) {
   const connectCall = async (callId) => {
     stopRingtone();
     setCallStatus("connected");
+    activeCallIdRef.current = callId;
 
     // Start call duration timer
     if (callDurationTimerRef.current) clearInterval(callDurationTimerRef.current);
@@ -821,9 +836,9 @@ export default function ConversationScreen({ route, navigation }) {
         playsInSilentModeIOS: true,
       });
 
-      // Simple low-latency recording loop
+      // Low-latency recording loop for active calls
       const streamRecord = async () => {
-        if (callStatus !== "connected" && callStatusPollIntervalRef.current === null && activeCallId === null) return;
+        if (!activeCallIdRef.current) return;
         
         try {
           const streamRecorder = createAudioRecorder(COMPRESSED_AUDIO_OPTIONS);
@@ -835,7 +850,7 @@ export default function ConversationScreen({ route, navigation }) {
             try {
               await streamRecorder.stop();
               const uri = streamRecorder.uri;
-              if (uri && !callMuted) {
+              if (uri && !callMuted && activeCallIdRef.current) {
                 const base64 = await FileSystem.readAsStringAsync(uri, {
                   encoding: FileSystem.EncodingType.Base64,
                 });
@@ -852,19 +867,17 @@ export default function ConversationScreen({ route, navigation }) {
                   })
                 }).catch(err => console.warn("[Calls] Failed to post audio chunk:", err.message));
               }
-              // Clean up local temp file
               if (uri) await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
             } catch (err) {
               console.warn("[Calls] Recording chunk error:", err.message);
             }
             
-            // Recurse to keep recording next chunk
-            if (isRealTimeCall) {
+            if (activeCallIdRef.current) {
               streamRecord();
             }
           }, 1500);
         } catch (err) {
-          console.error("[Calls] Recording stream initialization error:", err);
+          console.error("[Calls] Recording stream error:", err);
         }
       };
 
@@ -880,7 +893,20 @@ export default function ConversationScreen({ route, navigation }) {
     setCallStatus("ended");
     setIsRealTimeCall(false);
     setActiveCallId(null);
+    activeCallIdRef.current = null;
     setIncomingCallData(null);
+
+    // Save call log to local SQLite database (capped at 15 items)
+    saveCallLog({
+      id: callId || `call_${Date.now()}`,
+      partnerId: partnerId,
+      partnerName: partnerInfo?.name || "User",
+      partnerAvatar: partnerInfo?.avatar || "",
+      callType: callStatus === "ringing" || callStatus === "connecting" ? "outgoing" : "incoming",
+      status: statusText.includes("Rejected") ? "rejected" : (callDuration > 0 ? "ended" : "missed"),
+      duration: callDuration || 0,
+      timestamp: Date.now(),
+    }).catch(err => console.warn("[Calls] Failed to save call log:", err));
 
     // Clear duration timer
     if (callDurationTimerRef.current) {
@@ -1488,6 +1514,85 @@ export default function ConversationScreen({ route, navigation }) {
     partnerFlag,
   ]);
 
+  // Real-time message sync polling for human-to-human chats
+  useEffect(() => {
+    if (!currentUser?.uid || !partnerId || partnerId === "unity_ai") return;
+    const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+
+    let lastPollTs = 0;
+
+    const pollRemoteMessages = async () => {
+      try {
+        const res = await fetch(
+          `${API_URL}/api/messages/sync/${encodeURIComponent(currentUser.uid)}/${encodeURIComponent(partnerId)}?since=${lastPollTs}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.messages && data.messages.length > 0) {
+            const partnerLang = getLangCodeFromFlag(partnerFlag);
+            const userLangName = getLangDetails(currentUser.nativeLang).name;
+            const partnerLangName = getLangDetails(partnerLang).name;
+
+            for (const msg of data.messages) {
+              if (msg.timestamp > lastPollTs) {
+                lastPollTs = msg.timestamp;
+              }
+              // Only add messages sent by partner to our chatBubbles
+              if (msg.senderId === partnerId) {
+                const formattedMsgId = msg.id;
+
+                setChatBubbles((prev) => {
+                  if (prev.some((b) => b.id === formattedMsgId)) return prev;
+
+                  const newBubble = {
+                    id: formattedMsgId,
+                    sender: "partner",
+                    avatar: partnerFlag,
+                    text: msg.text,
+                    origLang: msg.origLang || `${partnerLangName} (Original)`,
+                    transText: msg.transText || "...",
+                    transLang: msg.transLang || `${userLangName} (Translated)`,
+                  };
+
+                  // If translated text isn't computed, translate on demand
+                  if (!msg.transText) {
+                    translateText(msg.text, currentUser.nativeLang)
+                      .then((translated) => {
+                        setChatBubbles((p) =>
+                          p.map((b) => (b.id === formattedMsgId ? { ...b, transText: translated } : b))
+                        );
+                      })
+                      .catch(() => {});
+                  }
+
+                  return [...prev, newBubble];
+                });
+
+                // Save to local SQLite
+                saveChat({
+                  id: formattedMsgId,
+                  partner_id: partnerId,
+                  text: msg.text,
+                  trans_text: msg.transText || "",
+                  sender: "partner",
+                  orig_lang: `${partnerLangName} (Original)`,
+                  trans_lang: `${userLangName} (Translated)`,
+                  timestamp: msg.timestamp,
+                }).catch(() => {});
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[Messages] Poll sync error:", err.message);
+      }
+    };
+
+    pollRemoteMessages();
+    const interval = setInterval(pollRemoteMessages, 3000);
+    return () => clearInterval(interval);
+  }, [currentUser?.uid, partnerId, partnerFlag, currentUser.nativeLang]);
+
   // Scroll to bottom helper
   useEffect(() => {
     if (chatScrollViewRef.current) {
@@ -1804,6 +1909,25 @@ export default function ConversationScreen({ route, navigation }) {
 
       if (partnerId !== "unity_ai") {
         const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+        // 1. Post to message store for real-time sync across web & mobile
+        fetch(`${API_URL}/api/messages/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: userMsgId,
+            senderId: currentUser.uid,
+            recipientId: partnerId,
+            senderName: currentUser.name || "Xaylite User",
+            senderAvatar: currentUser.avatar || "",
+            text: text,
+            transText: isSameLanguage ? text : "",
+            origLang: `${userLangName} (Original)`,
+            transLang: isSameLanguage ? "" : `${partnerLangName} (Translated)`,
+            timestamp: Date.now()
+          })
+        }).catch(err => console.warn("[Messages] Failed to post message:", err.message));
+
+        // 2. Also send push notification
         fetch(`${API_URL}/api/push-message`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
