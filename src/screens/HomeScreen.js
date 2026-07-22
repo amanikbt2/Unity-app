@@ -3248,7 +3248,6 @@ export default function HomeScreen({ route, navigation }) {
               );
             })()}
           </View>
-          </View>
         )}
       </ScrollView>
 

@@ -19,17 +19,42 @@ const DEFAULT_PROFILE = {
   uid: "UID-UNKNOWN",
 };
 
-const getProfileUid = (profile) => {
-  if (!profile) return DEFAULT_PROFILE.uid;
-  return (
-    profile.uid ||
-    profile.id ||
-    profile.email ||
-    profile.partnerId ||
-    profile.authorName ||
-    profile.name ||
-    DEFAULT_PROFILE.uid
-  );
+const getProfileUtid = (profile) => {
+  if (!profile) return "wH5I7";
+  if (profile.utid && typeof profile.utid === "string" && !profile.utid.includes("@")) {
+    return profile.utid;
+  }
+  const rawId = profile.uid || profile.id || profile.email || "";
+  if (!rawId || rawId.includes("@") || rawId.startsWith("UID-") || rawId.startsWith("UID_") || rawId === "UID-UNKNOWN") {
+    const fallbackStr = profile.email || profile.name || "User";
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let hash = 0;
+    for (let i = 0; i < fallbackStr.length; i++) {
+      hash = (hash << 5) - hash + fallbackStr.charCodeAt(i);
+      hash |= 0;
+    }
+    let utid = "";
+    for (let i = 0; i < 5; i++) {
+      const idx = Math.abs((hash * (i + 1) * 31) % chars.length);
+      utid += chars.charAt(idx);
+    }
+    return utid;
+  }
+  return rawId.replace(/^UID-/i, "");
+};
+
+const getJoinedDate = (profile) => {
+  if (profile && profile.dateJoined) return profile.dateJoined;
+  const fallbackStr = (profile && (profile.email || profile.name)) || "User";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  let hash = 0;
+  for (let i = 0; i < fallbackStr.length; i++) {
+    hash = (hash << 5) - hash + fallbackStr.charCodeAt(i);
+    hash |= 0;
+  }
+  const monthIdx = Math.abs(hash % 12);
+  const year = 2025 - Math.abs(hash % 2);
+  return `${months[monthIdx]} ${year}`;
 };
 
 const getCountryLabel = (profile, getLangDetails, getLangDetailsFromFlag) => {
@@ -71,7 +96,8 @@ export default function UserProfilePopup({
     return {
       ...DEFAULT_PROFILE,
       ...base,
-      uid: getProfileUid(base),
+      utid: getProfileUtid(base),
+      dateJoined: getJoinedDate(base),
       country: getCountryLabel(base, getLangDetails, getLangDetailsFromFlag),
       language: getLanguageLabel(base, getLangDetails),
     };
@@ -176,13 +202,30 @@ export default function UserProfilePopup({
                 ]}
               >
                 <Text style={[styles.infoLabel, { color: colors.textDimmed }]}>
-                  unity ID
+                  UTID
                 </Text>
                 <Text
                   style={[styles.infoValue, { color: colors.text }]}
                   numberOfLines={1}
                 >
-                  {resolvedProfile.uid}
+                  {resolvedProfile.utid}
+                </Text>
+              </View>
+
+              <View
+                style={[
+                  styles.infoCard,
+                  { backgroundColor: colors.bg, borderColor: colors.border },
+                ]}
+              >
+                <Text style={[styles.infoLabel, { color: colors.textDimmed }]}>
+                  Date Joined
+                </Text>
+                <Text
+                  style={[styles.infoValue, { color: colors.text }]}
+                  numberOfLines={1}
+                >
+                  {resolvedProfile.dateJoined}
                 </Text>
               </View>
             </View>

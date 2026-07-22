@@ -94,6 +94,15 @@ const FLAG_MAP = {
 const generateUid = () =>
   "UID-" + Math.random().toString(36).slice(2, 8).toUpperCase();
 
+const generateUtid = () => {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let result = "";
+  for (let i = 0; i < 5; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+};
+
 export const AppProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(DEFAULT_USER);
   const [savedAccounts, setSavedAccounts] = useState([]);
@@ -103,7 +112,36 @@ export const AppProvider = ({ children }) => {
     try {
       const stored = await AsyncStorage.getItem("amani_profile_settings");
       if (stored) {
-        setCurrentUser({ ...DEFAULT_USER, ...JSON.parse(stored) });
+        let profile = JSON.parse(stored);
+        let needsUpdate = false;
+        
+        if (!profile.utid || profile.utid.includes("@")) {
+          profile.utid = generateUtid();
+          needsUpdate = true;
+        }
+        if (!profile.dateJoined) {
+          const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+          const now = new Date();
+          profile.dateJoined = `${months[now.getMonth()]} ${now.getFullYear()}`;
+          needsUpdate = true;
+        }
+
+        const mergedProfile = { ...DEFAULT_USER, ...profile };
+        setCurrentUser(mergedProfile);
+
+        if (needsUpdate) {
+          await AsyncStorage.setItem("amani_profile_settings", JSON.stringify(mergedProfile));
+        }
+      } else {
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const now = new Date();
+        const initialProfile = {
+          ...DEFAULT_USER,
+          utid: generateUtid(),
+          dateJoined: `${months[now.getMonth()]} ${now.getFullYear()}`,
+        };
+        setCurrentUser(initialProfile);
+        await AsyncStorage.setItem("amani_profile_settings", JSON.stringify(initialProfile));
       }
       const accounts = await AsyncStorage.getItem("amani_saved_accounts");
       if (accounts) {
@@ -146,6 +184,15 @@ export const AppProvider = ({ children }) => {
         ...storedBase,
         ...newSettings,
       };
+
+      if (!merged.utid || merged.utid.includes("@")) {
+        merged.utid = generateUtid();
+      }
+      if (!merged.dateJoined) {
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const now = new Date();
+        merged.dateJoined = `${months[now.getMonth()]} ${now.getFullYear()}`;
+      }
 
       if (merged.isRealUser && merged.email) {
         merged.uid = merged.email;

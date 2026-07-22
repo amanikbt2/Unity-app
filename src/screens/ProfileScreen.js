@@ -405,6 +405,8 @@ export default function ProfileScreen({ route, navigation }) {
       avatar: currentUser.avatar,
       nativeLang: currentUser.nativeLang,
       uid: currentUser.uid,
+      utid: currentUser.utid,
+      dateJoined: currentUser.dateJoined,
     });
     setProfilePopupVisible(true);
   };
