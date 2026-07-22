@@ -167,12 +167,19 @@ class MockDatabase {
   }
 }
 
+let dbInitialized = false;
+let dbInitPromise = null;
+let dbIsInitializingSchema = false;
+
 function sanitizeParams(params) {
   if (!params) return [];
   return params.map(val => (val === undefined ? null : val));
 }
 
 async function dbRunAsync(sql, params) {
+  if (!dbInitialized && !dbIsInitializingSchema) {
+    await initDatabase();
+  }
   const sanitized = sanitizeParams(params);
   try {
     const db = await getDatabase();
@@ -189,6 +196,9 @@ async function dbRunAsync(sql, params) {
 }
 
 async function dbGetFirstAsync(sql, params) {
+  if (!dbInitialized && !dbIsInitializingSchema) {
+    await initDatabase();
+  }
   const sanitized = sanitizeParams(params);
   try {
     const db = await getDatabase();
@@ -205,6 +215,9 @@ async function dbGetFirstAsync(sql, params) {
 }
 
 async function dbGetAllAsync(sql, params) {
+  if (!dbInitialized && !dbIsInitializingSchema) {
+    await initDatabase();
+  }
   const sanitized = sanitizeParams(params);
   try {
     const db = await getDatabase();
@@ -221,6 +234,9 @@ async function dbGetAllAsync(sql, params) {
 }
 
 async function dbExecAsync(sql) {
+  if (!dbInitialized && !dbIsInitializingSchema) {
+    await initDatabase();
+  }
   try {
     const db = await getDatabase();
     return await db.execAsync(sql);
@@ -372,7 +388,12 @@ function normalizeCallLogRow(row) {
  * Initializes database tables.
  */
 export async function initDatabase() {
-  try {
+  if (dbInitialized) return true;
+  if (dbInitPromise) return dbInitPromise;
+
+  dbIsInitializingSchema = true;
+  dbInitPromise = (async () => {
+    try {
     // Create call_logs table
     await dbExecAsync(`
       CREATE TABLE IF NOT EXISTS call_logs (
@@ -507,10 +528,14 @@ export async function initDatabase() {
     `);
 
     console.log("[Database] Database tables initialized successfully.");
+    dbInitialized = true;
     return true;
   } catch (error) {
     console.error("[Database] Initialization error:", error);
     return false;
+  } finally {
+    dbIsInitializingSchema = false;
+    dbInitPromise = null;
   }
 }
 
