@@ -18,6 +18,8 @@ import {
   Pressable,
   Alert,
   Linking,
+  Share,
+  RefreshControl,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import {
@@ -40,21 +42,26 @@ import * as Contacts from "expo-contacts/legacy";
 import * as ImagePicker from "expo-image-picker";
 import { AppContext } from "../context/AppContext";
 import { translateText } from "../services/TranslationService";
-import { createPost, syncPendingPosts } from "../services/PostService";
+import { fetchLatestNews } from "../services/NewsService";
 import { scheduleLocalNotification } from "../services/NotificationService";
 import {
   initDatabase,
   getContacts as getDbContacts,
   saveContacts as saveDbContacts,
-  getPosts as getDbPosts,
-  savePosts as saveDbPosts,
+  getNewsArticles as getDbNewsArticles,
+  saveNewsArticles as saveDbNewsArticles,
+  toggleNewsBookmark as toggleDbNewsBookmark,
+  toggleNewsLike as toggleDbNewsLike,
+  incrementNewsView as incrementDbNewsView,
+  saveAdminArticle as saveDbAdminArticle,
+  deleteNewsArticle as deleteDbNewsArticle,
   getExploreProfiles as getDbExplore,
   saveExploreProfiles as saveDbExplore,
   getCallLogs as getDbCallLogs,
   hasUnsyncedContacts,
   getUnsyncedContactsCount,
-  savePendingPost,
   incrementContactUnread,
+  saveChat,
 } from "../services/DatabaseService";
 import {
   initDirectories,
@@ -72,6 +79,7 @@ import {
 import UserProfilePopup from "../components/UserProfilePopup";
 
 const { width, height } = Dimensions.get("window");
+const getCurrentTimestamp = () => Date.now();
 
 const DEFAULT_AVATARS = [
   require("../../assets/default-avatar-1.jpg"),
@@ -190,148 +198,8 @@ const EXPLORE_PEOPLE = [
   },
 ];
 
-const INITIAL_POSTS = [
-  {
-    id: "p1",
-    authorName: "Sarah Jenkins",
-    avatar: require("../../assets/default-avatar-1.jpg"),
-    flag: "🇺🇸",
-    time: "2 hours ago",
-    content:
-      "Just arrived in Tokyo! The translation app has been a lifesaver for ordering food and finding my hotel. Highly recommend it! 🗼🇯🇵",
-    images: [
-      "https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&w=600&q=80",
-    ],
-    likes: 24,
-    liked: false,
-    comments: [
-      {
-        id: "c1_1",
-        author: "Yuki Tanaka",
-        content:
-          "Welcome to Japan! Let me know if you need any recommendations.",
-      },
-      {
-        id: "c1_2",
-        author: "Sarah Jenkins",
-        content:
-          "Thank you Yuki! I would love to get some sushi recommendations.",
-      },
-    ],
-  },
-  {
-    id: "p2",
-    authorName: "Carlos Gomez",
-    avatar: require("../../assets/default-avatar-2.jpg"),
-    flag: "🇪🇸",
-    time: "4 hours ago",
-    content:
-      "Preparando la presentación para la cumbre europea de mañana. Gracias a Dios por la traducción de documentos en tiempo real de Xaylite, me ahorró horas de trabajo duro. 🇪🇺💼",
-    images: [],
-    likes: 12,
-    liked: false,
-    comments: [
-      {
-        id: "c2_1",
-        author: "Lucas Dupont",
-        content: "Bonne chance Carlos! Everything will go well.",
-      },
-    ],
-  },
-];
-
 const SERVER_URL =
   process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
-
-const normalizePost = (post) => {
-  const authorName = post?.authorName || "user";
-  const avatar =
-    post?.avatar_local_path ||
-    (post?.avatar &&
-    typeof post.avatar === "string" &&
-    !post.avatar.includes("unsplash.com")
-      ? post.avatar
-      : getDefaultAvatar(authorName));
-  return {
-    ...post,
-    avatar,
-    likes: typeof post?.likes === "number" ? post.likes : 0,
-    liked: Boolean(post?.liked),
-    comments: Array.isArray(post?.comments) ? post.comments : [],
-    images: Array.isArray(post?.images)
-      ? post.images
-      : Array.isArray(post?.imageUrls)
-        ? post.imageUrls
-        : Array.isArray(post?.imageUris)
-          ? post.imageUris
-          : post?.image
-            ? [post.image]
-            : [],
-    images_local_paths: Array.isArray(post?.images_local_paths)
-      ? post.images_local_paths
-      : [],
-  };
-};
-
-const normalizePosts = (posts) =>
-  Array.isArray(posts) ? posts.map(normalizePost) : [];
-
-const POST_BACKGROUND_PRESETS = [
-  { id: "aurora", label: "Aurora", colors: ["#0F172A", "#4F46E5", "#06B6D4"] },
-  { id: "sunset", label: "Sunset", colors: ["#7C2D12", "#EA580C", "#F59E0B"] },
-  { id: "mint", label: "Mint", colors: ["#042F2E", "#0F766E", "#34D399"] },
-  { id: "rose", label: "Rose", colors: ["#3F1D38", "#C026D3", "#F472B6"] },
-  { id: "ink", label: "Ink", colors: ["#111827", "#374151", "#6B7280"] },
-  {
-    id: "sunrise",
-    label: "Sunrise",
-    colors: ["#431407", "#DB2777", "#FB7185"],
-  },
-];
-
-const POST_TRANSLATION_TARGETS = {
-  en: { code: "en", name: "English", label: "English" },
-  sw: { code: "sw", name: "Swahili", label: "Kiswahili" },
-  ar: { code: "ar", name: "Arabic", label: "Arabic" },
-};
-
-const POST_DESCRIPTION_LIMIT = 180;
-
-const getPostTranslationTarget = (langCode) =>
-  POST_TRANSLATION_TARGETS[langCode] || POST_TRANSLATION_TARGETS.en;
-
-const getPostBackgroundPreset = (presetId) =>
-  POST_BACKGROUND_PRESETS.find((preset) => preset.id === presetId) ||
-  POST_BACKGROUND_PRESETS[0];
-
-const buildPostCopy = (text) => {
-  const cleanText = (text || "").trim();
-  if (cleanText.length <= POST_DESCRIPTION_LIMIT) {
-    return { content: cleanText, description: "" };
-  }
-
-  return {
-    content: cleanText.slice(0, POST_DESCRIPTION_LIMIT).trimEnd() + "...",
-    description: cleanText,
-  };
-};
-
-const getPostMediaTypeFromAsset = (assetType, uri) => {
-  const typeHint = (assetType || "").toLowerCase();
-  const uriHint = (uri || "").toLowerCase();
-  if (typeHint.includes("video") || /\.(mp4|mov|m4v|webm)$/i.test(uriHint)) {
-    return "video";
-  }
-  if (typeHint.includes("image")) {
-    return "image";
-  }
-  return "gradient";
-};
-
-const getPostDisplayText = (post) =>
-  (post?.description || post?.content || "").trim();
-
-const getCurrentTimestamp = () => Date.now();
 
 export default function HomeScreen({ route, navigation }) {
   const { currentUser, getLangDetails, getLangDetailsFromFlag, LANGS } =
@@ -350,34 +218,29 @@ export default function HomeScreen({ route, navigation }) {
   const [showImportSuccess, setShowImportSuccess] = useState(false);
   const [contactSearchText, setContactSearchText] = useState("");
   const [exploreSearchText, setExploreSearchText] = useState("");
-  const [postSearchText, setPostSearchText] = useState("");
-  const [isPostSearchVisible, setIsPostSearchVisible] = useState(false);
-  const [posts, setPosts] = useState(INITIAL_POSTS);
+  const [newsSearchText, setNewsSearchText] = useState("");
+  const [newsArticles, setNewsArticles] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [selectedNews, setSelectedNews] = useState(null);
+  const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [newsAdminModalVisible, setNewsAdminModalVisible] = useState(false);
+  const [adminEditingId, setAdminEditingId] = useState(null);
+  const [adminTitle, setAdminTitle] = useState("");
+  const [adminSummary, setAdminSummary] = useState("");
+  const [adminContent, setAdminContent] = useState("");
+  const [adminHeroImage, setAdminHeroImage] = useState("");
+  const [adminCategory, setAdminCategory] = useState("Technology");
+  const [shareNewsTargetArticle, setShareNewsTargetArticle] = useState(null);
+  const [shareSearchText, setShareSearchText] = useState("");
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const [newsBadgeCount, setNewsBadgeCount] = useState(0);
   const [exploreProfiles, setExploreProfiles] = useState(EXPLORE_PEOPLE);
   const [startConvModalVisible, setStartConvModalVisible] = useState(false);
   const [startConvSearch, setStartConvSearch] = useState("");
   const [startConvFilter, setStartConvFilter] = useState("contacts");
   const [profilePopupVisible, setProfilePopupVisible] = useState(false);
   const [profilePopupData, setProfilePopupData] = useState(null);
-
-  // Post/Update creation states
-  const [postModalVisible, setPostModalVisible] = useState(false);
-  const [newPostText, setNewPostText] = useState("");
-  const [newPostImages, setNewPostImages] = useState([]);
-  const [newPostMediaType, setNewPostMediaType] = useState("gradient");
-  const [newPostBackgroundKey, setNewPostBackgroundKey] = useState("aurora");
-  const [newPostFlag, setNewPostFlag] = useState("\u{1F30D}");
-
-  // Bottom Sheet Comments state
-  const [activeCommentsPostId, setActiveCommentsPostId] = useState(null);
-  const [newCommentText, setNewCommentText] = useState("");
-  const [postTranslations, setPostTranslations] = useState({});
-  const [translationsShown, setTranslationsShown] = useState({}); // tracks which posts user tapped 'See Translation'
-  const [translatingPosts, setTranslatingPosts] = useState({}); // loading state per post
-  const [expandedPosts, setExpandedPosts] = useState({});
-
-  // Post Options Bottom Sheet state
-  const [optionsPost, setOptionsPost] = useState(null);
 
   // Gradient shifting animation value
   const [gradientAnim] = useState(() => new Animated.Value(0));
@@ -511,51 +374,17 @@ export default function HomeScreen({ route, navigation }) {
   // The postTranslations state is populated on-demand via handleSeeTranslation()
 
 
-  // Background Pre-fetching function (TikTok style)
+  // Background Pre-fetching function
   const preFetchServerData = async () => {
     try {
-      console.log(
-        "[HomeScreen] Silently pre-fetching feed & explore profiles...",
-      );
+      console.log("[HomeScreen] Silently pre-fetching news & explore profiles...");
+      const news = await fetchLatestNews("All");
+      setNewsArticles(news);
 
-      // 1. Fetch Posts from Server
-      const postsResponse = await fetch(`${SERVER_URL}/api/posts`);
-      if (postsResponse.ok) {
-        const remotePosts = await postsResponse.json();
-
-        // Cache images in background
-        const postsWithCachedMedia = await Promise.all(
-          remotePosts.map(async (post) => {
-            const postImages = post.imageUrls || post.images || [];
-            const localImages =
-              postImages.length > 0
-                ? await Promise.all(
-                    postImages.map((img) => cacheRemoteImage(img, "image")),
-                  )
-                : [];
-            const localAvatar = post.avatar
-              ? await cacheRemoteImage(post.avatar, "avatar")
-              : null;
-            return {
-              ...post,
-              images_local_paths: localImages || [],
-              avatar_local_path: localAvatar || "",
-            };
-          }),
-        );
-
-        const normalizedPosts = postsWithCachedMedia.map(normalizePost);
-        await saveDbPosts(normalizedPosts);
-        const updatedPosts = await getDbPosts();
-        setPosts(normalizePosts(updatedPosts));
-      }
-
-      // 2. Fetch Explore Profiles from Server
+      // Fetch Explore Profiles from Server
       const exploreResponse = await fetch(`${SERVER_URL}/api/explore`);
       if (exploreResponse.ok) {
         const remoteExplore = await exploreResponse.json();
-
-        // Cache avatars in background
         const exploreWithCachedMedia = await Promise.all(
           remoteExplore.map(async (profile) => {
             const localAvatar = profile.avatar
@@ -564,20 +393,16 @@ export default function HomeScreen({ route, navigation }) {
             return {
               ...profile,
               avatar_local_path: localAvatar || "",
-              isUnityUser: true, // Force to true as explore profiles are always registered app users
+              isUnityUser: true,
             };
           }),
         );
-
         await saveDbExplore(exploreWithCachedMedia);
         const updatedExplore = await getDbExplore();
         setExploreProfiles(updatedExplore);
       }
     } catch (err) {
-      console.warn(
-        "[HomeScreen] Offline or server pre-fetch failed:",
-        err.message,
-      );
+      console.warn("[HomeScreen] News/Explore pre-fetch failed:", err.message);
     }
   };
 
@@ -587,10 +412,7 @@ export default function HomeScreen({ route, navigation }) {
       try {
         const dbSuccess = await initDatabase();
         if (!dbSuccess) {
-          console.warn(
-            "[HomeScreen] Database initialization failed. Skipping local data load.",
-          );
-          // Still try to fetch from server if possible
+          console.warn("[HomeScreen] Database initialization failed. Skipping local data load.");
           preFetchServerData();
           return;
         }
@@ -603,20 +425,18 @@ export default function HomeScreen({ route, navigation }) {
           setContacts(localContacts);
           setImported(true);
         } else {
-          // Prepopulate database with default contacts
           await saveDbContacts(INITIAL_CONTACTS);
           const initialWithTime = await getDbContacts();
           setContacts(initialWithTime);
         }
 
-        // 2. Load Posts
-        const localPosts = await getDbPosts();
-        if (localPosts.length > 0) {
-          setPosts(normalizePosts(localPosts));
+        // 2. Load News Articles
+        const localNews = await getDbNewsArticles();
+        if (localNews && localNews.length > 0) {
+          setNewsArticles(localNews);
         } else {
-          const normalizedInitialPosts = normalizePosts(INITIAL_POSTS);
-          await saveDbPosts(normalizedInitialPosts);
-          setPosts(normalizedInitialPosts);
+          const news = await fetchLatestNews("All");
+          setNewsArticles(news);
         }
 
         // 3. Load Explore Profiles
@@ -633,7 +453,7 @@ export default function HomeScreen({ route, navigation }) {
 
         // 5. Cloud Backup Check
         triggerCloudBackup().catch((err) =>
-          console.warn("Background backup check failed:", err.message),
+          console.warn("Background backup check failed:", err.message)
         );
       } catch (e) {
         console.error("Error loading local DB data on mount:", e);
@@ -641,6 +461,35 @@ export default function HomeScreen({ route, navigation }) {
     }
     loadLocalData();
   }, [currentUser?.uid]);
+
+  // Handle News Article Deep Linking
+  useEffect(() => {
+    if (route.params?.openNewsId) {
+      const articleId = route.params.openNewsId;
+      console.log("[HomeScreen] Deep-linked newsId received:", articleId);
+      navigation.setParams({ openNewsId: undefined });
+
+      async function findAndOpen() {
+        const found = newsArticles.find(art => art.id === articleId);
+        if (found) {
+          setActiveTab("updates");
+          setSelectedNews(found);
+          await incrementDbNewsView(articleId);
+          found.views = (Number(found.views) || 0) + 1;
+        } else {
+          const cached = await getDbNewsArticles();
+          const dbFound = cached.find(art => art.id === articleId);
+          if (dbFound) {
+            setActiveTab("updates");
+            setSelectedNews(dbFound);
+            await incrementDbNewsView(articleId);
+            dbFound.views = (Number(dbFound.views) || 0) + 1;
+          }
+        }
+      }
+      findAndOpen();
+    }
+  }, [route.params?.openNewsId, newsArticles]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -658,6 +507,14 @@ export default function HomeScreen({ route, navigation }) {
           setCallLogs(logs);
         } catch (e) {
           console.error("Failed to refresh call logs on focus:", e);
+        }
+        try {
+          const latestNews = await getDbNewsArticles();
+          if (latestNews && latestNews.length > 0) {
+            setNewsArticles(latestNews);
+          }
+        } catch (e) {
+          console.error("Failed to refresh news on focus:", e);
         }
       }
       refreshData();
@@ -854,59 +711,119 @@ export default function HomeScreen({ route, navigation }) {
     setProfilePopupVisible(true);
   };
 
-  const handleSeeTranslation = async (post) => {
-    const postId = post.id;
-    // If already shown, just toggle hide
-    if (translationsShown[postId]) {
-      setTranslationsShown((prev) => ({ ...prev, [postId]: false }));
-      return;
-    }
-    // If we already fetched it, just show
-    if (postTranslations[postId]) {
-      setTranslationsShown((prev) => ({ ...prev, [postId]: true }));
-      return;
-    }
-    // Fetch translation on demand
-    const targetLang = getPostTranslationTarget(currentUser.nativeLang || "en");
-    const sourceText = getPostDisplayText(post);
-    if (!sourceText) return;
-    setTranslatingPosts((prev) => ({ ...prev, [postId]: true }));
-    try {
-      const translated = await translateText(sourceText, targetLang.code);
-      if (translated?.trim()) {
-        setPostTranslations((prev) => ({ ...prev, [postId]: translated.trim() }));
-        setTranslationsShown((prev) => ({ ...prev, [postId]: true }));
-      }
-    } catch (e) {
-      console.warn("[HomeScreen] On-demand translation failed:", e);
-    } finally {
-      setTranslatingPosts((prev) => ({ ...prev, [postId]: false }));
+
+
+  const handleNewsLike = async (articleId) => {
+    setNewsArticles((prev) =>
+      prev.map((art) => {
+        if (art.id === articleId) {
+          const nextLiked = !art.liked;
+          const nextLikes = nextLiked ? art.likes + 1 : art.likes - 1;
+          toggleDbNewsLike(articleId, nextLiked, nextLikes);
+          return { ...art, liked: nextLiked, likes: nextLikes };
+        }
+        return art;
+      })
+    );
+    if (selectedNews && selectedNews.id === articleId) {
+      setSelectedNews((prev) => {
+        const nextLiked = !prev.liked;
+        const nextLikes = nextLiked ? prev.likes + 1 : prev.likes - 1;
+        return { ...prev, liked: nextLiked, likes: nextLikes };
+      });
     }
   };
 
-  const handlePostLike = async (postId) => {
+  const handleNewsBookmark = async (articleId) => {
+    setNewsArticles((prev) =>
+      prev.map((art) => {
+        if (art.id === articleId) {
+          const nextBookmarked = !art.bookmarked;
+          toggleDbNewsBookmark(articleId, nextBookmarked);
+          return { ...art, bookmarked: nextBookmarked };
+        }
+        return art;
+      })
+    );
+    if (selectedNews && selectedNews.id === articleId) {
+      setSelectedNews((prev) => ({ ...prev, bookmarked: !prev.bookmarked }));
+    }
+  };
+
+  const handleNewsOpenDetails = async (article) => {
+    setSelectedNews(article);
+    await incrementDbNewsView(article.id);
+    setNewsArticles((prev) =>
+      prev.map((art) => (art.id === article.id ? { ...art, views: art.views + 1 } : art))
+    );
+  };
+
+  const handleNewsShare = (article) => {
+    setShareNewsTargetArticle(article);
+    setShareSearchText("");
+  };
+
+  const handleCarouselScroll = (e) => {
+    const slideSize = e.nativeEvent.layoutMeasurement.width;
+    const offset = e.nativeEvent.contentOffset.x;
+    const index = Math.round(offset / slideSize);
+    setCarouselIndex(index);
+  };
+
+  const handleNewsShareNative = async (article) => {
     try {
-      const userKey = currentUser?.name || currentUser?.id || "Anonymous";
-
-      const response = await fetch(`${SERVER_URL}/api/posts/${postId}/like`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ userKey }),
+      const shareUrl = `${SERVER_URL}/news/${article.slug || article.id}`;
+      await Share.share({
+        title: article.title,
+        message: `${article.title}\n\n${article.summary}\n\nRead on XayLite: ${shareUrl}`,
       });
+    } catch (e) {
+      console.warn("[HomeScreen] Native share failed:", e);
+    }
+  };
 
-      if (!response.ok) {
-        throw new Error("Failed to toggle like");
-      }
+  const handleNewsShareToContact = async (contact) => {
+    if (!shareNewsTargetArticle) return;
+    try {
+      const payload = {
+        id: shareNewsTargetArticle.id,
+        title: shareNewsTargetArticle.title,
+        summary: shareNewsTargetArticle.summary,
+        heroImage: shareNewsTargetArticle.heroImage,
+      };
+      
+      const messageText = `[NEWS_SHARE]:${JSON.stringify(payload)}`;
+      const msgId = `msg_${getCurrentTimestamp()}`;
+      
+      await saveChat({
+        id: msgId,
+        partner_id: contact.id,
+        text: messageText,
+        trans_text: messageText,
+        sender: "user",
+        orig_lang: currentUser.nativeLang || "en",
+        trans_lang: contact.nativeLang || "en",
+        timestamp: getCurrentTimestamp(),
+      });
+      
+      const chatBody = {
+        sender: "user",
+        text: messageText,
+        origLang: currentUser.nativeLang || "en",
+        userKey: currentUser.email || currentUser.name || "Me",
+        partnerKey: contact.email || contact.id,
+      };
+      
+      fetch(`${SERVER_URL}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(chatBody),
+      }).catch((e) => console.warn("[NewsShare] Failed to sync share message to backend:", e));
 
-      const updatedPost = await response.json();
-      setPosts((currentPosts) =>
-        currentPosts.map((post) => (post.id === postId ? updatedPost : post)),
-      );
-      trackEvent("liked_post", currentUser, { postId });
-    } catch (error) {
-      console.error("Error toggling like:", error);
+      Alert.alert("Shared", `News shared successfully with ${contact.name}!`);
+      setShareNewsTargetArticle(null);
+    } catch (err) {
+      console.error("[NewsShare] Failed to share:", err);
     }
   };
 
@@ -1163,291 +1080,101 @@ export default function HomeScreen({ route, navigation }) {
               newContact.name,
               newContact.avatar,
               newContact.flag,
+              newContact.id
             );
           },
         },
       ],
+      { cancelable: true }
     );
   };
 
-  const handlePickPostImage = async () => {
-    try {
-      const permission =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (permission.status !== "granted") {
-        Alert.alert(
-          "Photo Permission Needed",
-          "Allow photo access to choose an image or video for your update.",
-        );
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
-        allowsEditing: false,
-        allowsMultipleSelection: true,
-        selectionLimit: 10,
-        quality: 0.9,
-      });
-
-      if (!result.canceled && result.assets?.length > 0) {
-        const uris = result.assets.map((a) => a.uri);
-        setNewPostImages((prev) => [...prev, ...uris]);
-        // Only set media type if it's the first image being added or was a gradient
-        setNewPostMediaType((prev) =>
-          prev === "gradient" || prev === null
-            ? getPostMediaTypeFromAsset(result.assets[0].type, uris[0])
-            : prev,
-        );
-      }
-    } catch (error) {
-      console.error("Failed to pick post media", error);
-      Alert.alert("Media Error", "Could not open your library.");
-    }
-  };
-
-  const handlePickGradient = (presetId) => {
-    setNewPostImages([]);
-    setNewPostMediaType("gradient");
-    setNewPostBackgroundKey(presetId);
-  };
-
-  const handleCreatePost = async () => {
-    if (!newPostText.trim() && newPostImages.length === 0) return;
-
-    const userFlag = currentUser.nativeLang
-      ? getLangDetails(currentUser.nativeLang).flag || "\u{1F30D}"
-      : "\u{1F30D}";
-    const authorName =
-      currentUser.name && currentUser.name !== "User124"
-        ? currentUser.name
-        : "User124";
-    const postCopy = buildPostCopy(newPostText.trim());
-
-    // Optimistically create the post object
-    const pendingPostId = "pending_" + Date.now();
-    const newPostPayload = {
-      id: pendingPostId,
-      content: postCopy.content,
-      description: postCopy.description,
-      authorId: currentUser.email || authorName,
-      authorName,
-      authorAvatar:
-        currentUser.avatar ||
-        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
-      authorFlag: userFlag,
-      authorNativeLang: currentUser.nativeLang || "",
-      imageUris: newPostImages,
-      mediaType: newPostMediaType,
-      backgroundKey: newPostBackgroundKey,
-    };
-
-    // Show optimistic UI immediately and close modal
-    const optimisticPost = {
-      ...newPostPayload,
-      isPending: true,
-      time: "Just now",
-      flag: userFlag,
-      likes: 0,
-      liked: false,
-      comments: [],
-      images: newPostImages, // show images immediately in optimistic post
-    };
-
-    setPosts((prev) => [optimisticPost, ...prev]);
-    setPostModalVisible(false);
-    setNewPostText("");
-    setNewPostImages([]);
-    setNewPostMediaType("gradient");
-    setNewPostBackgroundKey("aurora");
-
-    // Notify user of background upload
-    scheduleLocalNotification(
-      "Uploading Post...",
-      "Your post is being sent to the server.",
-      { seconds: 1 },
-    );
-
-    try {
-      // Save to local offline queue
-      await savePendingPost(pendingPostId, newPostPayload);
-
-      // Trigger background sync
-      await syncPendingPosts();
-
-      // Remove pending flag in UI
-      setPosts((prev) =>
-        prev.map((p) =>
-          p.id === pendingPostId ? { ...p, isPending: false } : p,
-        ),
-      );
-    } catch (error) {
-      console.error("[HomeScreen] Failed to queue post:", error);
-    }
-  };
-
-  const getAuthorAvatar = (authorName) => {
-    if (
-      authorName === currentUser.name ||
-      authorName === "User124" ||
-      authorName === "Me"
-    ) {
-      return currentUser.avatar;
-    }
-    // Search in INITIAL_POSTS
-    const postWithAuthor = INITIAL_POSTS.find(
-      (p) => p.authorName === authorName,
-    );
-    if (postWithAuthor) return postWithAuthor.avatar;
-
-    // Search in INITIAL_CONTACTS
-    const contactWithAuthor = INITIAL_CONTACTS.find(
-      (c) => c.name === authorName,
-    );
-    if (contactWithAuthor) return contactWithAuthor.avatar;
-
-    // Fallback
-    return getDefaultAvatar(authorName || "user");
-  };
-
-  const handlePostChat = (post) => {
-    const isOwner =
-      post.authorName === (currentUser.name || "User124") ||
-      post.authorName === "Me";
-    if (isOwner) {
-      Alert.alert("Chat", "You cannot start a conversation with yourself.");
+  const handleAdminSaveArticle = async () => {
+    if (!adminTitle.trim() || !adminSummary.trim() || !adminContent.trim()) {
+      Alert.alert("Validation Error", "Please fill in title, summary, and full content.");
       return;
     }
+    
+    const articleId = adminEditingId || `admin_${Date.now()}`;
+    const newArticle = {
+      id: articleId,
+      title: adminTitle.trim(),
+      slug: adminTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
+      summary: adminSummary.trim(),
+      fullContent: adminContent.trim(),
+      heroImage: adminHeroImage.trim() || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?q=80&w=1000&auto=format&fit=crop",
+      galleryImages: [],
+      publisher: currentUser.name || "XayLite Admin",
+      publisherAvatar: currentUser.avatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100",
+      category: adminCategory,
+      tags: [adminCategory.toLowerCase(), "admin"],
+      publishedAt: "Just now",
+      readingTime: `${Math.max(1, Math.round(adminContent.split(/\s+/).length / 180))} min read`,
+      likes: 0,
+      views: 0,
+      bookmarked: false,
+      liked: false,
+      featured: false,
+      breaking: false,
+      trending: false,
+      timestamp: Date.now(),
+    };
 
-    const existingContact = filteredContacts.find(
-      (c) => c.name.toLowerCase() === post.authorName.toLowerCase(),
-    );
+    try {
+      await saveDbAdminArticle(newArticle);
+      
+      setNewsArticles((prev) => {
+        const filtered = prev.filter((a) => a.id !== articleId);
+        return [newArticle, ...filtered];
+      });
 
-    if (existingContact) {
-      handlePartnerClick(
-        existingContact.name,
-        existingContact.avatar,
-        existingContact.flag,
-      );
-    } else {
-      Alert.alert(
-        "Add to Contacts",
-        `Would you like to add "${post.authorName}" to your contacts and start a conversation?`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Add & Chat",
-            onPress: () => {
-              const newContact = {
-                id: "c_" + Date.now(),
-                name: post.authorName,
-                avatar:
-                  post.avatar ||
-                  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
-                flag: post.flag || "🌍",
-                langName: "Translator Partner",
-                status: "Hey there! Let's translate.",
-              };
-              setContacts((prev) => [...prev, newContact]);
-              handlePartnerClick(
-                newContact.name,
-                newContact.avatar,
-                newContact.flag,
-              );
-            },
-          },
-        ],
-      );
+      setAdminTitle("");
+      setAdminSummary("");
+      setAdminContent("");
+      setAdminHeroImage("");
+      setAdminCategory("Technology");
+      setAdminEditingId(null);
+      setNewsAdminModalVisible(false);
+      
+      Alert.alert("Success", "Article saved successfully!");
+    } catch (e) {
+      console.error("[AdminNews] Failed to save:", e);
     }
   };
 
-  const handlePostMoreOptions = (post) => {
-    setOptionsPost(post);
+  const handleAdminEditPress = (article) => {
+    setAdminEditingId(article.id);
+    setAdminTitle(article.title);
+    setAdminSummary(article.summary);
+    setAdminContent(article.fullContent || article.full_content || "");
+    setAdminHeroImage(article.heroImage || article.hero_image || "");
+    setAdminCategory(article.category || "Technology");
+    setNewsAdminModalVisible(true);
   };
 
-  const handleDeletePost = (postId) => {
+  const handleAdminDeleteArticle = (articleId) => {
     Alert.alert(
-      "Delete Update",
-      "Are you sure you want to delete this update post? This cannot be undone.",
+      "Delete Article",
+      "Are you sure you want to delete this article? This action is permanent.",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => {
-            setPosts((prev) => prev.filter((p) => p.id !== postId));
-            setOptionsPost(null);
+          onPress: async () => {
+            try {
+              await deleteDbNewsArticle(articleId);
+              setNewsArticles((prev) => prev.filter((a) => a.id !== articleId));
+              if (selectedNews && selectedNews.id === articleId) {
+                setSelectedNews(null);
+              }
+              Alert.alert("Deleted", "Article deleted successfully.");
+            } catch (err) {
+              console.error("[AdminNews] Failed to delete:", err);
+            }
           },
         },
-      ],
-    );
-  };
-
-  const handleSharePost = (post) => {
-    Alert.alert("Share", `Successfully shared post by ${post.authorName}!`);
-    setOptionsPost(null);
-  };
-
-  const handleCopyLink = () => {
-    Alert.alert("Copy Link", "Post link copied to clipboard!");
-    setOptionsPost(null);
-  };
-
-  const handleReportPost = (post) => {
-    Alert.alert("Reported", "Thank you! We will review this post.");
-    setOptionsPost(null);
-  };
-
-  const handleOpenComments = (postId) => {
-    setActiveCommentsPostId(postId);
-    setNewCommentText("");
-  };
-
-  const handleSheetAddComment = () => {
-    if (!newCommentText.trim() || !activeCommentsPostId) return;
-    setPosts((prev) =>
-      prev.map((post) => {
-        if (post.id === activeCommentsPostId) {
-          const currentComments = Array.isArray(post.comments)
-            ? post.comments
-            : [];
-          return {
-            ...post,
-            comments: [
-              ...currentComments,
-              {
-                id: Date.now().toString(),
-                author:
-                  currentUser.name && currentUser.name !== "User124"
-                    ? currentUser.name
-                    : "User124",
-                content: newCommentText.trim(),
-              },
-            ],
-          };
-        }
-        return post;
-      }),
-    );
-    setNewCommentText("");
-  };
-
-  const activePost = activeCommentsPostId
-    ? normalizePost(posts.find((p) => p.id === activeCommentsPostId))
-    : null;
-
-  const handleToggleLike = (postId) => {
-    setPosts((prev) =>
-      prev.map((post) => {
-        if (post.id === postId) {
-          return {
-            ...post,
-            liked: !post.liked,
-            likes: post.liked ? post.likes - 1 : post.likes + 1,
-          };
-        }
-        return post;
-      }),
+      ]
     );
   };
 
@@ -1491,9 +1218,17 @@ export default function HomeScreen({ route, navigation }) {
     return true;
   });
 
+  const normalizeProfileObj = (person) => {
+    if (!person) return null;
+    return {
+      ...person,
+      avatar: person.avatar_local_path || person.avatar || getDefaultAvatar(person.name || "user"),
+    };
+  };
+
   const displayedContacts = [
     myProfile,
-    ...normalizePosts(filteredContacts).filter((c) => c.id !== "me"),
+    ...filteredContacts.map(normalizeProfileObj).filter((c) => c && c.id !== "me"),
   ];
 
   const filteredExploreProfiles = exploreProfiles.filter((e) => {
@@ -1503,7 +1238,7 @@ export default function HomeScreen({ route, navigation }) {
 
   const displayedExplore = [
     myProfile,
-    ...normalizePosts(filteredExploreProfiles).filter((e) => e.id !== "me"),
+    ...filteredExploreProfiles.map(normalizeProfileObj).filter((e) => e && e.id !== "me"),
   ].filter((person) => {
     if (!exploreSearchText) return true;
     const q = exploreSearchText.toLowerCase();
@@ -2516,532 +2251,414 @@ export default function HomeScreen({ route, navigation }) {
         )}
 
         {activeTab === "updates" && (
-          <View style={styles.updatesContainer}>
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                paddingHorizontal: 20,
-                marginBottom: 12,
-              }}
-            >
-              {!isPostSearchVisible ? (
-                <Text
-                  style={[
-                    styles.sectionTitle,
-                    { color: colors.textDimmed, margin: 0 },
-                  ]}
-                >
-                  Recent Issues
-                </Text>
-              ) : (
-                <View
-                  style={{
-                    flex: 1,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    backgroundColor: isDark
-                      ? "rgba(255,255,255,0.05)"
-                      : "rgba(0,0,0,0.03)",
-                    borderWidth: 1,
-                    borderColor: isDark
-                      ? "rgba(255,255,255,0.1)"
-                      : "rgba(0,0,0,0.05)",
-                    borderRadius: 24,
-                    paddingHorizontal: 16,
-                    height: 40,
-                    marginRight: 12,
-                  }}
-                >
-                  <Svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke={colors.textMuted}
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    style={{ marginRight: 8 }}
-                  >
-                    <Circle cx="11" cy="11" r="8" />
-                    <Path d="M21 21l-4.35-4.35" />
-                  </Svg>
-                  <TextInput
-                    style={{
-                      flex: 1,
-                      color: colors.text,
-                      fontSize: 14,
-                      outlineStyle: "none",
-                      borderWidth: 0,
-                    }}
-                    placeholder="Search posts, UTID..."
-                    placeholderTextColor={colors.textMuted}
-                    onChangeText={setPostSearchText}
-                    value={postSearchText}
-                    autoFocus
-                  />
-                </View>
-              )}
-              <TouchableOpacity
-                onPress={() => {
-                  if (isPostSearchVisible) {
-                    setPostSearchText("");
-                  }
-                  setIsPostSearchVisible(!isPostSearchVisible);
-                }}
-                activeOpacity={0.7}
-                style={{ padding: 4 }}
-              >
-                {isPostSearchVisible ? (
-                  <Svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke={colors.textMuted}
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <Line x1="18" y1="6" x2="6" y2="18" />
-                    <Line x1="6" y1="6" x2="18" y2="18" />
-                  </Svg>
-                ) : (
-                  <Svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke={colors.textMuted}
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <Circle cx="11" cy="11" r="8" />
-                    <Path d="M21 21l-4.35-4.35" />
-                  </Svg>
+          <View style={styles.newsContainer}>
+            {/* News Header & Search Bar */}
+            <View style={styles.newsSearchHeader}>
+              <View style={[styles.newsSearchBar, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
+                <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 10 }}>
+                  <Circle cx="11" cy="11" r="8" />
+                  <Path d="M21 21l-4.35-4.35" />
+                </Svg>
+                <TextInput
+                  style={[styles.newsSearchInput, { color: colors.text }]}
+                  placeholder="Search news... e.g. Kenyan news"
+                  placeholderTextColor={colors.textMuted}
+                  value={newsSearchText}
+                  onChangeText={(txt) => setNewsSearchText(txt)}
+                />
+                {newsSearchText.length > 0 && (
+                  <TouchableOpacity onPress={() => setNewsSearchText("")} style={{ padding: 4 }}>
+                    <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <Line x1="18" y1="6" x2="6" y2="18" />
+                      <Line x1="6" y1="6" x2="18" y2="18" />
+                    </Svg>
+                  </TouchableOpacity>
                 )}
-              </TouchableOpacity>
+              </View>
             </View>
 
-            {posts
-              .filter((post) => {
-                if (!postSearchText) return true;
-                const q = postSearchText.toLowerCase();
-                return (
-                  (post.authorName &&
-                    post.authorName.toLowerCase().includes(q)) ||
-                  (post.content && post.content.toLowerCase().includes(q)) ||
-                  (post.description &&
-                    post.description.toLowerCase().includes(q)) ||
-                  (post.authorEmail &&
-                    post.authorEmail.toLowerCase().includes(q))
-                );
-              })
-              .map((post) => {
-                return (
-                  <View
-                    key={post.id}
-                    style={[
-                      styles.postCard,
-                      {
-                        backgroundColor: colors.cardBg,
-                        borderColor: colors.border,
-                        opacity: post.isPending ? 0.7 : 1,
-                      },
-                    ]}
-                  >
-                    {/* Post Header */}
-                    <View style={styles.postHeader}>
-                      <View style={styles.avatarContainer}>
-                        <Image
-                          source={typeof (post.avatar_local_path || post.avatar) === "number" ? (post.avatar_local_path || post.avatar) : { uri: post.avatar_local_path || post.avatar }}
-                          style={styles.postAvatar}
-                        />
-                        <View
-                          style={[
-                            styles.flagBadge,
-                            { backgroundColor: colors.bg },
-                          ]}
-                        >
-                          {renderFlagOrEmoji(post.flag)}
-                        </View>
-                      </View>
-                      <View style={[styles.postAuthorInfo, { flex: 1 }]}>
-                        <Text
-                          style={[
-                            styles.postAuthorName,
-                            { color: colors.text },
-                          ]}
-                        >
-                          {post.authorName}
-                        </Text>
-                        <View
-                          style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                            marginTop: 2,
-                          }}
-                        >
-                          <Text
-                            style={[
-                              styles.postTimeText,
-                              { color: colors.textDimmed },
-                            ]}
-                          >
-                            {post.time}
-                          </Text>
-                          {post.isPending && (
-                            <View
-                              style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                                marginLeft: 6,
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  color: colors.primary,
-                                  fontSize: 12,
-                                  marginRight: 4,
-                                }}
-                              >
-                                • Uploading
-                              </Text>
-                              <ActivityIndicator
-                                size="small"
-                                color={colors.primary}
-                              />
-                            </View>
-                          )}
-                        </View>
-                      </View>
-
-                      {/* Header Action Icons: Chat + 3-Dot Options */}
-                      <View style={styles.postHeaderActions}>
-                        <TouchableOpacity
-                          onPress={() => handlePostMoreOptions(post)}
-                          style={styles.postHeaderActionBtn}
-                          activeOpacity={0.7}
-                        >
-                          <Svg
-                            width="20"
-                            height="20"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke={colors.textMuted}
-                            strokeWidth="2.5"
-                          >
-                            <Circle cx="12" cy="12" r="1.5" />
-                            <Circle cx="6" cy="12" r="1.5" />
-                            <Circle cx="18" cy="12" r="1.5" />
-                          </Svg>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-
-                    {/* Post Content */}
-                    {(() => {
-                      const fullPostText = (
-                        post.description ||
-                        post.content ||
-                        ""
-                      ).trim();
-                      const isExpanded = Boolean(expandedPosts[post.id]);
-                      const shouldTruncate =
-                        fullPostText.length > POST_DESCRIPTION_LIMIT;
-                      const previewText =
-                        shouldTruncate && !isExpanded
-                          ? `${fullPostText.slice(0, POST_DESCRIPTION_LIMIT).trimEnd()}...`
-                          : fullPostText;
-                      const translationText = postTranslations[post.id];
-                      const background = getPostBackgroundPreset(
-                        post.backgroundKey,
-                      );
-                      const showGradientCard =
-                        post.mediaType === "gradient" &&
-                        (!post.images || post.images.length === 0);
-
-                      if (showGradientCard) {
-                        return (
-                          <LinearGradient
-                            colors={background.colors}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            style={styles.postGradientCard}
-                          >
-                            <Text style={styles.postGradientText}>
-                              {previewText}
-                            </Text>
-                            {shouldTruncate && (
-                              <TouchableOpacity
-                                onPress={() =>
-                                  setExpandedPosts((prev) => ({
-                                    ...prev,
-                                    [post.id]: !prev[post.id],
-                                  }))
-                                }
-                                style={styles.postSeeMoreBtn}
-                                activeOpacity={0.75}
-                              >
-                                <Text style={styles.postSeeMoreText}>
-                                  {isExpanded ? "See less" : "See more"}
-                                </Text>
-                              </TouchableOpacity>
-                            )}
-                            {/* Facebook-style See Translation button */}
-                            <TouchableOpacity
-                              onPress={() => handleSeeTranslation(post)}
-                              activeOpacity={0.7}
-                              style={{ marginTop: 6 }}
-                            >
-                              {translatingPosts[post.id] ? (
-                                <Text style={[styles.postSeeMoreText, { color: colors.primary }]}>
-                                  Translating...
-                                </Text>
-                              ) : translationsShown[post.id] && postTranslations[post.id] ? (
-                                <>
-                                  <Text style={[styles.postTranslationText, { color: 'rgba(255,255,255,0.75)' }]}>
-                                    {postTranslations[post.id]}
-                                  </Text>
-                                  <Text style={[styles.postSeeMoreText, { color: 'rgba(255,255,255,0.5)', marginTop: 4 }]}>
-                                    See original
-                                  </Text>
-                                </>
-                              ) : (
-                                <Text style={[styles.postSeeMoreText, { color: 'rgba(255,255,255,0.6)' }]}>
-                                  🌐 See Translation
-                                </Text>
-                              )}
-                            </TouchableOpacity>
-                          </LinearGradient>
-                        );
-                      }
-
-                      return (
-                        <>
-                          {post.images && post.images.length > 0 ? (
-                            post.mediaType === "video" ? (
-                              <View style={styles.postVideoPlaceholder}>
-                                <LinearGradient
-                                  colors={background.colors}
-                                  start={{ x: 0, y: 0 }}
-                                  end={{ x: 1, y: 1 }}
-                                  style={styles.postVideoGradient}
-                                >
-                                  <Text style={styles.postVideoBadge}>
-                                    VIDEO
-                                  </Text>
-                                  <Text style={styles.postVideoText}>
-                                    Tap to play after upload support is enabled.
-                                  </Text>
-                                </LinearGradient>
-                              </View>
-                            ) : (
-                              <View style={styles.postImageGrid}>
-                                {post.images
-                                  .slice(0, 4)
-                                  .map((imgUri, index) => {
-                                    const isLast = index === 3;
-                                    const extraCount = post.images.length - 4;
-                                    const localPath =
-                                      post.images_local_paths?.[index] ||
-                                      imgUri;
-                                    const numImages = Math.min(
-                                      post.images.length,
-                                      4,
-                                    );
-
-                                    // Simple grid logic
-                                    let itemStyle = styles.gridItemSingle;
-                                    if (numImages === 2)
-                                      itemStyle = styles.gridItemHalf;
-                                    else if (numImages === 3)
-                                      itemStyle =
-                                        index === 0
-                                          ? styles.gridItemFullTop
-                                          : styles.gridItemHalfBottom;
-                                    else if (numImages >= 4)
-                                      itemStyle = styles.gridItemQuarter;
-
-                                    return (
-                                      <View
-                                        key={index}
-                                        style={[
-                                          styles.gridImageWrapper,
-                                          itemStyle,
-                                        ]}
-                                      >
-                                        <Image
-                                          source={{ uri: localPath }}
-                                          style={styles.gridImage}
-                                          resizeMode="cover"
-                                        />
-                                        {isLast && extraCount > 0 && (
-                                          <View style={styles.gridOverlay}>
-                                            <Text
-                                              style={styles.gridOverlayText}
-                                            >
-                                              +{extraCount}
-                                            </Text>
-                                          </View>
-                                        )}
-                                      </View>
-                                    );
-                                  })}
-                              </View>
-                            )
-                          ) : null}
-
-                          <Text
-                            style={[
-                              styles.postContentText,
-                              { color: colors.text },
-                            ]}
-                          >
-                            {previewText}
-                          </Text>
-
-                          {shouldTruncate && (
-                            <TouchableOpacity
-                              onPress={() =>
-                                setExpandedPosts((prev) => ({
-                                  ...prev,
-                                  [post.id]: !prev[post.id],
-                                }))
-                              }
-                              style={styles.postSeeMoreBtn}
-                              activeOpacity={0.75}
-                            >
-                              <Text style={styles.postSeeMoreText}>
-                                {isExpanded ? "See less" : "See more"}
-                              </Text>
-                            </TouchableOpacity>
-                          )}
-
-                          {/* Facebook-style See Translation button */}
-                          <TouchableOpacity
-                            onPress={() => handleSeeTranslation(post)}
-                            activeOpacity={0.7}
-                            style={{ marginTop: 4 }}
-                          >
-                            {translatingPosts[post.id] ? (
-                              <Text style={[styles.postSeeMoreText, { color: colors.primary }]}>
-                                Translating...
-                              </Text>
-                            ) : translationsShown[post.id] && postTranslations[post.id] ? (
-                              <>
-                                <Text style={[styles.postTranslationText, { color: colors.textMuted }]}>
-                                  {postTranslations[post.id]}
-                                </Text>
-                                <Text style={[styles.postSeeMoreText, { marginTop: 4 }]}>
-                                  See original
-                                </Text>
-                              </>
-                            ) : (
-                              <Text style={styles.postSeeMoreText}>
-                                🌐 See Translation
-                              </Text>
-                            )}
-                          </TouchableOpacity>
-                        </>
-                      );
-                    })()}
-                    {/* Post Stats */}
-                    <View
+            {/* Smart Category Chips with Bookmark Toggle */}
+            <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 20, marginBottom: 16 }}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 8, paddingRight: 10 }}
+                style={{ flex: 1 }}
+              >
+                {["All", "Trending", "Kenya", "World", "AI", "Android", "Cybersecurity", "Gaming", "Business", "Education", "Science"].map((cat) => {
+                  const isSelected = selectedCategory === cat && !showBookmarksOnly;
+                  return (
+                    <TouchableOpacity
+                      key={cat}
+                      onPress={() => {
+                        setShowBookmarksOnly(false);
+                        setSelectedCategory(cat);
+                      }}
                       style={[
-                        styles.postStatsRow,
-                        { borderBottomColor: colors.border },
+                        styles.categoryChip,
+                        {
+                          backgroundColor: isSelected ? colors.primary : colors.cardBg,
+                          borderColor: isSelected ? colors.primary : colors.border,
+                        }
                       ]}
                     >
                       <Text
                         style={[
-                          styles.postStatsText,
-                          { color: colors.textDimmed },
+                          styles.categoryChipText,
+                          {
+                            color: isSelected ? "#FFFFFF" : colors.text,
+                            fontWeight: isSelected ? "700" : "500",
+                          }
                         ]}
                       >
-                        {post.likes} {post.likes === 1 ? "Like" : "Likes"}
+                        {cat}
                       </Text>
-                      <TouchableOpacity
-                        onPress={() => handleOpenComments(post.id)}
-                      >
-                        <Text
-                          style={[
-                            styles.postStatsText,
-                            { color: colors.textDimmed },
-                          ]}
-                        >
-                          {post.comments?.length ?? 0}{" "}
-                          {(post.comments?.length ?? 0) === 1
-                            ? "Comment"
-                            : "Comments"}
-                        </Text>
-                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              <TouchableOpacity
+                onPress={() => setShowBookmarksOnly(!showBookmarksOnly)}
+                style={[
+                  styles.bookmarkFilterBtn,
+                  {
+                    backgroundColor: showBookmarksOnly ? colors.primary : colors.cardBg,
+                    borderColor: showBookmarksOnly ? colors.primary : colors.border,
+                  }
+                ]}
+              >
+                <Svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill={showBookmarksOnly ? "#FFFFFF" : "none"}
+                  stroke={showBookmarksOnly ? "#FFFFFF" : colors.text}
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <Path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                </Svg>
+              </TouchableOpacity>
+            </View>
+
+            {/* Main News Scroll Container */}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 100 }}
+              refreshControl={
+                <RefreshControl
+                  refreshing={newsLoading}
+                  onRefresh={async () => {
+                    setNewsLoading(true);
+                    try {
+                      const fresh = await fetchLatestNews(showBookmarksOnly ? "All" : selectedCategory);
+                      setNewsArticles(fresh);
+                    } catch (_) {}
+                    setNewsLoading(false);
+                  }}
+                  tintColor={colors.primary}
+                  colors={[colors.primary]}
+                />
+              }
+            >
+              {/* Empty state conditional */}
+              {(() => {
+                const filtered = newsArticles.filter((art) => {
+                  const matchesCategory =
+                    selectedCategory.toLowerCase() === "all" ||
+                    art.category.toLowerCase() === selectedCategory.toLowerCase() ||
+                    (selectedCategory.toLowerCase() === "trending" && art.trending);
+
+                  const matchesBookmark = !showBookmarksOnly || art.bookmarked;
+
+                  let matchesSearch = true;
+                  if (newsSearchText.trim()) {
+                    const q = newsSearchText.toLowerCase().trim();
+                    matchesSearch =
+                      art.title.toLowerCase().includes(q) ||
+                      art.summary.toLowerCase().includes(q) ||
+                      art.category.toLowerCase().includes(q) ||
+                      art.publisher.toLowerCase().includes(q);
+                  }
+
+                  return matchesCategory && matchesBookmark && matchesSearch;
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <View style={styles.newsEmptyState}>
+                      <Svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke={colors.textDimmed} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 16 }}>
+                        <Path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                        <Path d="M16 8h2" />
+                        <Path d="M16 12h2" />
+                        <Path d="M16 16h2" />
+                        <Path d="M6 8h6v8H6z" />
+                        <Line x1="2" y1="2" x2="22" y2="22" stroke={colors.primary} strokeWidth="2.5" />
+                      </Svg>
+                      <Text style={[styles.newsEmptyTitle, { color: colors.text }]}>
+                        {showBookmarksOnly
+                          ? "No Bookmarked Articles"
+                          : newsSearchText.trim()
+                            ? "No Search Results"
+                            : "No News Available"}
+                      </Text>
+                      <Text style={[styles.newsEmptyText, { color: colors.textDimmed }]}>
+                        {showBookmarksOnly
+                          ? "Bookmark articles in XayLite News to view them offline."
+                          : newsSearchText.trim()
+                            ? "Try checking spelling or using broader search terms."
+                            : "Pull down to refresh or check your internet connection."}
+                      </Text>
                     </View>
+                  );
+                }
 
-                    {/* Post Actions */}
-                    <View style={styles.postActionsRow}>
-                      <TouchableOpacity
-                        style={styles.postActionBtn}
-                        onPress={() => handleToggleLike(post.id)}
-                      >
-                        <Svg
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill={post.liked ? colors.danger : "none"}
-                          stroke={post.liked ? colors.danger : colors.textMuted}
-                          strokeWidth="2"
-                        >
-                          <Path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
-                        </Svg>
-                        <Text
-                          style={[
-                            styles.postActionText,
-                            {
-                              color: post.liked
-                                ? colors.danger
-                                : colors.textMuted,
-                            },
-                          ]}
-                        >
-                          Like
-                        </Text>
-                      </TouchableOpacity>
+                const breakingArticles = filtered.filter(art => art.breaking);
+                const trendingArticles = filtered.filter(art => art.trending);
 
-                      <TouchableOpacity
-                        style={styles.postActionBtn}
-                        onPress={() => handleOpenComments(post.id)}
-                      >
-                        <Svg
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke={colors.textMuted}
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
+                const showHeaderFeatures = !newsSearchText.trim() && !showBookmarksOnly;
+
+                return (
+                  <View>
+                    {/* Breaking News Carousel */}
+                    {showHeaderFeatures && breakingArticles.length > 0 && (
+                      <View style={{ marginBottom: 20 }}>
+                        <Text style={[styles.newsSectionTitle, { color: colors.text }]}>Breaking News</Text>
+                        <ScrollView
+                          horizontal
+                          pagingEnabled
+                          showsHorizontalScrollIndicator={false}
+                          onScroll={handleCarouselScroll}
+                          scrollEventThrottle={16}
+                          style={styles.carouselContainer}
                         >
-                          <Path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-                        </Svg>
-                        <Text
-                          style={[
-                            styles.postActionText,
-                            { color: colors.textMuted },
-                          ]}
+                          {breakingArticles.map((art) => (
+                            <TouchableOpacity
+                              key={art.id}
+                              activeOpacity={0.9}
+                              onPress={() => handleNewsOpenDetails(art)}
+                              style={[styles.carouselCard, { width: width - 40 }]}
+                            >
+                              <Image source={{ uri: art.heroImage }} style={styles.carouselImage} />
+                              <LinearGradient
+                                colors={["transparent", "rgba(2, 6, 23, 0.95)"]}
+                                style={styles.carouselOverlay}
+                              >
+                                <View style={styles.carouselContent}>
+                                  <View style={[styles.carouselBadge, { backgroundColor: colors.primary }]}>
+                                    <Text style={styles.carouselBadgeText}>{art.category.toUpperCase()}</Text>
+                                  </View>
+                                  <Text style={styles.carouselHeadline} numberOfLines={2}>
+                                    {art.title}
+                                  </Text>
+                                  <Text style={styles.carouselMeta}>
+                                    {art.publisher} • {art.publishedAt}
+                                  </Text>
+                                </View>
+                              </LinearGradient>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                        {/* Pagination Dots */}
+                        <View style={styles.carouselDots}>
+                          {breakingArticles.map((_, i) => (
+                            <View
+                              key={i}
+                              style={[
+                                styles.carouselDot,
+                                {
+                                  backgroundColor: i === carouselIndex ? colors.primary : colors.textMuted,
+                                  width: i === carouselIndex ? 16 : 6,
+                                }
+                              ]}
+                            />
+                          ))}
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Hot Right Now Section */}
+                    {showHeaderFeatures && trendingArticles.length > 0 && (
+                      <View style={{ marginBottom: 20 }}>
+                        <Text style={[styles.newsSectionTitle, { color: colors.text }]}>Hot Right Now</Text>
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                          contentContainerStyle={{ paddingHorizontal: 20, gap: 12 }}
                         >
-                          Comment
-                        </Text>
-                      </TouchableOpacity>
+                          {trendingArticles.map((art) => (
+                            <TouchableOpacity
+                              key={art.id}
+                              activeOpacity={0.85}
+                              onPress={() => handleNewsOpenDetails(art)}
+                              style={[styles.hotCard, { backgroundColor: colors.cardBg, borderColor: colors.border }]}
+                            >
+                              <Image source={{ uri: art.heroImage }} style={styles.hotImage} />
+                              <View style={styles.hotContent}>
+                                <Text style={[styles.hotBadge, { color: colors.primary }]}>
+                                  {art.category}
+                                </Text>
+                                <Text style={[styles.hotHeadline, { color: colors.text }]} numberOfLines={2}>
+                                  {art.title}
+                                </Text>
+                                <Text style={[styles.hotTime, { color: colors.textDimmed }]}>
+                                  {art.publishedAt}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+
+                    {/* Main Feed News Cards */}
+                    <Text style={[styles.newsSectionTitle, { color: colors.text, marginBottom: 12 }]}>
+                      {showBookmarksOnly ? "Bookmarked News" : "Latest News"}
+                    </Text>
+                    <View style={{ paddingHorizontal: 20, gap: 16 }}>
+                      {filtered.map((art) => {
+                        const isAdmin = currentUser.email === "admin@gmail.com" || currentUser.name === "Admin" || currentUser.email === "dev@gmail.com";
+                        return (
+                          <View
+                            key={art.id}
+                            style={[
+                              styles.newsCard,
+                              { backgroundColor: colors.cardBg, borderColor: colors.border }
+                            ]}
+                          >
+                            {/* Publisher Header */}
+                            <View style={styles.newsCardHeader}>
+                              <Image source={{ uri: art.publisherAvatar || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=100" }} style={styles.publisherAvatar} />
+                              <View style={{ flex: 1, marginLeft: 8 }}>
+                                <Text style={[styles.publisherName, { color: colors.text }]}>
+                                  {art.publisher}
+                                </Text>
+                                <Text style={[styles.newsCardTime, { color: colors.textDimmed }]}>
+                                  {art.publishedAt} • {art.readingTime}
+                                </Text>
+                              </View>
+                              {isAdmin && (
+                                <View style={{ flexDirection: "row", gap: 8 }}>
+                                  <TouchableOpacity onPress={() => handleAdminEditPress(art)} style={{ padding: 4 }}>
+                                    <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.primary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                      <Path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                      <Path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                    </Svg>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity onPress={() => handleAdminDeleteArticle(art.id)} style={{ padding: 4 }}>
+                                    <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                      <Polyline points="3 6 5 6 21 6" />
+                                      <Path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                      <Line x1="10" y1="11" x2="10" y2="17" />
+                                      <Line x1="14" y1="11" x2="14" y2="17" />
+                                    </Svg>
+                                  </TouchableOpacity>
+                                </View>
+                              )}
+                            </View>
+
+                            {/* Cover Image */}
+                            <TouchableOpacity
+                              activeOpacity={0.9}
+                              onPress={() => handleNewsOpenDetails(art)}
+                            >
+                              <Image source={{ uri: art.heroImage }} style={styles.newsCardImage} />
+                            </TouchableOpacity>
+
+                            {/* Card Content */}
+                            <TouchableOpacity
+                              activeOpacity={0.9}
+                              onPress={() => handleNewsOpenDetails(art)}
+                              style={styles.newsCardBody}
+                            >
+                              <Text style={[styles.newsCardTitle, { color: colors.text }]} numberOfLines={2}>
+                                {art.title}
+                              </Text>
+                              <Text style={[styles.newsCardSummary, { color: colors.textDimmed }]} numberOfLines={3}>
+                                {art.summary}
+                              </Text>
+                            </TouchableOpacity>
+
+                            {/* Actions bar */}
+                            <View style={[styles.newsCardActions, { borderTopColor: colors.border }]}>
+                              <TouchableOpacity
+                                onPress={() => handleNewsLike(art.id)}
+                                style={styles.newsActionBtn}
+                                activeOpacity={0.7}
+                              >
+                                <Svg
+                                  width="18"
+                                  height="18"
+                                  viewBox="0 0 24 24"
+                                  fill={art.liked ? "#EF4444" : "none"}
+                                  stroke={art.liked ? "#EF4444" : colors.textMuted}
+                                  strokeWidth="2.2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <Path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                                </Svg>
+                                <Text style={[styles.newsActionCount, { color: colors.textMuted }]}>
+                                  {art.likes}
+                                </Text>
+                              </TouchableOpacity>
+
+                              <View style={styles.newsActionBtn}>
+                                <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                  <Path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                  <Circle cx="12" cy="12" r="3" />
+                                </Svg>
+                                <Text style={[styles.newsActionCount, { color: colors.textMuted }]}>
+                                  {art.views}
+                                </Text>
+                              </View>
+
+                              <TouchableOpacity
+                                onPress={() => handleNewsBookmark(art.id)}
+                                style={styles.newsActionBtn}
+                                activeOpacity={0.7}
+                              >
+                                <Svg
+                                  width="18"
+                                  height="18"
+                                  viewBox="0 0 24 24"
+                                  fill={art.bookmarked ? colors.primary : "none"}
+                                  stroke={art.bookmarked ? colors.primary : colors.textMuted}
+                                  strokeWidth="2.2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <Path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                                </Svg>
+                              </TouchableOpacity>
+
+                              <TouchableOpacity
+                                onPress={() => handleNewsShare(art)}
+                                style={styles.newsActionBtn}
+                                activeOpacity={0.7}
+                              >
+                                <Svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                  <Circle cx="18" cy="5" r="3" />
+                                  <Circle cx="6" cy="12" r="3" />
+                                  <Circle cx="18" cy="19" r="3" />
+                                  <Line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                                  <Line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                                </Svg>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        );
+                      })}
                     </View>
                   </View>
                 );
-              })}
+              })()}
+            </ScrollView>
           </View>
         )}
+
 
         {activeTab === "calls" && (
           <View>
@@ -3447,8 +3064,8 @@ export default function HomeScreen({ route, navigation }) {
         </TouchableOpacity>
       )}
 
-      {/* Floating Action Button for Updates Tab */}
-      {activeTab === "updates" && (
+      {/* Floating Action Button for News Tab (Admin Only) */}
+      {activeTab === "updates" && (currentUser.email === "admin@gmail.com" || currentUser.name === "Admin" || currentUser.email === "dev@gmail.com") && (
         <TouchableOpacity
           style={[
             styles.fab,
@@ -3456,11 +3073,13 @@ export default function HomeScreen({ route, navigation }) {
           ]}
           activeOpacity={0.8}
           onPress={() => {
-            const userFlag = currentUser.nativeLang
-              ? getLangDetails(currentUser.nativeLang).flag || "🌍"
-              : "🌍";
-            setNewPostFlag(userFlag);
-            setPostModalVisible(true);
+            setAdminEditingId(null);
+            setAdminTitle("");
+            setAdminSummary("");
+            setAdminContent("");
+            setAdminHeroImage("");
+            setAdminCategory("Technology");
+            setNewsAdminModalVisible(true);
           }}
         >
           <LinearGradient
@@ -3638,8 +3257,11 @@ export default function HomeScreen({ route, navigation }) {
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <Path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" />
-              <Path d="M12 6v6l4 2" />
+              <Path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+              <Path d="M16 8h2" />
+              <Path d="M16 12h2" />
+              <Path d="M16 16h2" />
+              <Path d="M6 8h6v8H6z" />
             </Svg>
           </View>
           <Text
@@ -3652,696 +3274,364 @@ export default function HomeScreen({ route, navigation }) {
               },
             ]}
           >
-            Issues
+            News
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Create Post Modal */}
+      {/* News Details Modal */}
       <Modal
         animationType="slide"
-        transparent={true}
-        visible={postModalVisible}
-        onRequestClose={() => setPostModalVisible(false)}
+        transparent={false}
+        visible={selectedNews !== null}
+        onRequestClose={() => setSelectedNews(null)}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={styles.modalOverlay}
-        >
-          <View
-            style={[
-              styles.createPostModalContent,
-              {
-                backgroundColor: colors.cardBg,
-                borderColor: colors.border,
-                maxHeight: height - Math.max(insets.top, 24) - 12,
-                paddingBottom: Math.max(insets.bottom, 16) + 16,
-              },
-            ]}
-          >
-            {/* Modal Header */}
-            <View
-              style={[
-                styles.createPostHeader,
-                { borderBottomColor: colors.border },
-              ]}
-            >
-              <TouchableOpacity
-                onPress={() => setPostModalVisible(false)}
-                style={[
-                  styles.createPostCloseBtn,
-                  {
-                    backgroundColor: isDark
-                      ? "rgba(255,255,255,0.08)"
-                      : "rgba(0,0,0,0.05)",
-                  },
-                ]}
-              >
-                <Text
-                  style={[styles.createPostCloseText, { color: colors.text }]}
-                >
-                  &times;
-                </Text>
-              </TouchableOpacity>
-              <Text style={[styles.createPostTitle, { color: colors.text }]}>
-                Create Update
-              </Text>
-              <TouchableOpacity
-                style={[
-                  styles.createPostSubmitBtn,
-                  {
-                    backgroundColor: newPostText.trim()
-                      ? colors.primary
-                      : colors.border,
-                  },
-                ]}
-                onPress={handleCreatePost}
-                disabled={!newPostText.trim()}
-              >
-                <Text
-                  style={[
-                    styles.createPostSubmitBtnText,
-                    { color: newPostText.trim() ? "white" : colors.textDimmed },
-                  ]}
-                >
-                  Post
-                </Text>
-              </TouchableOpacity>
+        {selectedNews && (
+          <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+            {/* Reading progress bar */}
+            <View style={{ height: 4, backgroundColor: colors.border, width: "100%" }}>
+              <View style={{ height: "100%", backgroundColor: colors.primary, width: "70%" }} />
             </View>
 
-            <ScrollView
-              style={styles.createPostBody}
-              contentContainerStyle={styles.createPostBodyContent}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
+            {/* Sticky Header */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingHorizontal: 20,
+                paddingVertical: 12,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+              }}
             >
-              {/* Author Profile Row */}
-              <View style={styles.createPostUserRow}>
-                <Image
-                  source={typeof (currentUser.avatar) === "number" ? currentUser.avatar : { uri: currentUser.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80" }}
-                  style={styles.createPostUserAvatar}
-                />
-                <View style={styles.createPostUserInfo}>
-                  <Text
-                    style={[styles.createPostUserName, { color: colors.text }]}
+              <TouchableOpacity onPress={() => setSelectedNews(null)} style={{ padding: 4 }}>
+                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <Line x1="19" y1="12" x2="5" y2="12" />
+                  <Polyline points="12 19 5 12 12 5" />
+                </Svg>
+              </TouchableOpacity>
+              <Text style={{ fontSize: 16, fontWeight: "700", color: colors.text, flex: 1, textAlign: "center", marginHorizontal: 12 }} numberOfLines={1}>
+                {selectedNews.category}
+              </Text>
+              <View style={{ flexDirection: "row", gap: 16 }}>
+                <TouchableOpacity onPress={() => handleNewsBookmark(selectedNews.id)} style={{ padding: 4 }}>
+                  <Svg
+                    width="22"
+                    height="22"
+                    viewBox="0 0 24 24"
+                    fill={selectedNews.bookmarked ? colors.primary : "none"}
+                    stroke={selectedNews.bookmarked ? colors.primary : colors.text}
+                    strokeWidth="2.2"
                   >
-                    {currentUser.name || "User124"}
-                  </Text>
-                  <View style={styles.postLanguageBadge}>
-                    <Text
-                      style={[
-                        styles.postLanguageBadgeText,
-                        { color: colors.primary },
-                      ]}
-                    >
-                      {getLangDetails(currentUser.nativeLang || "en").flag ||
-                        "??"}{" "}
-                      Posting as{" "}
-                      {getLangDetails(currentUser.nativeLang || "en").name}
+                    <Path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                  </Svg>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => handleNewsShare(selectedNews)} style={{ padding: 4 }}>
+                  <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={colors.text} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <Circle cx="18" cy="5" r="3" />
+                    <Circle cx="6" cy="12" r="3" />
+                    <Circle cx="18" cy="19" r="3" />
+                    <Line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                    <Line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                  </Svg>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+              {/* Hero Image */}
+              <Image source={{ uri: selectedNews.heroImage }} style={{ width: "100%", height: 240 }} resizeMode="cover" />
+
+              {/* Title & Metadata */}
+              <View style={{ padding: 20 }}>
+                <Text style={{ fontSize: 24, fontWeight: "800", color: colors.text, lineHeight: 32, marginBottom: 12 }}>
+                  {selectedNews.title}
+                </Text>
+
+                {/* Publisher info row */}
+                <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 20 }}>
+                  <Image source={{ uri: selectedNews.publisherAvatar }} style={{ width: 40, height: 40, borderRadius: 20 }} />
+                  <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: "700", color: colors.text }}>
+                      {selectedNews.publisher}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: colors.textDimmed, marginTop: 2 }}>
+                      {selectedNews.publishedAt} • {selectedNews.readingTime} • {selectedNews.views} views
                     </Text>
                   </View>
                 </View>
-              </View>
 
-              {/* Text Input area */}
-              <TextInput
-                style={[
-                  styles.createPostInput,
-                  { color: colors.text, borderColor: colors.border },
-                ]}
-                placeholder="What's on your mind? Share an update..."
-                placeholderTextColor={colors.textDimmed}
-                multiline
-                value={newPostText}
-                onChangeText={setNewPostText}
-                textAlignVertical="top"
-              />
-
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.postGradientPickerRow}
-              >
-                {POST_BACKGROUND_PRESETS.map((preset) => {
-                  const isSelected =
-                    newPostMediaType === "gradient" &&
-                    newPostBackgroundKey === preset.id;
-                  return (
-                    <TouchableOpacity
-                      key={preset.id}
-                      onPress={() => handlePickGradient(preset.id)}
-                      style={[
-                        styles.postGradientChip,
-                        isSelected && styles.postGradientChipSelected,
-                      ]}
-                      activeOpacity={0.8}
-                    >
-                      <LinearGradient
-                        colors={preset.colors}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.postGradientChipSwatch}
-                      />
-                      <Text
-                        style={[
-                          styles.postGradientChipLabel,
-                          { color: colors.text },
-                        ]}
-                      >
-                        {preset.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-
-              <View style={styles.postMediaActionRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.pickPhotoBtn,
-                    {
-                      borderColor: colors.primary,
-                      backgroundColor: isDark
-                        ? "rgba(168,85,247,0.1)"
-                        : "rgba(168,85,247,0.05)",
-                    },
-                  ]}
-                  onPress={handlePickPostImage}
-                  activeOpacity={0.8}
-                >
-                  <Svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke={colors.primary}
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <Rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                    <Circle cx="8.5" cy="8.5" r="1.5" />
-                    <Polyline points="21 15 16 10 5 21" />
-                  </Svg>
-                  <Text
-                    style={[styles.pickPhotoBtnText, { color: colors.primary }]}
-                  >
-                    Add Photos or Video
+                {/* Summary Box */}
+                <View style={{ backgroundColor: colors.cardBg, borderColor: colors.border, borderWidth: 1, borderRadius: 12, padding: 16, marginBottom: 20 }}>
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: colors.text, lineHeight: 22 }}>
+                    {selectedNews.summary}
                   </Text>
-                </TouchableOpacity>
-              </View>
-
-              {newPostImages.length > 0 && newPostMediaType === "image" && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={{ marginTop: 10 }}
-                >
-                  {newPostImages.map((uri, index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.createPostImgPreviewContainer,
-                        { marginRight: 10 },
-                      ]}
-                    >
-                      <Image
-                        source={{ uri }}
-                        style={styles.createPostImgPreview}
-                      />
-                      <TouchableOpacity
-                        style={[
-                          styles.deleteImgBtn,
-                          { backgroundColor: colors.danger },
-                        ]}
-                        onPress={() => {
-                          setNewPostImages((prev) => {
-                            const next = prev.filter((_, i) => i !== index);
-                            if (next.length === 0)
-                              setNewPostMediaType("gradient");
-                            return next;
-                          });
-                        }}
-                      >
-                        <Text style={styles.deleteImgBtnText}>&times;</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                </ScrollView>
-              )}
-
-              {newPostImages.length > 0 && newPostMediaType === "video" && (
-                <View style={styles.createPostVideoPreview}>
-                  <LinearGradient
-                    colors={
-                      getPostBackgroundPreset(newPostBackgroundKey).colors
-                    }
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.createPostVideoGradient}
-                  >
-                    <Text style={styles.postVideoBadge}>VIDEO</Text>
-                    <Text style={styles.createPostVideoText}>
-                      Video selected
-                    </Text>
-                    <TouchableOpacity
-                      style={[
-                        styles.deleteImgBtn,
-                        { backgroundColor: colors.danger },
-                      ]}
-                      onPress={() => {
-                        setNewPostImages([]);
-                        setNewPostMediaType("gradient");
-                      }}
-                    >
-                      <Text style={styles.deleteImgBtnText}>&times;</Text>
-                    </TouchableOpacity>
-                  </LinearGradient>
                 </View>
-              )}
+
+                {/* Article Content */}
+                <Text style={{ fontSize: 16, color: colors.text, lineHeight: 26, marginBottom: 30 }}>
+                  {selectedNews.fullContent || selectedNews.full_content || selectedNews.summary}
+                </Text>
+
+                {/* Like / Views footer */}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 20, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 20, marginBottom: 30 }}>
+                  <TouchableOpacity onPress={() => handleNewsLike(selectedNews.id)} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill={selectedNews.liked ? "#EF4444" : "none"}
+                      stroke={selectedNews.liked ? "#EF4444" : colors.textMuted}
+                      strokeWidth="2.2"
+                    >
+                      <Path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                    </Svg>
+                    <Text style={{ fontSize: 14, fontWeight: "600", color: colors.textMuted }}>
+                      {selectedNews.likes} Likes
+                    </Text>
+                  </TouchableOpacity>
+
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.2">
+                      <Path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <Circle cx="12" cy="12" r="3" />
+                    </Svg>
+                    <Text style={{ fontSize: 14, fontWeight: "600", color: colors.textMuted }}>
+                      {selectedNews.views} Views
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Related Articles */}
+                {(() => {
+                  const related = newsArticles.filter(art => art.category === selectedNews.category && art.id !== selectedNews.id).slice(0, 3);
+                  if (related.length === 0) return null;
+                  return (
+                    <View>
+                      <Text style={{ fontSize: 18, fontWeight: "800", color: colors.text, marginBottom: 12 }}>
+                        Related News
+                      </Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
+                        {related.map(art => (
+                          <TouchableOpacity
+                            key={art.id}
+                            onPress={() => setSelectedNews(art)}
+                            style={{ width: 220, backgroundColor: colors.cardBg, borderColor: colors.border, borderWidth: 1, borderRadius: 12, overflow: "hidden" }}
+                          >
+                            <Image source={{ uri: art.heroImage }} style={{ width: "100%", height: 100 }} />
+                            <View style={{ padding: 12 }}>
+                              <Text style={{ fontSize: 13, fontWeight: "600", color: colors.text }} numberOfLines={2}>
+                                {art.title}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  );
+                })()}
+              </View>
             </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
+          </SafeAreaView>
+        )}
       </Modal>
 
-      {/* Post Options Bottom Sheet Modal */}
+      {/* News Share Modal */}
       <Modal
         animationType="slide"
         transparent={true}
-        visible={optionsPost !== null}
-        onRequestClose={() => setOptionsPost(null)}
+        visible={shareNewsTargetArticle !== null}
+        onRequestClose={() => setShareNewsTargetArticle(null)}
       >
-        <View style={styles.optionsSheetOverlay}>
-          <Pressable
-            style={styles.optionsSheetBackdrop}
-            onPress={() => setOptionsPost(null)}
-          />
-
-          <View
-            style={[
-              styles.optionsSheetContent,
-              { backgroundColor: colors.cardBg, borderColor: colors.border },
-            ]}
-          >
-            <View
-              style={[
-                styles.optionsSheetHandle,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(255, 255, 255, 0.2)"
-                    : "rgba(0, 0, 0, 0.15)",
-                },
-              ]}
-            />
-
-            <View style={styles.optionsSheetList}>
-              {optionsPost && (
-                <>
-                  {/* Share Option */}
-                  <TouchableOpacity
-                    style={[
-                      styles.optionsSheetItem,
-                      { borderBottomColor: colors.border },
-                    ]}
-                    onPress={() => handleSharePost(optionsPost)}
-                    activeOpacity={0.7}
-                  >
-                    <Svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={colors.text}
-                      strokeWidth="2"
-                    >
-                      <Path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
-                      <Polyline points="16 6 12 2 8 6" />
-                      <Line x1="12" y1="2" x2="12" y2="15" />
-                    </Svg>
-                    <Text
-                      style={[
-                        styles.optionsSheetItemText,
-                        { color: colors.text },
-                      ]}
-                    >
-                      Share Update
-                    </Text>
-                  </TouchableOpacity>
-
-                  {/* Copy Link Option */}
-                  <TouchableOpacity
-                    style={[
-                      styles.optionsSheetItem,
-                      { borderBottomColor: colors.border },
-                    ]}
-                    onPress={handleCopyLink}
-                    activeOpacity={0.7}
-                  >
-                    <Svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={colors.text}
-                      strokeWidth="2"
-                    >
-                      <Rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                      <Path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                    </Svg>
-                    <Text
-                      style={[
-                        styles.optionsSheetItemText,
-                        { color: colors.text },
-                      ]}
-                    >
-                      Copy Link
-                    </Text>
-                  </TouchableOpacity>
-
-                  {/* Owner Delete Option vs Non-Owner Actions */}
-                  {optionsPost.authorName === (currentUser.name || "User124") ||
-                  optionsPost.authorName === "Me" ? (
-                    <TouchableOpacity
-                      style={[styles.optionsSheetItem, styles.deleteOptionItem]}
-                      onPress={() => handleDeletePost(optionsPost.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="#EF4444"
-                        strokeWidth="2"
-                      >
-                        <Polyline points="3 6 5 6 21 6" />
-                        <Path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        <Line x1="10" y1="11" x2="10" y2="17" />
-                        <Line x1="14" y1="11" x2="14" y2="17" />
-                      </Svg>
-                      <Text
-                        style={[
-                          styles.optionsSheetItemText,
-                          { color: "#EF4444", fontWeight: "600" },
-                        ]}
-                      >
-                        Delete Update
-                      </Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <>
-                      <TouchableOpacity
-                        style={[
-                          styles.optionsSheetItem,
-                          { borderBottomColor: colors.border },
-                        ]}
-                        onPress={() => handleReportPost(optionsPost)}
-                        activeOpacity={0.7}
-                      >
-                        <Svg
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="#EF4444"
-                          strokeWidth="2"
-                        >
-                          <Path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                          <Line x1="4" y1="22" x2="4" y2="15" />
-                        </Svg>
-                        <Text
-                          style={[
-                            styles.optionsSheetItemText,
-                            { color: "#EF4444" },
-                          ]}
-                        >
-                          Report Update
-                        </Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-                </>
-              )}
+        <View style={styles.modalOverlay}>
+          <View style={[styles.startConvModalContent, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
+            {/* Modal Header */}
+            <View style={styles.modalHeaderRow}>
+              <Text style={[styles.modalTitleText, { color: colors.text }]}>Share via XayLite</Text>
+              <TouchableOpacity onPress={() => setShareNewsTargetArticle(null)} style={[styles.modalCloseBtn, { backgroundColor: colors.bg }]}>
+                <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5">
+                  <Line x1="18" y1="6" x2="6" y2="18" />
+                  <Line x1="6" y1="6" x2="18" y2="18" />
+                </Svg>
+              </TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-              style={[
-                styles.optionsSheetCancelBtn,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(255,255,255,0.08)"
-                    : "rgba(0,0,0,0.05)",
-                },
-              ]}
-              onPress={() => setOptionsPost(null)}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[styles.optionsSheetCancelText, { color: colors.text }]}
+            {/* Target Article Preview */}
+            {shareNewsTargetArticle && (
+              <View style={{ flexDirection: "row", padding: 12, backgroundColor: colors.bg, borderRadius: 12, marginHorizontal: 20, marginBottom: 16 }}>
+                <Image source={{ uri: shareNewsTargetArticle.heroImage }} style={{ width: 60, height: 60, borderRadius: 8 }} />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={{ fontSize: 14, fontWeight: "700", color: colors.text }} numberOfLines={1}>
+                    {shareNewsTargetArticle.title}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: colors.textDimmed, marginTop: 4 }} numberOfLines={2}>
+                    {shareNewsTargetArticle.summary}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Contacts Search Bar */}
+            <View style={[styles.startConvSearchBar, { backgroundColor: colors.bg, borderColor: colors.border, marginHorizontal: 20, marginBottom: 12 }]}>
+              <Svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2.5" style={{ marginRight: 8 }}>
+                <Circle cx="11" cy="11" r="8" />
+                <Path d="M21 21l-4.35-4.35" />
+              </Svg>
+              <TextInput
+                style={{ flex: 1, color: colors.text, fontSize: 14, outlineStyle: "none", borderWidth: 0 }}
+                placeholder="Search contact..."
+                placeholderTextColor={colors.textMuted}
+                value={shareSearchText}
+                onChangeText={setShareSearchText}
+              />
+            </View>
+
+            {/* Contacts List */}
+            <ScrollView style={{ flex: 1, paddingHorizontal: 20 }}>
+              {contacts
+                .filter((c) => {
+                  if (c.id === "unity_ai") return false;
+                  if (!shareSearchText.trim()) return true;
+                  return c.name.toLowerCase().includes(shareSearchText.toLowerCase());
+                })
+                .map((contact) => (
+                  <View key={contact.id} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <Image source={{ uri: contact.avatar }} style={{ width: 36, height: 36, borderRadius: 18 }} />
+                      <Text style={{ fontSize: 14, fontWeight: "600", color: colors.text, marginLeft: 12 }}>
+                        {contact.name}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => handleNewsShareToContact(contact)}
+                      style={{ backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 6, borderRadius: 16 }}
+                    >
+                      <Text style={{ color: "white", fontSize: 12, fontWeight: "700" }}>Send</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+            </ScrollView>
+
+            {/* Native Share button */}
+            <View style={{ padding: 20, borderTopWidth: 1, borderTopColor: colors.border }}>
+              <TouchableOpacity
+                onPress={() => {
+                  handleNewsShareNative(shareNewsTargetArticle);
+                  setShareNewsTargetArticle(null);
+                }}
+                style={{ backgroundColor: "#1E293B", paddingVertical: 12, borderRadius: 12, alignItems: "center" }}
               >
-                Cancel
-              </Text>
-            </TouchableOpacity>
+                <Text style={{ color: "white", fontWeight: "700", fontSize: 14 }}>Share via Phone sheet...</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
 
-      {/* Bottom Sheet Comments Modal */}
+      {/* News Admin Creation/Edit Modal */}
       <Modal
         animationType="slide"
         transparent={true}
-        visible={activeCommentsPostId !== null}
-        onRequestClose={() => setActiveCommentsPostId(null)}
+        visible={newsAdminModalVisible}
+        onRequestClose={() => setNewsAdminModalVisible(false)}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={styles.bottomSheetOverlay}
-        >
-          {/* Backdrop pressable to close sheet */}
-          <Pressable
-            style={styles.bottomSheetBackdrop}
-            onPress={() => setActiveCommentsPostId(null)}
-          />
-
-          <View
-            style={[
-              styles.bottomSheetContent,
-              { backgroundColor: colors.cardBg, borderColor: colors.border },
-            ]}
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={[styles.createPostModalContent, { backgroundColor: colors.cardBg, borderColor: colors.border, maxHeight: height - 100 }]}
           >
-            {/* Grabber Handle */}
-            <View
-              style={[
-                styles.bottomSheetHandle,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(255, 255, 255, 0.2)"
-                    : "rgba(0, 0, 0, 0.15)",
-                },
-              ]}
-            />
-
-            {/* Header */}
-            <View
-              style={[
-                styles.bottomSheetHeader,
-                { borderBottomColor: colors.border },
-              ]}
-            >
-              <Text style={[styles.bottomSheetTitle, { color: colors.text }]}>
-                Comments ({activePost ? (activePost.comments?.length ?? 0) : 0})
+            {/* Modal Header */}
+            <View style={[styles.createPostHeader, { borderBottomColor: colors.border, padding: 16 }]}>
+              <TouchableOpacity onPress={() => setNewsAdminModalVisible(false)}>
+                <Text style={{ color: colors.textMuted, fontSize: 15, fontWeight: "600" }}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={{ fontSize: 16, fontWeight: "800", color: colors.text }}>
+                {adminEditingId ? "Edit Article" : "Create Article"}
               </Text>
-              <TouchableOpacity
-                onPress={() => setActiveCommentsPostId(null)}
-                style={[
-                  styles.bottomSheetCloseBtn,
-                  {
-                    backgroundColor: isDark
-                      ? "rgba(255,255,255,0.08)"
-                      : "rgba(0,0,0,0.05)",
-                  },
-                ]}
-              >
-                <Text
-                  style={[styles.bottomSheetCloseText, { color: colors.text }]}
-                >
-                  &times;
-                </Text>
+              <TouchableOpacity onPress={handleAdminSaveArticle} style={{ backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 6, borderRadius: 16 }}>
+                <Text style={{ color: "white", fontSize: 13, fontWeight: "700" }}>Save</Text>
               </TouchableOpacity>
             </View>
 
-            {/* Comments List */}
-            <ScrollView
-              contentContainerStyle={styles.bottomSheetScroll}
-              showsVerticalScrollIndicator={false}
-            >
-              {activePost && (activePost.comments?.length ?? 0) > 0 ? (
-                (activePost.comments ?? []).map((comment) => (
-                  <View key={comment.id} style={styles.bottomSheetCommentItem}>
-                    <View style={styles.bottomSheetCommentAvatarContainer}>
-                      <Image
-                        source={typeof getAuthorAvatar(comment.author) === "number" ? getAuthorAvatar(comment.author) : { uri: getAuthorAvatar(comment.author) }}
-                        style={styles.bottomSheetCommentAvatar}
-                      />
-                    </View>
-                    <View style={styles.bottomSheetCommentContentContainer}>
-                      <View
-                        style={[
-                          styles.bottomSheetCommentBubble,
-                          { backgroundColor: isDark ? "#1E1636" : "#E4E6EB" },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.bottomSheetCommentAuthor,
-                            { color: colors.text },
-                          ]}
-                        >
-                          {comment.author}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.bottomSheetCommentText,
-                            { color: colors.text },
-                          ]}
-                        >
-                          {comment.content}
-                        </Text>
-                      </View>
-
-                      {/* Facebook action row under the bubble */}
-                      <View style={styles.bottomSheetCommentActions}>
-                        <Text
-                          style={[
-                            styles.bottomSheetCommentActionText,
-                            { color: colors.textDimmed },
-                          ]}
-                        >
-                          Just now
-                        </Text>
-                        <Text
-                          style={[
-                            styles.bottomSheetCommentActionBullet,
-                            { color: colors.textDimmed },
-                          ]}
-                        >
-                          •
-                        </Text>
-                        <TouchableOpacity activeOpacity={0.7}>
-                          <Text
-                            style={[
-                              styles.bottomSheetCommentActionBtnText,
-                              { color: colors.textMuted },
-                            ]}
-                          >
-                            Like
-                          </Text>
-                        </TouchableOpacity>
-                        <Text
-                          style={[
-                            styles.bottomSheetCommentActionBullet,
-                            { color: colors.textDimmed },
-                          ]}
-                        >
-                          •
-                        </Text>
-                        <TouchableOpacity activeOpacity={0.7}>
-                          <Text
-                            style={[
-                              styles.bottomSheetCommentActionBtnText,
-                              { color: colors.textMuted },
-                            ]}
-                          >
-                            Reply
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  </View>
-                ))
-              ) : (
-                <View style={styles.noCommentsContainer}>
-                  <Text
-                    style={[
-                      styles.noCommentsText,
-                      { color: colors.textDimmed },
-                    ]}
-                  >
-                    No comments yet. Be the first to comment!
-                  </Text>
+            <ScrollView style={{ flex: 1, padding: 16 }} contentContainerStyle={{ gap: 16 }}>
+              {/* Category Selector */}
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: "700", color: colors.textDimmed, marginBottom: 6 }}>CATEGORY</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  {["Technology", "AI", "Kenya", "World", "Cybersecurity", "Gaming", "Business", "Education", "Science"].map(cat => (
+                    <TouchableOpacity
+                      key={cat}
+                      onPress={() => setAdminCategory(cat)}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 16,
+                        backgroundColor: adminCategory === cat ? colors.primary : colors.bg,
+                        borderWidth: 1,
+                        borderColor: adminCategory === cat ? colors.primary : colors.border
+                      }}
+                    >
+                      <Text style={{ color: adminCategory === cat ? "white" : colors.text, fontSize: 12, fontWeight: "600" }}>
+                        {cat}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
-              )}
-            </ScrollView>
-
-            {/* Comment Input Bar */}
-            <View
-              style={[
-                styles.bottomSheetInputRow,
-                { borderTopColor: colors.border },
-              ]}
-            >
-              <View style={styles.bottomSheetInputActionsLeft}>
-                <TouchableOpacity
-                  style={styles.bottomSheetInputIconBtn}
-                  activeOpacity={0.7}
-                >
-                  <Svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke={colors.textDimmed}
-                    strokeWidth="2"
-                  >
-                    <Path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                    <Circle cx="12" cy="13" r="4" />
-                  </Svg>
-                </TouchableOpacity>
               </View>
-              <TextInput
-                style={[
-                  styles.bottomSheetInput,
-                  {
-                    backgroundColor: isDark ? "#1E1636" : "#F1F5F9",
-                    color: colors.text,
-                    borderColor: colors.border,
-                  },
-                ]}
-                placeholder="Write a comment..."
-                placeholderTextColor={colors.textDimmed}
-                value={newCommentText}
-                onChangeText={setNewCommentText}
-                onSubmitEditing={handleSheetAddComment}
-              />
-              <TouchableOpacity
-                style={[
-                  styles.bottomSheetSendBtn,
-                  {
-                    backgroundColor: newCommentText.trim()
-                      ? colors.primary
-                      : isDark
-                        ? "rgba(255,255,255,0.05)"
-                        : "rgba(0,0,0,0.05)",
-                  },
-                ]}
-                onPress={handleSheetAddComment}
-                disabled={!newCommentText.trim()}
-              >
-                <Svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke={newCommentText.trim() ? "white" : colors.textDimmed}
-                  strokeWidth="2.5"
-                >
-                  <Line x1="22" y1="2" x2="11" y2="13" />
-                  <Polygon points="22 2 15 22 11 13 2 9 22 2" />
-                </Svg>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
+
+              {/* Title */}
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: "700", color: colors.textDimmed, marginBottom: 6 }}>TITLE</Text>
+                <TextInput
+                  style={{ backgroundColor: colors.bg, color: colors.text, borderColor: colors.border, borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 14 }}
+                  placeholder="Enter article title..."
+                  placeholderTextColor={colors.textMuted}
+                  value={adminTitle}
+                  onChangeText={setAdminTitle}
+                />
+              </View>
+
+              {/* Hero Image URL */}
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: "700", color: colors.textDimmed, marginBottom: 6 }}>HERO IMAGE URL</Text>
+                <TextInput
+                  style={{ backgroundColor: colors.bg, color: colors.text, borderColor: colors.border, borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 14 }}
+                  placeholder="Paste image URL (or leave empty for default)..."
+                  placeholderTextColor={colors.textMuted}
+                  value={adminHeroImage}
+                  onChangeText={setAdminHeroImage}
+                />
+              </View>
+
+              {/* Summary */}
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: "700", color: colors.textDimmed, marginBottom: 6 }}>SUMMARY</Text>
+                <TextInput
+                  style={{ backgroundColor: colors.bg, color: colors.text, borderColor: colors.border, borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 14, minHeight: 60 }}
+                  placeholder="Brief summary of the article..."
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                  value={adminSummary}
+                  onChangeText={setAdminSummary}
+                />
+              </View>
+
+              {/* Full Content */}
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: "700", color: colors.textDimmed, marginBottom: 6 }}>FULL ARTICLE CONTENT</Text>
+                <TextInput
+                  style={{ backgroundColor: colors.bg, color: colors.text, borderColor: colors.border, borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 14, minHeight: 180, textAlignVertical: "top" }}
+                  placeholder="Write the full content of the article..."
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                  value={adminContent}
+                  onChangeText={setAdminContent}
+                />
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       {/* Start Conversation Modal (Search and filter popup) */}
@@ -6014,6 +5304,247 @@ const styles = StyleSheet.create({
   },
   optionsSheetCancelText: {
     fontSize: 15,
+    fontWeight: "600",
+  },
+  newsContainer: {
+    flex: 1,
+  },
+  newsSearchHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
+  newsSearchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    borderRadius: 24,
+    height: 48,
+    borderWidth: 1,
+  },
+  newsSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    marginLeft: 10,
+    paddingVertical: 8,
+  },
+  newsCategoryList: {
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+  },
+  newsCategoryContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  categoryChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  categoryChipActive: {
+    borderWidth: 0,
+  },
+  categoryChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  bookmarkFilterBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  newsEmptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+    paddingHorizontal: 40,
+  },
+  newsEmptyTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  newsEmptyText: {
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  newsSectionTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    marginHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  carouselContainer: {
+    height: 220,
+    marginBottom: 16,
+  },
+  carouselCard: {
+    width: width - 40,
+    height: 220,
+    marginHorizontal: 20,
+    borderRadius: 16,
+    overflow: "hidden",
+    position: "relative",
+  },
+  carouselImage: {
+    width: "100%",
+    height: "100%",
+  },
+  carouselOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: "70%",
+    padding: 16,
+    justifyContent: "flex-end",
+  },
+  carouselBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  carouselBadgeText: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  carouselHeadline: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "800",
+    lineHeight: 24,
+    marginBottom: 6,
+  },
+  carouselMeta: {
+    color: "rgba(255, 255, 255, 0.7)",
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  carouselDots: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  carouselDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  carouselDotActive: {
+    width: 16,
+  },
+  hotCard: {
+    width: 280,
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+  },
+  hotImage: {
+    width: "100%",
+    height: 140,
+  },
+  hotContent: {
+    padding: 12,
+  },
+  hotBadge: {
+    alignSelf: "flex-start",
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    marginBottom: 6,
+  },
+  hotHeadline: {
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
+    marginBottom: 6,
+  },
+  hotTime: {
+    fontSize: 11,
+  },
+  newsCard: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  newsCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+  },
+  publisherAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  publisherName: {
+    fontSize: 13,
+    fontWeight: "700",
+    marginLeft: 8,
+    flex: 1,
+  },
+  newsCardTime: {
+    fontSize: 11,
+  },
+  newsCardImage: {
+    width: "100%",
+    height: 180,
+  },
+  newsCardBody: {
+    padding: 16,
+  },
+  newsCardCategory: {
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    marginBottom: 6,
+  },
+  newsCardTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    lineHeight: 22,
+    marginBottom: 8,
+  },
+  newsCardSummary: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  newsCardActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderTopWidth: 1,
+    paddingTop: 12,
+    marginTop: 12,
+  },
+  newsCardLeftActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  newsActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  newsActionCount: {
+    fontSize: 12,
     fontWeight: "600",
   },
 });

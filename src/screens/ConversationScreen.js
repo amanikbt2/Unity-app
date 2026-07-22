@@ -2116,34 +2116,76 @@ export default function ConversationScreen({ route, navigation }) {
 
             {/* Messages body with middle divider line */}
             <View style={styles.bubbleBody}>
-              <Text
-                style={[
-                  styles.bubbleTextOriginal,
-                  isUser ? styles.whiteText : { color: colors.text },
-                ]}
-              >
-                {isUser ? bubble.text : (isSameLanguage ? bubble.text : bubble.transText)}
-              </Text>
+              {(() => {
+                const isNewsShare = typeof bubble.text === "string" && bubble.text.startsWith("[NEWS_SHARE]:");
+                if (isNewsShare) {
+                  try {
+                    const payloadStr = bubble.text.substring("[NEWS_SHARE]:".length);
+                    const payload = JSON.parse(payloadStr);
+                    return (
+                      <View style={{ width: 220, overflow: "hidden", borderRadius: 12 }}>
+                        <Image source={{ uri: payload.heroImage || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?q=80&w=1000" }} style={{ width: "100%", height: 110 }} resizeMode="cover" />
+                        <View style={{ padding: 10, backgroundColor: isUser ? "rgba(255,255,255,0.08)" : colors.bg }}>
+                          <Text style={{ fontSize: 13, fontWeight: "700", color: isUser ? "white" : colors.text, marginBottom: 4 }} numberOfLines={2}>
+                            {payload.title}
+                          </Text>
+                          <Text style={{ fontSize: 11, color: isUser ? "rgba(255,255,255,0.7)" : colors.textDimmed, marginBottom: 8 }} numberOfLines={2}>
+                            {payload.summary}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => navigation.navigate("Home", { openNewsId: payload.id })}
+                            style={{
+                              backgroundColor: isUser ? "white" : colors.primary,
+                              paddingVertical: 6,
+                              borderRadius: 8,
+                              alignItems: "center"
+                            }}
+                          >
+                            <Text style={{ color: isUser ? colors.primary : "white", fontSize: 12, fontWeight: "700" }}>
+                              Read on XayLite
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  } catch (e) {
+                    console.warn("[ConversationScreen] Failed to parse news share:", e);
+                  }
+                }
 
-              {!isUser && !isSameLanguage && (
-                <>
-                  <View
-                    style={[
-                      styles.bubbleDivider,
-                      {
-                        backgroundColor: "rgba(0, 0, 0, 0.05)",
-                      },
-                    ]}
-                  />
+                return (
+                  <>
+                    <Text
+                      style={[
+                        styles.bubbleTextOriginal,
+                        isUser ? styles.whiteText : { color: colors.text },
+                      ]}
+                    >
+                      {isUser ? bubble.text : (isSameLanguage ? bubble.text : bubble.transText)}
+                    </Text>
 
-                  {/* Bottom Text (Partner's Original Text) */}
-                  <Text
-                    style={[styles.bubbleTextTrans, { color: colors.primary }]}
-                  >
-                    {bubble.text}
-                  </Text>
-                </>
-              )}
+                    {!isUser && !isSameLanguage && (
+                      <>
+                        <View
+                          style={[
+                            styles.bubbleDivider,
+                            {
+                              backgroundColor: "rgba(0, 0, 0, 0.05)",
+                            },
+                          ]}
+                        />
+
+                        {/* Bottom Text (Partner's Original Text) */}
+                        <Text
+                          style={[styles.bubbleTextTrans, { color: colors.primary }]}
+                        >
+                          {bubble.text}
+                        </Text>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
             </View>
           </View>
         )}

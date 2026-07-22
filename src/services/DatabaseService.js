@@ -8,9 +8,8 @@ class MockDatabase {
     this.tables = {
       contacts: [],
       chats: [],
-      posts: [],
+      news_articles: [],
       explore_profiles: [],
-      pending_posts: [],
       call_logs: [],
     };
     if (Platform.OS === "web") {
@@ -67,6 +66,13 @@ class MockDatabase {
           }
         }
 
+        if (tableName === "news_articles") {
+          this.tables.news_articles.sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
+          if (this.tables.news_articles.length > 50) {
+            this.tables.news_articles = this.tables.news_articles.slice(0, 50);
+          }
+        }
+
         this.save();
       }
     } else if (sql.includes("UPDATE contacts")) {
@@ -99,6 +105,37 @@ class MockDatabase {
           this.save();
         }
       }
+    } else if (sql.includes("UPDATE news_articles")) {
+      if (sql.includes("bookmarked = ?")) {
+        const bookmarked = params[0];
+        const id = params[1];
+        const article = this.tables.news_articles.find(a => a.id === id);
+        if (article) {
+          article.bookmarked = bookmarked;
+          this.save();
+        }
+      } else if (sql.includes("liked = ?")) {
+        const liked = params[0];
+        const likes = params[1];
+        const id = params[2];
+        const article = this.tables.news_articles.find(a => a.id === id);
+        if (article) {
+          article.liked = liked;
+          article.likes = likes;
+          this.save();
+        }
+      } else if (sql.includes("views = views + 1")) {
+        const id = params[0];
+        const article = this.tables.news_articles.find(a => a.id === id);
+        if (article) {
+          article.views = (Number(article.views) || 0) + 1;
+          this.save();
+        }
+      }
+    } else if (sql.includes("DELETE FROM news_articles")) {
+      const id = params[0];
+      this.tables.news_articles = this.tables.news_articles.filter(a => a.id !== id);
+      this.save();
     }
     return { lastInsertRowId: 0, changes: 1 };
   }
@@ -135,14 +172,11 @@ class MockDatabase {
         .filter(c => c.partner_id === partnerId)
         .sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0));
     }
-    if (sql.includes("FROM posts")) {
-      return [...this.tables.posts].sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
+    if (sql.includes("FROM news_articles")) {
+      return [...this.tables.news_articles].sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
     }
     if (sql.includes("FROM explore_profiles")) {
       return [...this.tables.explore_profiles].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-    }
-    if (sql.includes("FROM pending_posts")) {
-      return [...this.tables.pending_posts].sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0));
     }
 
     if (sql.includes("table_info")) {
@@ -151,15 +185,6 @@ class MockDatabase {
           { name: "id" }, { name: "name" }, { name: "phone" }, { name: "email" }, 
           { name: "flag" }, { name: "status" }, { name: "is_synced" }, { name: "avatar" }, 
           { name: "is_unity_user" }, { name: "unread_count" }, { name: "last_message_time" }
-        ];
-      }
-      if (sql.includes("posts")) {
-        return [
-          { name: "id" }, { name: "author_name" }, { name: "author_email" }, { name: "author_avatar" },
-          { name: "author_flag" }, { name: "author_native_lang" }, { name: "content" }, { name: "flag" },
-          { name: "time" }, { name: "image_local_path" }, { name: "image_url" }, { name: "media_type" },
-          { name: "background_key" }, { name: "description" }, { name: "avatar_local_path" },
-          { name: "likes" }, { name: "liked" }, { name: "comments" }, { name: "timestamp" }
         ];
       }
     }
@@ -283,18 +308,6 @@ export async function getDatabase() {
   return dbInitializing;
 }
 
-const POSTS_SCHEMA_COLUMNS = {
-  author_email: "TEXT",
-  author_avatar: "TEXT",
-  author_flag: "TEXT",
-  author_native_lang: "TEXT",
-  image_url: "TEXT",
-  media_type: "TEXT",
-  background_key: "TEXT",
-  description: "TEXT",
-  comments: "TEXT DEFAULT '[]'",
-};
-
 function parseJsonArray(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value;
@@ -306,33 +319,29 @@ function parseJsonArray(value) {
   }
 }
 
-function normalizePostRow(row) {
+function normalizeNewsRow(row) {
   if (!row) return null;
   return {
     id: row.id,
-    authorName: row.author_name || row.authorName || "",
-    authorEmail: row.author_email || row.authorEmail || "",
-    authorAvatar:
-      row.author_avatar || row.authorAvatar || row.avatar_local_path || "",
-    authorFlag: row.author_flag || row.authorFlag || row.flag || "",
-    authorNativeLang: row.author_native_lang || row.authorNativeLang || "",
-    content: row.content || "",
-    flag: row.flag || row.author_flag || "🌍",
-    time: row.time || "",
-    image: row.image_url || row.image_local_path || "",
-    imageUrl: row.image_url || "",
-    image_local_path: row.image_local_path || "",
-    mediaType:
-      row.media_type ||
-      row.mediaType ||
-      (row.image_url || row.image_local_path ? "image" : "text"),
-    backgroundKey: row.background_key || row.backgroundKey || "",
-    description: row.description || "",
-    avatar: row.author_avatar || row.avatar_local_path || "",
-    avatar_local_path: row.avatar_local_path || "",
+    title: row.title || "",
+    slug: row.slug || "",
+    summary: row.summary || "",
+    fullContent: row.fullContent || row.full_content || "",
+    heroImage: row.heroImage || row.hero_image || "",
+    galleryImages: parseJsonArray(row.galleryImages || row.gallery_images),
+    publisher: row.publisher || "XayLite News",
+    publisherAvatar: row.publisherAvatar || row.publisher_avatar || "",
+    category: row.category || "General",
+    tags: parseJsonArray(row.tags),
+    publishedAt: row.publishedAt || row.published_at || "",
+    readingTime: row.readingTime || row.reading_time || "2 min read",
     likes: Number(row.likes || 0),
+    views: Number(row.views || 0),
+    bookmarked: Boolean(row.bookmarked),
     liked: Boolean(row.liked),
-    comments: parseJsonArray(row.comments),
+    featured: Boolean(row.featured),
+    breaking: Boolean(row.breaking),
+    trending: Boolean(row.trending),
     timestamp: Number(row.timestamp || Date.now()),
   };
 }
@@ -463,66 +472,29 @@ export async function initDatabase() {
       );
     `);
 
-    // Create posts table for TikTok-style offline scrolling feed
+    // Create news_articles table
     await dbExecAsync(`
-      CREATE TABLE IF NOT EXISTS posts (
+      CREATE TABLE IF NOT EXISTS news_articles (
         id TEXT PRIMARY KEY,
-        author_name TEXT,
-        author_email TEXT,
-        author_avatar TEXT,
-        author_flag TEXT,
-        author_native_lang TEXT,
-        content TEXT,
-        flag TEXT,
-        time TEXT,
-        image_local_path TEXT,
-        image_url TEXT,
-        media_type TEXT,
-        background_key TEXT,
-        description TEXT,
-        avatar_local_path TEXT,
-        likes INTEGER,
-        liked INTEGER,
-        comments TEXT DEFAULT '[]',
-        timestamp INTEGER
-      );
-    `);
-
-    try {
-      const postColumns = await dbGetAllAsync("PRAGMA table_info(posts);");
-      const existingPostColumns = new Set(
-        postColumns.map((column) => column.name),
-      );
-      for (const [columnName, columnType] of Object.entries(
-        POSTS_SCHEMA_COLUMNS,
-      )) {
-        if (!existingPostColumns.has(columnName)) {
-          await dbRunAsync(
-            `ALTER TABLE posts ADD COLUMN ${columnName} ${columnType};`,
-          );
-        }
-      }
-    } catch (e) {
-      console.warn("Error migrating posts table:", e);
-    }
-
-    // Create explore_profiles table
-    await dbExecAsync(`
-      CREATE TABLE IF NOT EXISTS explore_profiles (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        flag TEXT,
-        lang_name TEXT,
-        bio TEXT,
-        avatar_local_path TEXT
-      );
-    `);
-
-    // Create pending_posts table for offline queue
-    await dbExecAsync(`
-      CREATE TABLE IF NOT EXISTS pending_posts (
-        id TEXT PRIMARY KEY,
-        payload TEXT,
+        title TEXT,
+        slug TEXT,
+        summary TEXT,
+        full_content TEXT,
+        hero_image TEXT,
+        gallery_images TEXT DEFAULT '[]',
+        publisher TEXT,
+        publisher_avatar TEXT,
+        category TEXT,
+        tags TEXT DEFAULT '[]',
+        published_at TEXT,
+        reading_time TEXT,
+        likes INTEGER DEFAULT 0,
+        views INTEGER DEFAULT 0,
+        bookmarked INTEGER DEFAULT 0,
+        liked INTEGER DEFAULT 0,
+        featured INTEGER DEFAULT 0,
+        breaking INTEGER DEFAULT 0,
+        trending INTEGER DEFAULT 0,
         timestamp INTEGER
       );
     `);
@@ -530,13 +502,15 @@ export async function initDatabase() {
     console.log("[Database] Database tables initialized successfully.");
     dbInitialized = true;
     return true;
-  } catch (error) {
-    console.error("[Database] Initialization error:", error);
-    return false;
-  } finally {
-    dbIsInitializingSchema = false;
-    dbInitPromise = null;
-  }
+    } catch (error) {
+      console.error("[Database] Initialization error:", error);
+      return false;
+    } finally {
+      dbIsInitializingSchema = false;
+      dbInitPromise = null;
+    }
+  })();
+  return dbInitPromise;
 }
 
 /* ==========================================================================
@@ -694,89 +668,118 @@ export async function saveChat(chatBubble) {
 }
 
 /* ==========================================================================
-   POSTS DATABASE OPERATIONS
+   NEWS DATABASE OPERATIONS
    ========================================================================== */
 
-export async function getPosts() {
+export async function getNewsArticles() {
   try {
     const rows = await dbGetAllAsync(
-      "SELECT * FROM posts ORDER BY timestamp DESC;",
+      "SELECT * FROM news_articles ORDER BY timestamp DESC;"
     );
-    return rows.map(normalizePostRow).filter(Boolean);
+    return rows.map(normalizeNewsRow).filter(Boolean);
   } catch (error) {
-    console.error("[Database] getPosts error:", error);
+    console.error("[Database] getNewsArticles error:", error);
     return [];
   }
 }
 
-export async function savePosts(postsArray) {
+export async function saveNewsArticles(articlesArray) {
   try {
-    for (const post of postsArray) {
+    if (!articlesArray || !Array.isArray(articlesArray)) return false;
+    for (const article of articlesArray) {
       await dbRunAsync(
-        `INSERT OR REPLACE INTO posts (id, author_name, author_email, author_avatar, author_flag, author_native_lang, content, flag, time, image_local_path, image_url, media_type, background_key, description, avatar_local_path, likes, liked, comments, timestamp) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        `INSERT OR REPLACE INTO news_articles (
+          id, title, slug, summary, full_content, hero_image, gallery_images,
+          publisher, publisher_avatar, category, tags, published_at, reading_time,
+          likes, views, bookmarked, liked, featured, breaking, trending, timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
         [
-          post.id || "",
-          post.authorName || "",
-          post.authorEmail || "",
-          post.authorAvatar || "",
-          post.authorFlag || post.flag || "??",
-          post.authorNativeLang || "",
-          post.content || "",
-          post.flag || "??",
-          post.time || "",
-          post.image_local_path || "",
-          post.imageUrl || post.image || "",
-          post.mediaType ||
-            (post.imageUrl || post.image || post.image_local_path
-              ? "image"
-              : "text"),
-          post.backgroundKey || "",
-          post.description || "",
-          post.avatar_local_path || "",
-          post.likes || 0,
-          post.liked ? 1 : 0,
-          JSON.stringify(post.comments || []),
-          post.timestamp || Date.now(),
-        ],
+          article.id || "",
+          article.title || "",
+          article.slug || "",
+          article.summary || "",
+          article.fullContent || article.full_content || "",
+          article.heroImage || article.hero_image || "",
+          JSON.stringify(article.galleryImages || []),
+          article.publisher || "",
+          article.publisherAvatar || "",
+          article.category || "General",
+          JSON.stringify(article.tags || []),
+          article.publishedAt || "",
+          article.readingTime || "2 min read",
+          Number(article.likes || 0),
+          Number(article.views || 0),
+          article.bookmarked ? 1 : 0,
+          article.liked ? 1 : 0,
+          article.featured ? 1 : 0,
+          article.breaking ? 1 : 0,
+          article.trending ? 1 : 0,
+          Number(article.timestamp || Date.now()),
+        ]
       );
     }
-    return true;
-  } catch (error) {
-    console.error("[Database] savePosts error:", error);
-    return false;
-  }
-}
-
-export async function savePendingPost(id, payload) {
-  try {
-    await dbRunAsync(
-      `INSERT OR REPLACE INTO pending_posts (id, payload, timestamp) VALUES (?, ?, ?);`,
-      [id || "", JSON.stringify(payload || {}), Date.now()]
+    // Cap cached articles at 50
+    await dbExecAsync(
+      `DELETE FROM news_articles WHERE id NOT IN (
+         SELECT id FROM news_articles ORDER BY timestamp DESC LIMIT 50
+       );`
     );
     return true;
   } catch (error) {
-    console.error("[Database] savePendingPost error:", error);
+    console.error("[Database] saveNewsArticles error:", error);
     return false;
   }
 }
 
-export async function getPendingPosts() {
+export async function toggleNewsBookmark(articleId, bookmarkedState) {
   try {
-    const rows = await dbGetAllAsync("SELECT * FROM pending_posts ORDER BY timestamp ASC;");
-    return rows.map(r => ({ id: r.id, payload: JSON.parse(r.payload), timestamp: r.timestamp }));
+    await dbRunAsync(
+      `UPDATE news_articles SET bookmarked = ? WHERE id = ?;`,
+      [bookmarkedState ? 1 : 0, articleId]
+    );
+    return true;
   } catch (error) {
-    console.error("[Database] getPendingPosts error:", error);
-    return [];
+    console.error("[Database] toggleNewsBookmark error:", error);
+    return false;
   }
 }
 
-export async function deletePendingPost(id) {
+export async function toggleNewsLike(articleId, likedState, likesCount) {
   try {
-    await dbRunAsync(`DELETE FROM pending_posts WHERE id = ?;`, [id]);
+    await dbRunAsync(
+      `UPDATE news_articles SET liked = ?, likes = ? WHERE id = ?;`,
+      [likedState ? 1 : 0, Number(likesCount), articleId]
+    );
     return true;
   } catch (error) {
-    console.error("[Database] deletePendingPost error:", error);
+    console.error("[Database] toggleNewsLike error:", error);
+    return false;
+  }
+}
+
+export async function incrementNewsView(articleId) {
+  try {
+    await dbRunAsync(
+      `UPDATE news_articles SET views = views + 1 WHERE id = ?;`,
+      [articleId]
+    );
+    return true;
+  } catch (error) {
+    console.error("[Database] incrementNewsView error:", error);
+    return false;
+  }
+}
+
+export async function saveAdminArticle(article) {
+  return saveNewsArticles([article]);
+}
+
+export async function deleteNewsArticle(articleId) {
+  try {
+    await dbRunAsync(`DELETE FROM news_articles WHERE id = ?;`, [articleId]);
+    return true;
+  } catch (error) {
+    console.error("[Database] deleteNewsArticle error:", error);
     return false;
   }
 }
@@ -876,7 +879,7 @@ export async function clearDatabase() {
   try {
     await dbExecAsync("DELETE FROM chats;");
     await dbExecAsync("DELETE FROM contacts;");
-    await dbExecAsync("DELETE FROM posts;");
+    await dbExecAsync("DELETE FROM news_articles;");
     await dbExecAsync("DELETE FROM explore_profiles;");
     await dbExecAsync("DELETE FROM call_logs;");
     console.log("[Database] Database tables cleared.");
