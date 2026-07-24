@@ -98,6 +98,75 @@ const getDefaultAvatar = (seed) => {
   return getAssetUri(DEFAULT_AVATARS[idx]);
 };
 
+// Helper to check if a news article is related to a specific country
+function isArticleRelatedToCountry(art, country) {
+  if (!art || !country) return false;
+  const c = country.toLowerCase();
+  const title = (art.title || "").toLowerCase();
+  const summary = (art.summary || "").toLowerCase();
+  const category = (art.category || "").toLowerCase();
+  const tags = (art.tags || []).map(t => String(t).toLowerCase());
+
+  if (title.includes(c) || summary.includes(c) || category.includes(c) || tags.includes(c)) {
+    return true;
+  }
+
+  // Handle common country aliases/related terms
+  if (c === "kenya") {
+    return title.includes("nairobi") || summary.includes("nairobi") || tags.includes("nairobi") || title.includes("savannah");
+  }
+  if (c === "united states") {
+    return title.includes("us ") || title.includes("usa") || title.includes("america") || tags.includes("usa") || tags.includes("us");
+  }
+  if (c === "united kingdom") {
+    return title.includes("uk ") || title.includes("london") || tags.includes("uk") || tags.includes("gb");
+  }
+  if (c === "japan") {
+    return title.includes("tokyo") || tags.includes("tokyo");
+  }
+  if (c === "germany") {
+    return title.includes("munich") || title.includes("berlin") || tags.includes("munich");
+  }
+  if (c === "spain") {
+    return title.includes("madrid") || title.includes("barcelona") || tags.includes("spain");
+  }
+  if (c === "france") {
+    return title.includes("paris") || tags.includes("paris");
+  }
+  return false;
+}
+
+// Helper function to calculate a location relevance match score
+function getCountryScore(art, country) {
+  if (!art || !country) return 0;
+  const c = country.toLowerCase();
+  let score = 0;
+  
+  const title = (art.title || "").toLowerCase();
+  const summary = (art.summary || "").toLowerCase();
+  const category = (art.category || "").toLowerCase();
+  const tags = (art.tags || []).map(t => String(t).toLowerCase());
+
+  if (title.includes(c)) score += 10;
+  if (tags.includes(c)) score += 8;
+  if (summary.includes(c)) score += 5;
+  if (category.includes(c)) score += 3;
+
+  // Handle aliases/region terms
+  if (c === "kenya") {
+    if (title.includes("nairobi") || title.includes("savannah")) score += 6;
+    if (summary.includes("nairobi")) score += 3;
+  } else if (c === "united states") {
+    if (title.includes("us ") || title.includes("usa") || title.includes("america")) score += 6;
+    if (summary.includes("us ") || summary.includes("usa") || summary.includes("america")) score += 3;
+  } else if (c === "germany") {
+    if (title.includes("munich") || title.includes("berlin")) score += 6;
+  } else if (c === "spain") {
+    if (title.includes("madrid") || title.includes("barcelona")) score += 6;
+  }
+  return score;
+}
+
 // Helper to convert flag emoji to lowercase 2-letter country code
 function getCountryCodeFromFlag(flagEmoji) {
   if (!flagEmoji || typeof flagEmoji !== "string") return null;
@@ -242,6 +311,36 @@ export default function HomeScreen({ route, navigation }) {
   const [startConvFilter, setStartConvFilter] = useState("contacts");
   const [profilePopupVisible, setProfilePopupVisible] = useState(false);
   const [profilePopupData, setProfilePopupData] = useState(null);
+  const [detectedCountry, setDetectedCountry] = useState(null);
+
+  // Non-blocking IP Geo-location lookup with a strict timeout
+  useEffect(() => {
+    let active = true;
+    const fetchGeoIp = async () => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+        console.log("[Location] Non-blocking geo-IP lookup initiated...");
+        const response = await fetch("https://ipapi.co/json/", { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const data = await response.json();
+          if (active && data && data.country_name) {
+            console.log("[Location] Detected country from IP:", data.country_name);
+            setDetectedCountry(data.country_name);
+          }
+        }
+      } catch (err) {
+        console.warn("[Location] Geo-IP lookup error/timeout (falling back to settings):", err.message);
+      }
+    };
+    fetchGeoIp();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Gradient shifting animation value
   const [gradientAnim] = useState(() => new Animated.Value(0));
@@ -2325,7 +2424,28 @@ export default function HomeScreen({ route, navigation }) {
                 contentContainerStyle={{ gap: 8, paddingRight: 10 }}
                 style={{ flex: 1 }}
               >
-                {["All", "Trending", "Kenya", "World", "AI", "Android", "Cybersecurity", "Gaming", "Business", "Education", "Science"].map((cat) => {
+                {(() => {
+                  const userLangDetails = getLangDetails(currentUser?.nativeLang || "en");
+                  const userCountry = detectedCountry || userLangDetails?.country || "Kenya";
+                  const defaultCategories = ["All", "Trending", "World", "AI", "Android", "Cybersecurity", "Gaming", "Business", "Education", "Science"];
+                  
+                  // Construct smart category list: place user's country right after Trending
+                  const categories = [...defaultCategories];
+                  const insertIndex = 2;
+                  if (userCountry) {
+                    if (!categories.map(c => c.toLowerCase()).includes(userCountry.toLowerCase())) {
+                      categories.splice(insertIndex, 0, userCountry);
+                    } else {
+                      // Move existing one to the priority index
+                      const idx = categories.findIndex(c => c.toLowerCase() === userCountry.toLowerCase());
+                      if (idx > -1) {
+                        categories.splice(idx, 1);
+                      }
+                      categories.splice(insertIndex, 0, userCountry);
+                    }
+                  }
+                  return categories;
+                })().map((cat) => {
                   const isSelected = selectedCategory === cat && !showBookmarksOnly;
                   return (
                     <TouchableOpacity
@@ -2405,11 +2525,15 @@ export default function HomeScreen({ route, navigation }) {
             >
               {/* Empty state conditional */}
               {(() => {
+                const userLangDetails = getLangDetails(currentUser?.nativeLang || "en");
+                const userCountry = detectedCountry || userLangDetails?.country || "Kenya";
+
                 const filtered = newsArticles.filter((art) => {
                   const matchesCategory =
                     selectedCategory.toLowerCase() === "all" ||
                     art.category.toLowerCase() === selectedCategory.toLowerCase() ||
-                    (selectedCategory.toLowerCase() === "trending" && art.trending);
+                    (selectedCategory.toLowerCase() === "trending" && art.trending) ||
+                    (userCountry && selectedCategory.toLowerCase() === userCountry.toLowerCase() && isArticleRelatedToCountry(art, userCountry));
 
                   const matchesBookmark = !showBookmarksOnly || art.bookmarked;
 
@@ -2425,6 +2549,18 @@ export default function HomeScreen({ route, navigation }) {
 
                   return matchesCategory && matchesBookmark && matchesSearch;
                 });
+
+                // Prioritize articles by relevance score for user's country
+                if (userCountry) {
+                  filtered.sort((a, b) => {
+                    const scoreA = getCountryScore(a, userCountry);
+                    const scoreB = getCountryScore(b, userCountry);
+                    if (scoreA !== scoreB) {
+                      return scoreB - scoreA;
+                    }
+                    return (b.timestamp || 0) - (a.timestamp || 0);
+                  });
+                }
 
                 if (filtered.length === 0) {
                   return (
@@ -2488,8 +2624,17 @@ export default function HomeScreen({ route, navigation }) {
                                 style={styles.carouselOverlay}
                               >
                                 <View style={styles.carouselContent}>
-                                  <View style={[styles.carouselBadge, { backgroundColor: colors.primary }]}>
-                                    <Text style={styles.carouselBadgeText}>{art.category.toUpperCase()}</Text>
+                                  <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
+                                    <View style={[styles.carouselBadge, { backgroundColor: colors.primary }]}>
+                                      <Text style={styles.carouselBadgeText}>{art.category.toUpperCase()}</Text>
+                                    </View>
+                                    {userCountry && getCountryScore(art, userCountry) > 0 && (
+                                      <View style={[styles.carouselBadge, { backgroundColor: "#10B981" }]}>
+                                        <Text style={styles.carouselBadgeText}>
+                                          {getLangDetails(currentUser?.nativeLang || "en")?.flag || "🌍"} REGIONAL
+                                        </Text>
+                                      </View>
+                                    )}
                                   </View>
                                   <Text style={styles.carouselHeadline} numberOfLines={2}>
                                     {art.title}
@@ -2538,9 +2683,16 @@ export default function HomeScreen({ route, navigation }) {
                             >
                               <Image source={{ uri: art.heroImage }} style={styles.hotImage} />
                               <View style={styles.hotContent}>
-                                <Text style={[styles.hotBadge, { color: colors.primary }]}>
-                                  {art.category}
-                                </Text>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                  <Text style={[styles.hotBadge, { color: colors.primary }]}>
+                                    {art.category}
+                                  </Text>
+                                  {userCountry && getCountryScore(art, userCountry) > 0 && (
+                                    <Text style={{ fontSize: 10, fontWeight: "bold", color: "#10B981" }}>
+                                      {getLangDetails(currentUser?.nativeLang || "en")?.flag || "🌍"} Local
+                                    </Text>
+                                  )}
+                                </View>
                                 <Text style={[styles.hotHeadline, { color: colors.text }]} numberOfLines={2}>
                                   {art.title}
                                 </Text>
@@ -2573,9 +2725,26 @@ export default function HomeScreen({ route, navigation }) {
                             <View style={styles.newsCardHeader}>
                               <Image source={{ uri: art.publisherAvatar || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=100" }} style={styles.publisherAvatar} />
                               <View style={{ flex: 1, marginLeft: 8 }}>
-                                <Text style={[styles.publisherName, { color: colors.text }]}>
-                                  {art.publisher}
-                                </Text>
+                                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                                  <Text style={[styles.publisherName, { color: colors.text }]} numberOfLines={1}>
+                                    {art.publisher}
+                                  </Text>
+                                  {userCountry && getCountryScore(art, userCountry) > 0 && (
+                                    <View style={{
+                                      flexDirection: "row",
+                                      alignItems: "center",
+                                      backgroundColor: colors.primary + "1A",
+                                      paddingHorizontal: 6,
+                                      paddingVertical: 2,
+                                      borderRadius: 6,
+                                      marginLeft: 8,
+                                    }}>
+                                      <Text style={{ fontSize: 10, fontWeight: "600", color: colors.primary }}>
+                                        {getLangDetails(currentUser?.nativeLang || "en")?.flag || "🌍"} Local Priority
+                                      </Text>
+                                    </View>
+                                  )}
+                                </View>
                                 <Text style={[styles.newsCardTime, { color: colors.textDimmed }]}>
                                   {art.publishedAt} • {art.readingTime}
                                 </Text>

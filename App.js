@@ -104,10 +104,28 @@ const WebPromoModal = () => {
     currentUser?.name === "Admin" ||
     currentUser?.name === "Developer";
 
-  if (isAdminOrDev) return null;
   const [visible, setVisible] = useState(false);
+  const [showDemoSetting, setShowDemoSetting] = useState(true);
 
   useEffect(() => {
+    async function checkSetting() {
+      try {
+        let BASE_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+        const response = await fetch(`${BASE_URL}/api/settings`);
+        const data = await response.json();
+        if (data.success && typeof data.showDemoPopup === "boolean") {
+          setShowDemoSetting(data.showDemoPopup);
+        }
+      } catch (err) {
+        console.warn("Failed to check showDemoPopup setting:", err.message);
+      }
+    }
+    checkSetting();
+  }, []);
+
+  useEffect(() => {
+    if (isAdminOrDev || !showDemoSetting) return;
+
     // Show first time after 30 seconds
     const initialTimer = setTimeout(() => {
       setVisible(true);
@@ -124,7 +142,9 @@ const WebPromoModal = () => {
       clearTimeout(initialTimer);
       clearInterval(intervalTimer);
     };
-  }, [currentUser]);
+  }, [currentUser, isAdminOrDev, showDemoSetting]);
+
+  if (isAdminOrDev || !showDemoSetting) return null;
 
   const handleDownload = () => {
     trackEvent("(web) promo_download_click", currentUser);
