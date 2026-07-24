@@ -1961,7 +1961,7 @@ export default function ConversationScreen({ route, navigation }) {
           partnerId,
           partnerMsgId,
           userMsgId,
-          partnerName: "Unity AI",
+          partnerName: "Xaylite AI",
           partnerAvatarUrl: partnerAvatar,
           partnerLangName,
           userLangName,

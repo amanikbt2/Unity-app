@@ -141,7 +141,7 @@ const isOnlineStatus = (status) =>
 const INITIAL_CONTACTS = [
   {
     id: "unity_ai",
-    name: "unity AI",
+    name: "Xaylite AI",
     avatar: require("../../assets/icon.png"),
     flag: "🌍",
     langName: "AI Companion",
@@ -473,6 +473,7 @@ export default function HomeScreen({ route, navigation }) {
         const found = newsArticles.find(art => art.id === articleId);
         if (found) {
           setActiveTab("updates");
+          setNewsBadgeCount(0);
           setSelectedNews(found);
           await incrementDbNewsView(articleId);
           found.views = (Number(found.views) || 0) + 1;
@@ -481,6 +482,7 @@ export default function HomeScreen({ route, navigation }) {
           const dbFound = cached.find(art => art.id === articleId);
           if (dbFound) {
             setActiveTab("updates");
+            setNewsBadgeCount(0);
             setSelectedNews(dbFound);
             await incrementDbNewsView(articleId);
             dbFound.views = (Number(dbFound.views) || 0) + 1;
@@ -490,6 +492,20 @@ export default function HomeScreen({ route, navigation }) {
       findAndOpen();
     }
   }, [route.params?.openNewsId, newsArticles]);
+
+  useEffect(() => {
+    // Show 9+ badge after 5 minutes, recurring every 5 minutes if not on updates tab
+    const interval = setInterval(() => {
+      setActiveTab((currentTab) => {
+        if (currentTab !== "updates") {
+          setNewsBadgeCount("9+");
+        }
+        return currentTab;
+      });
+    }, 5 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -3235,7 +3251,10 @@ export default function HomeScreen({ route, navigation }) {
 
         <TouchableOpacity
           style={styles.tabBarBtn}
-          onPress={() => setActiveTab("updates")}
+          onPress={() => {
+            setActiveTab("updates");
+            setNewsBadgeCount(0);
+          }}
         >
           <View
             style={[
@@ -3245,6 +3264,27 @@ export default function HomeScreen({ route, navigation }) {
               },
             ]}
           >
+            {!!newsBadgeCount && (
+              <View
+                style={{
+                  position: "absolute",
+                  top: -4,
+                  right: -4,
+                  backgroundColor: "#EF4444",
+                  borderRadius: 8,
+                  minWidth: 16,
+                  height: 16,
+                  justifyContent: "center",
+                  alignItems: "center",
+                  paddingHorizontal: 3,
+                  zIndex: 10,
+                }}
+              >
+                <Text style={{ color: "white", fontSize: 9, fontWeight: "900", lineHeight: 12 }}>
+                  {newsBadgeCount}
+                </Text>
+              </View>
+            )}
             <Svg
               width="24"
               height="24"
@@ -3726,7 +3766,7 @@ export default function HomeScreen({ route, navigation }) {
                     (c) => c.id === "unity_ai",
                   ) || {
                     id: "unity_ai",
-                    name: "unity AI",
+                    name: "Xaylite AI",
                     avatar: require("../../assets/icon.png"),
                     flag: "🌍",
                     langName: "AI Companion",
