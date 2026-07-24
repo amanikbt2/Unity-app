@@ -412,20 +412,37 @@ export default function ProfileScreen({ route, navigation }) {
   };
 
   const handleLogout = async () => {
-    Alert.alert("Log Out", "Are you sure you want to log out?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Log Out",
-        style: "destructive",
-        onPress: async () => {
-          await logoutUser();
-          navigation.reset({
-            index: 0,
-            routes: [{ name: "Auth" }],
-          });
+    const performLogout = async () => {
+      try {
+        await logoutUser();
+      } catch (e) {
+        console.error("Logout failed:", e);
+      }
+      if (navigation && typeof navigation.reset === "function") {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "Auth" }],
+        });
+      } else if (navigation && typeof navigation.navigate === "function") {
+        navigation.navigate("Auth");
+      }
+    };
+
+    if (Platform.OS === "web") {
+      const confirmed = window.confirm("Are you sure you want to log out?");
+      if (confirmed) {
+        await performLogout();
+      }
+    } else {
+      Alert.alert("Log Out", "Are you sure you want to log out?", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Log Out",
+          style: "destructive",
+          onPress: performLogout,
         },
-      },
-    ]);
+      ]);
+    }
   };
 
   const generateDeletionCode = () =>
