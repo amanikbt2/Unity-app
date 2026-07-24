@@ -1073,7 +1073,13 @@ export default function ProfileScreen({ route, navigation }) {
       >
         <View style={styles.header}>
           <TouchableOpacity
-            onPress={() => navigation.navigate("Home")}
+            onPress={() => {
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+              } else {
+                navigation.navigate("Home");
+              }
+            }}
             style={styles.closeBtn}
           >
             <Text style={[styles.closeBtnText, { color: colors.text }]}>

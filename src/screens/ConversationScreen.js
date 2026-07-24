@@ -2521,9 +2521,9 @@ export default function ConversationScreen({ route, navigation }) {
                             backgroundColor: colors.primary,
                           },
                   ]}
-                  onPress={isOnline ? () => setMicMenuVisible(true) : undefined}
+                  onPress={() => setMicMenuVisible(true)}
                   activeOpacity={0.7}
-                  disabled={!isOnline}
+                  disabled={false}
                 >
                   <Svg
                     width="24"
