@@ -931,8 +931,12 @@ export default function HomeScreen({ route, navigation }) {
         if (scoreA !== scoreB) {
           return scoreB - scoreA;
         }
-        return (b.timestamp || 0) - (a.timestamp || 0);
+        // Shuffle articles of equal relevance so users don't see the same static feed layout
+        return Math.random() - 0.5;
       });
+    } else {
+      // Shuffle the feed completely if no country is set
+      filtered.sort(() => Math.random() - 0.5);
     }
 
     return filtered;
@@ -2605,42 +2609,7 @@ export default function HomeScreen({ route, navigation }) {
                 const userLangDetails = getLangDetails(currentUser?.nativeLang || "en");
                 const userCountry = detectedCountry || userLangDetails?.country || "Kenya";
 
-                const filtered = newsArticles.filter((art) => {
-                  const matchesCategory =
-                    selectedCategory.toLowerCase() === "all" ||
-                    art.category.toLowerCase() === selectedCategory.toLowerCase() ||
-                    (selectedCategory.toLowerCase() === "trending" && art.trending) ||
-                    (userCountry && selectedCategory.toLowerCase() === userCountry.toLowerCase() && isArticleRelatedToCountry(art, userCountry));
-
-                  const matchesBookmark = !showBookmarksOnly || art.bookmarked;
-
-                  let matchesSearch = true;
-                  if (newsSearchText.trim()) {
-                    const q = newsSearchText.toLowerCase().trim();
-                    matchesSearch =
-                      art.title.toLowerCase().includes(q) ||
-                      art.summary.toLowerCase().includes(q) ||
-                      art.category.toLowerCase().includes(q) ||
-                      art.publisher.toLowerCase().includes(q);
-                  }
-
-                  return matchesCategory && matchesBookmark && matchesSearch;
-                });
-
-                // Prioritize articles by relevance score for user's country
-                if (userCountry) {
-                  filtered.sort((a, b) => {
-                    const scoreA = getCountryScore(a, userCountry);
-                    const scoreB = getCountryScore(b, userCountry);
-                    if (scoreA !== scoreB) {
-                      return scoreB - scoreA;
-                    }
-                    return (b.timestamp || 0) - (a.timestamp || 0);
-                  });
-                }
-
-                // Track total article count for infinite scroll pagination
-                filteredNewsCountRef.current = filtered.length;
+                const filtered = filteredNewsArticles;
 
                 if (filtered.length === 0) {
                   return (
@@ -3120,12 +3089,12 @@ export default function HomeScreen({ route, navigation }) {
                     })()}
 
                     {/* ─── All caught up footer ─── */}
-                    {!newsLoadingMore && filteredNewsCountRef.current > 0 && newsDisplayCount >= filteredNewsCountRef.current && (
+                    {!newsLoadingMore && filteredNewsArticles.length > 0 && newsDisplayCount >= filteredNewsArticles.length && (
                       <View style={{ alignItems: "center", paddingVertical: 36, paddingHorizontal: 20 }}>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 }}>
                           <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} />
                           <Text style={{ fontSize: 12, color: colors.textDimmed, fontWeight: "500", letterSpacing: 0.4 }}>
-                            You're all caught up
+                            {"You're all caught up"}
                           </Text>
                           <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} />
                         </View>
