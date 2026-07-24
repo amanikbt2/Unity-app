@@ -1,4 +1,5 @@
 import React, { useContext, useState, useEffect, useRef } from "react";
+import { getSafeAvatarSource } from "../utils/avatarUtils";
 import {
   StyleSheet,
   Text,
@@ -105,11 +106,8 @@ const MicLevelMeter = React.memo(
       ? Math.max(minDb, Math.min(maxDb, metering))
       : minDb;
 
-    // Create an active "breathing" noise floor using time and subtle randomness
-    const now = Date.now();
-    const idleNoise = isTestingMic
-      ? 0.1 + Math.sin(now / 100) * 0.015 + Math.random() * 0.015
-      : 0;
+    // Static clean noise floor for testing state
+    const idleNoise = isTestingMic ? 0.12 : 0;
 
     // Set the dynamic baseline when testing so it looks active
     const liveLevel = isTestingMic
@@ -1162,7 +1160,7 @@ export default function ProfileScreen({ route, navigation }) {
             activeOpacity={0.8}
           >
             <Image
-              source={typeof currentUser.avatar === "number" ? currentUser.avatar : { uri: currentUser.avatar }}
+              source={getSafeAvatarSource(currentUser.avatar, currentUser.name || "User")}
               style={[styles.avatarPreview, { borderColor: colors.cardBg }]}
             />
             {/* Pen Icon for Edit */}
@@ -1211,7 +1209,7 @@ export default function ProfileScreen({ route, navigation }) {
                   ]}
                 >
                   <Image
-                    source={typeof avatarUri === "number" ? avatarUri : { uri: avatarUri }}
+                    source={getSafeAvatarSource(avatarUri, `slot_${idx}`)}
                     style={[
                       styles.presetItem,
                       isSelected

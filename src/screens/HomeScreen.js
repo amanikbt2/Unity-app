@@ -83,22 +83,9 @@ import UserProfilePopup from "../components/UserProfilePopup";
 const { width, height } = Dimensions.get("window");
 const getCurrentTimestamp = () => Date.now();
 
-const DEFAULT_AVATARS = [
-  require("../../assets/default-avatar-1.jpg"),
-  require("../../assets/default-avatar-2.jpg"),
-  require("../../assets/default-avatar-3.jpg"),
-];
+import { getSafeAvatarSource, DEFAULT_AVATARS } from "../utils/avatarUtils";
 
-const getAssetUri = (asset) =>
-  Image.resolveAssetSource ? Image.resolveAssetSource(asset).uri : asset;
-
-const getDefaultAvatar = (seed) => {
-  const idx =
-    typeof seed === "string"
-      ? seed.length % DEFAULT_AVATARS.length
-      : Math.floor(Math.random() * DEFAULT_AVATARS.length);
-  return getAssetUri(DEFAULT_AVATARS[idx]);
-};
+const getDefaultAvatar = (seed) => getSafeAvatarSource(null, seed);
 
 // Helper to check if a news article is related to a specific country
 function isArticleRelatedToCountry(art, country) {
@@ -862,7 +849,7 @@ export default function HomeScreen({ route, navigation }) {
     if (id) {
       try {
         await clearDbContactUnread(id);
-        setContactsList((prev) =>
+        setContacts((prev) =>
           prev.map((c) => (c.id === id ? { ...c, unread_count: 0 } : c))
         );
         setRecentConversations((prev) =>
@@ -1026,12 +1013,10 @@ export default function HomeScreen({ route, navigation }) {
         if (scoreA !== scoreB) {
           return scoreB - scoreA;
         }
-        // Shuffle articles of equal relevance so users don't see the same static feed layout
-        return Math.random() - 0.5;
+        return (b.timestamp || 0) - (a.timestamp || 0);
       });
     } else {
-      // Shuffle the feed completely if no country is set
-      filtered.sort(() => Math.random() - 0.5);
+      filtered.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     }
 
     return filtered;
@@ -1818,11 +1803,7 @@ export default function HomeScreen({ route, navigation }) {
                         style={styles.avatarContainer}
                       >
                         <Image
-                          source={
-                            typeof contact.avatar === "number"
-                              ? contact.avatar
-                              : { uri: contact.avatar || getDefaultAvatar(contact.name || "User") }
-                          }
+                          source={getSafeAvatarSource(contact.avatar, contact.name || "User")}
                           style={styles.avatar}
                         />
                         <View style={[styles.flagBadge, { backgroundColor: colors.bg }]}>
@@ -2414,7 +2395,7 @@ export default function HomeScreen({ route, navigation }) {
                           style={styles.avatarContainer}
                         >
                           <Image
-                            source={typeof contact.avatar === "number" ? contact.avatar : { uri: contact.avatar }}
+                            source={getSafeAvatarSource(contact.avatar, contact.name || "User")}
                             style={styles.avatar}
                           />
                           {isOnlineContact(contact) && (
@@ -2597,7 +2578,7 @@ export default function HomeScreen({ route, navigation }) {
                         style={{ position: 'relative' }}
                       >
                         <Image
-                          source={typeof (person.avatar_local_path || person.avatar) === "number" ? (person.avatar_local_path || person.avatar) : { uri: person.avatar_local_path || person.avatar }}
+                          source={getSafeAvatarSource(person.avatar_local_path || person.avatar, person.name || "User")}
                           style={styles.exploreImage}
                         />
                         <View
@@ -3433,13 +3414,7 @@ export default function HomeScreen({ route, navigation }) {
                         >
                           <View style={styles.avatarContainer}>
                             <Image
-                              source={
-                                log.partnerAvatar &&
-                                typeof log.partnerAvatar === "string" &&
-                                log.partnerAvatar.startsWith("http")
-                                  ? { uri: log.partnerAvatar }
-                                  : require("../../assets/default-avatar-1.jpg")
-                              }
+                              source={getSafeAvatarSource(log.partnerAvatar, log.partnerName || "User")}
                               style={styles.avatar}
                             />
                             <View
@@ -4499,7 +4474,7 @@ export default function HomeScreen({ route, navigation }) {
                   >
                     <View style={styles.modalAvatarContainer}>
                       <Image
-                        source={typeof (item.avatar_local_path || item.avatar) === "number" ? (item.avatar_local_path || item.avatar) : { uri: item.avatar_local_path || item.avatar }}
+                        source={getSafeAvatarSource(item.avatar_local_path || item.avatar, item.name || "User")}
                         style={styles.modalAvatar}
                       />
                       {isOnlineContact(item) && (

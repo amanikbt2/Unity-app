@@ -51,7 +51,7 @@ import {
 } from "expo-audio";
 import * as Speech from "expo-speech";
 import * as FileSystem from "expo-file-system/legacy";
-import { trackEvent } from "../utils/Analytics";
+import { getSafeAvatarSource } from "../utils/avatarUtils";
 import {
   translateText,
   translateVoice,
@@ -628,8 +628,8 @@ export default function ConversationScreen({ route, navigation }) {
     saveCallLog({
       id: callId,
       partnerId: incomingCallData.callerId || partnerId,
-      partnerName: incomingCallData.callerName || partnerInfo?.name || "User",
-      partnerAvatar: incomingCallData.callerAvatar || partnerInfo?.avatar || "",
+      partnerName: incomingCallData.callerName || partnerName || "User",
+      partnerAvatar: incomingCallData.callerAvatar || partnerAvatar || "",
       callType: "missed",
       status: "rejected",
       duration: 0,
@@ -900,8 +900,8 @@ export default function ConversationScreen({ route, navigation }) {
     saveCallLog({
       id: callId || `call_${Date.now()}`,
       partnerId: partnerId,
-      partnerName: partnerInfo?.name || "User",
-      partnerAvatar: partnerInfo?.avatar || "",
+      partnerName: partnerName || "User",
+      partnerAvatar: partnerAvatar || "",
       callType: callStatus === "ringing" || callStatus === "connecting" ? "outgoing" : "incoming",
       status: statusText.includes("Rejected") ? "rejected" : (callDuration > 0 ? "ended" : "missed"),
       duration: callDuration || 0,
@@ -1040,7 +1040,11 @@ export default function ConversationScreen({ route, navigation }) {
   };
 
   useEffect(() => {
-    checkPendingAnswer();
+    let active = true;
+    (async () => {
+      if (active) await checkPendingAnswer();
+    })();
+    return () => { active = false; };
   }, []);
 
   const recorder = useAudioRecorder(COMPRESSED_AUDIO_OPTIONS);
@@ -2268,7 +2272,7 @@ export default function ConversationScreen({ route, navigation }) {
           >
             <View style={styles.headerAvatarContainer}>
               <Image
-                source={typeof partnerAvatar === "number" ? partnerAvatar : { uri: partnerAvatar }}
+                source={getSafeAvatarSource(partnerAvatar, partnerName || "User")}
                 style={styles.headerAvatar}
               />
               {isOnline && (
@@ -2670,11 +2674,7 @@ export default function ConversationScreen({ route, navigation }) {
             <Text style={[styles.incomingCallTitle, { color: colors.text }]}>Incoming Call</Text>
             <View style={styles.incomingAvatarContainer}>
               <Image
-                source={
-                  incomingCallData?.callerAvatar
-                    ? { uri: incomingCallData.callerAvatar }
-                    : require("../../assets/default-avatar-2.jpg")
-                }
+                source={getSafeAvatarSource(incomingCallData?.callerAvatar || partnerAvatar, incomingCallData?.callerName || partnerName || "User")}
                 style={styles.incomingAvatar}
               />
             </View>
@@ -2741,11 +2741,7 @@ export default function ConversationScreen({ route, navigation }) {
               <View style={styles.callAvatarGlowOuter}>
                 <View style={styles.callAvatarGlowInner}>
                   <Image
-                    source={
-                      partnerAvatar
-                        ? { uri: partnerAvatar }
-                        : require("../../assets/default-avatar-2.jpg")
-                    }
+                    source={getSafeAvatarSource(partnerAvatar, partnerName || "User")}
                     style={styles.callAvatar}
                   />
                 </View>
