@@ -607,6 +607,13 @@ export default function ConversationScreen({ route, navigation }) {
       } else {
         throw new Error("Initiate endpoint failed");
       }
+    } catch (err) {
+      console.error("[Calls] Outgoing call initiation failed:", err);
+      Alert.alert("Call failed", "Unable to start the call. Please try again.");
+      setIsRealTimeCall(false);
+      setCallStatus("disconnected");
+      stopRingtone();
+
       // Restore hands-free if interrupted
       if (wasHandsFreeActiveBeforeCallRef.current) {
         wasHandsFreeActiveBeforeCallRef.current = false;
