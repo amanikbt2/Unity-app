@@ -2176,7 +2176,13 @@ export default function ConversationScreen({ route, navigation }) {
       >
         <View style={styles.header}>
           <TouchableOpacity
-            onPress={() => navigation.navigate("Home")}
+            onPress={() => {
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+              } else {
+                navigation.navigate("Home");
+              }
+            }}
             style={styles.backBtn}
           >
             <Svg
@@ -2439,9 +2445,10 @@ export default function ConversationScreen({ route, navigation }) {
                 style={[
                   styles.keyboardInputContainer,
                   {
-                    backgroundColor: colors.bg,
-                    borderColor: colors.border,
-                    borderWidth: 1,
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.06)"
+                      : "rgba(0,0,0,0.03)",
+                    borderWidth: 0,
                     borderRadius: 24,
                     paddingLeft: 16,
                     paddingRight: 6,
@@ -2460,6 +2467,8 @@ export default function ConversationScreen({ route, navigation }) {
                       color: colors.text,
                       height: 36,
                       paddingHorizontal: 0,
+                      outlineStyle: "none",
+                      outlineWidth: 0,
                     },
                   ]}
                   placeholder="Message..."
