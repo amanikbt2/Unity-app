@@ -1430,44 +1430,8 @@ export default function ConversationScreen({ route, navigation }) {
             );
           }
         } else {
-          const partnerLang = getLangCodeFromFlag(partnerFlag);
-          const partnerLangName = getLangDetails(partnerLang).name;
-          const userLangName = getLangDetails(currentUser.nativeLang).name;
-
-          let welcomeText =
-            "Hello, welcome! Speak or type, and I will translate for you in real-time.";
-          try {
-            welcomeText = await translateText(welcomeText, partnerLang);
-          } catch (e) {
-            console.warn("Welcome translate failed, using fallback:", e);
-          }
-
-          const firstMsg = {
-            id: "initial_" + Date.now(),
-            partner_id: partnerId,
-            text: welcomeText,
-            trans_text:
-              "Hello, welcome! Speak or type, and I will translate for you in real-time.",
-            sender: "partner",
-            orig_lang: `${partnerLangName} (Original)`,
-            transLang: `${userLangName} (Translated)`,
-            timestamp: Date.now(),
-          };
-
-          await saveChat(firstMsg);
-
-          setChatBubbles([
-            {
-              id: firstMsg.id,
-              sender: firstMsg.sender,
-              avatar: partnerFlag,
-              text: firstMsg.text,
-              origLang: firstMsg.orig_lang,
-              transText: firstMsg.trans_text,
-              transLang: firstMsg.transLang,
-            },
-          ]);
-          setSubtitleReceived(welcomeText);
+          setChatBubbles([]);
+          setSubtitleReceived("Waiting for speech...");
         }
       } catch (e) {
         console.error("Error loading chat history:", e);
