@@ -1339,6 +1339,68 @@ export default function ProfileScreen({ route, navigation }) {
                 onChangeText={handlePhoneChange}
               />
             </Animated.View>
+
+            {/* Email — read-only, sourced from auth provider */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                borderTopWidth: 1,
+                borderTopColor: colors.border,
+                paddingVertical: 8,
+              }}
+            >
+              <Svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={colors.textMuted}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ marginRight: 12 }}
+              >
+                <Path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                <Polyline points="22,6 12,13 2,6" />
+              </Svg>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    color: colors.text,
+                    paddingVertical: 8,
+                  }}
+                  numberOfLines={1}
+                >
+                  {currentUser.email || "No email linked"}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: colors.textDimmed,
+                    marginTop: -6,
+                    marginBottom: 2,
+                  }}
+                >
+                  My email · managed by your sign-in provider
+                </Text>
+              </View>
+              {/* Lock badge */}
+              <Svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={colors.textDimmed}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <Rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <Path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </Svg>
+            </View>
           </View>
         </View>
 

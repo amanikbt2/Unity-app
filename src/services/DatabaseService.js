@@ -839,6 +839,37 @@ export async function getCallLogs() {
   }
 }
 
+export async function getRecentConversationsMap() {
+  try {
+    const chats = await dbGetAllAsync("SELECT * FROM chats ORDER BY timestamp DESC;");
+    const callLogs = await dbGetAllAsync("SELECT * FROM call_logs ORDER BY timestamp DESC;");
+    
+    const latestChatsMap = {};
+    if (Array.isArray(chats)) {
+      for (const chat of chats) {
+        if (chat.partner_id && !latestChatsMap[chat.partner_id]) {
+          latestChatsMap[chat.partner_id] = chat;
+        }
+      }
+    }
+
+    const latestCallsMap = {};
+    if (Array.isArray(callLogs)) {
+      for (const call of callLogs) {
+        const pId = call.partner_id || call.partnerId;
+        if (pId && !latestCallsMap[pId]) {
+          latestCallsMap[pId] = normalizeCallLogRow(call);
+        }
+      }
+    }
+
+    return { latestChatsMap, latestCallsMap };
+  } catch (error) {
+    console.error("[Database] getRecentConversationsMap error:", error);
+    return { latestChatsMap: {}, latestCallsMap: {} };
+  }
+}
+
 export async function saveCallLog(logData) {
   try {
     if (!logData) return false;
