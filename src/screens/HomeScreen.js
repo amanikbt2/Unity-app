@@ -311,6 +311,11 @@ export default function HomeScreen({ route, navigation }) {
   const [newsDisplayCount, setNewsDisplayCount] = useState(8);
   const [newsLoadingMore, setNewsLoadingMore] = useState(false);
   const newsShimmerPos = useMemo(() => new Animated.Value(-1), []);
+  // News count ref (keeps filtered count without causing re-renders)
+  const filteredNewsCountRef = useRef(0);
+  // Scroll position tracking — used to restore position on back navigation
+  const mainScrollRef = useRef(null);
+  const scrollOffsetRef = useRef(0);
   const [exploreProfiles, setExploreProfiles] = useState(EXPLORE_PEOPLE);
   const [startConvModalVisible, setStartConvModalVisible] = useState(false);
   const [startConvSearch, setStartConvSearch] = useState("");
@@ -718,7 +723,19 @@ export default function HomeScreen({ route, navigation }) {
         }
       }
       refreshData();
-    }, []),
+
+      // Restore scroll position after returning from another screen
+      const savedY = route.params?.scrollY;
+      if (savedY && savedY > 0 && mainScrollRef.current) {
+        // Small delay to allow layout to settle before scrolling
+        const t = setTimeout(() => {
+          try {
+            mainScrollRef.current?.scrollTo({ y: savedY, animated: false });
+          } catch (_) {}
+        }, 80);
+        return () => clearTimeout(t);
+      }
+    }, [route.params?.scrollY]),
   );
 
   // Define onboarding tasks
@@ -865,6 +882,7 @@ export default function HomeScreen({ route, navigation }) {
       partnerStatus: status,
       partnerLang: lang,
       partnerLangName: langName,
+      originScrollY: scrollOffsetRef.current,
     });
   };
 
@@ -1018,6 +1036,11 @@ export default function HomeScreen({ route, navigation }) {
 
     return filtered;
   }, [newsArticles, selectedCategory, showBookmarksOnly, newsSearchText, currentUser?.nativeLang, detectedCountry]);
+
+  // Keep the ref in sync so external logic can read filtered count without a re-render
+  useEffect(() => {
+    filteredNewsCountRef.current = filteredNewsArticles.length;
+  }, [filteredNewsArticles]);
 
   // Load the next page of news cards with a natural staggered delay
   const handleNewsLoadMore = () => {
@@ -1599,8 +1622,13 @@ export default function HomeScreen({ route, navigation }) {
 
       {/* Main scrolling content view */}
       <ScrollView
+        ref={mainScrollRef}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={(e) => {
+          scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+        }}
       >
         {activeTab === "chats" && (
           <View>
@@ -1910,7 +1938,6 @@ export default function HomeScreen({ route, navigation }) {
                   );
                 });
               })()}
-            </View>
 
               {isDev && (
                 <>
@@ -3393,6 +3420,7 @@ export default function HomeScreen({ route, navigation }) {
                               partnerId: log.partnerId,
                               partnerName: log.partnerName,
                               partnerAvatar: log.partnerAvatar,
+                              originScrollY: scrollOffsetRef.current,
                             })
                           }
                           style={[
@@ -3442,6 +3470,7 @@ export default function HomeScreen({ route, navigation }) {
                                 partnerId: log.partnerId,
                                 partnerName: log.partnerName,
                                 partnerAvatar: log.partnerAvatar,
+                                originScrollY: scrollOffsetRef.current,
                               })
                             }
                             style={{ padding: 10 }}

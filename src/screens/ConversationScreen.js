@@ -2180,7 +2180,9 @@ export default function ConversationScreen({ route, navigation }) {
               if (navigation.canGoBack()) {
                 navigation.goBack();
               } else {
-                navigation.navigate("Home");
+                navigation.navigate("Home", {
+                  scrollY: route.params?.originScrollY || 0,
+                });
               }
             }}
             style={styles.backBtn}
