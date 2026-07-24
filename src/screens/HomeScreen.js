@@ -58,6 +58,8 @@ import {
   getExploreProfiles as getDbExplore,
   saveExploreProfiles as saveDbExplore,
   getCallLogs as getDbCallLogs,
+  getRecentConversationsMap as getDbRecentConversationsMap,
+  clearContactUnread as clearDbContactUnread,
   hasUnsyncedContacts,
   getUnsyncedContactsCount,
   incrementContactUnread,
@@ -316,6 +318,7 @@ export default function HomeScreen({ route, navigation }) {
   const [profilePopupVisible, setProfilePopupVisible] = useState(false);
   const [profilePopupData, setProfilePopupData] = useState(null);
   const [detectedCountry, setDetectedCountry] = useState(null);
+  const [recentConversations, setRecentConversations] = useState([]);
 
   // Non-blocking IP Geo-location lookup with a strict timeout
   useEffect(() => {
@@ -625,6 +628,68 @@ export default function HomeScreen({ route, navigation }) {
     return () => clearInterval(interval);
   }, []);
 
+  const loadRecentConversationsData = async () => {
+    try {
+      const { latestChatsMap, latestCallsMap } = await getDbRecentConversationsMap();
+      const currentContacts = await getDbContacts();
+      const baseContacts = currentContacts && currentContacts.length > 0 ? currentContacts : INITIAL_CONTACTS;
+
+      const hasAI = baseContacts.some(c => c.id === "unity_ai");
+      const candidates = hasAI ? [...baseContacts] : [INITIAL_CONTACTS[0], ...baseContacts];
+
+      const merged = candidates.map(c => {
+        const pId = c.id;
+        const latestChat = latestChatsMap[pId];
+        const latestCall = latestCallsMap[pId];
+
+        let lastMsgText = "";
+        let timestamp = Number(c.last_message_time || 0);
+
+        const chatTime = latestChat ? Number(latestChat.timestamp || 0) : 0;
+        const callTime = latestCall ? Number(latestCall.timestamp || 0) : 0;
+
+        if (callTime > chatTime && callTime > timestamp) {
+          timestamp = callTime;
+          if (latestCall.status === "missed") {
+            lastMsgText = "📞 Missed call";
+          } else if (latestCall.callType === "outgoing") {
+            lastMsgText = `📞 Outgoing call (${latestCall.duration || 0}s)`;
+          } else {
+            lastMsgText = `📞 Incoming call (${latestCall.duration || 0}s)`;
+          }
+        } else if (chatTime > 0 && chatTime >= timestamp) {
+          timestamp = chatTime;
+          const raw = latestChat.text || latestChat.trans_text || "";
+          lastMsgText = raw || "New message";
+        } else if (pId === "unity_ai") {
+          lastMsgText = "AI companion is ready to chat!";
+          timestamp = timestamp || (Date.now() - 3600000);
+        } else {
+          lastMsgText = c.status || "Tap to chat";
+        }
+
+        return {
+          ...c,
+          lastMsgText,
+          timestamp,
+          unreadCount: Number(c.unread_count || 0),
+        };
+      });
+
+      // Filter to items with active conversations or AI
+      const activeConvs = merged.filter(c =>
+        c.id === "unity_ai" || c.timestamp > 0 || c.unreadCount > 0 || c.isUnityUser
+      );
+
+      // Sort strictly by timestamp DESC (latest activity at top!)
+      activeConvs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+      setRecentConversations(activeConvs);
+    } catch (err) {
+      console.warn("[HomeScreen] loadRecentConversationsData failed:", err);
+    }
+  };
+
   useFocusEffect(
     React.useCallback(() => {
       async function refreshData() {
@@ -642,6 +707,7 @@ export default function HomeScreen({ route, navigation }) {
         } catch (e) {
           console.error("Failed to refresh call logs on focus:", e);
         }
+        loadRecentConversationsData();
         try {
           const latestNews = await getDbNewsArticles();
           if (latestNews && latestNews.length > 0) {
@@ -767,7 +833,7 @@ export default function HomeScreen({ route, navigation }) {
     setStartConvModalVisible(true);
   };
 
-  const handlePartnerClick = (
+  const handlePartnerClick = async (
     name,
     avatar,
     flag,
@@ -776,6 +842,17 @@ export default function HomeScreen({ route, navigation }) {
     lang,
     langName,
   ) => {
+    if (id) {
+      try {
+        await clearDbContactUnread(id);
+        setContactsList((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, unread_count: 0 } : c))
+        );
+        setRecentConversations((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c))
+        );
+      } catch (_) {}
+    }
     trackEvent("started_chat", currentUser, {
       partnerName: name,
       partnerId: id,
@@ -784,7 +861,7 @@ export default function HomeScreen({ route, navigation }) {
       partnerName: name,
       partnerAvatar: avatar,
       partnerFlag: flag,
-      partnerId: id || name,
+      partnerId: id,
       partnerStatus: status,
       partnerLang: lang,
       partnerLangName: langName,
@@ -1648,92 +1725,192 @@ export default function HomeScreen({ route, navigation }) {
                 { backgroundColor: colors.cardBg, borderColor: colors.border },
               ]}
             >
-              {/* Unity AI Card */}
-              <View
-                style={[
-                  styles.convCard,
-                  isDev ? { borderBottomColor: colors.border } : { borderBottomWidth: 0 },
-                ]}
-              >
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  hitSlop={8}
-                  onPress={() => openProfilePopup(INITIAL_CONTACTS[0])}
-                  style={styles.avatarContainer}
-                >
-                  <Image
-                    source={typeof INITIAL_CONTACTS[0].avatar === "number" ? INITIAL_CONTACTS[0].avatar : { uri: INITIAL_CONTACTS[0].avatar }}
-                    style={styles.avatar}
-                  />
-                  <View
-                    style={[styles.flagBadge, { backgroundColor: colors.bg }]}
-                  >
-                    {renderFlagOrEmoji(
-                      LANGS[currentUser.unityAILang]?.flag || "🌍",
-                    )}
-                  </View>
-                  {isOnlineStatus(INITIAL_CONTACTS[0].status) && (
-                    <View
-                      style={[
-                        styles.onlineBadge,
-                        { borderColor: colors.cardBg },
-                      ]}
-                    />
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() =>
-                    handlePartnerClick(
-                      INITIAL_CONTACTS[0].name,
-                      INITIAL_CONTACTS[0].avatar,
-                      LANGS[currentUser.unityAILang]?.flag || "🌍",
-                      INITIAL_CONTACTS[0].id,
-                      INITIAL_CONTACTS[0].status,
-                      currentUser.unityAILang || "en",
-                      LANGS[currentUser.unityAILang]?.name || "English",
-                    )
-                  }
-                  style={styles.convBodyPress}
-                >
-                  <View style={styles.convDetails}>
-                    <View style={styles.convHeader}>
-                      <Text
-                        style={[
-                          styles.partnerName,
-                          { color: colors.text, fontWeight: "700" },
-                        ]}
-                      >
-                        {INITIAL_CONTACTS[0].name}
-                      </Text>
-                      <Text
-                        style={[styles.convTime, { color: colors.textDimmed }]}
-                      >
-                        Always Online
+              {(() => {
+                // Compute or fallback list of recent conversations
+                const activeList =
+                  recentConversations.length > 0
+                    ? recentConversations
+                    : displayedContacts;
+
+                if (!activeList || activeList.length === 0) {
+                  return (
+                    <View style={{ padding: 24, alignItems: "center" }}>
+                      <Text style={{ color: colors.textDimmed, fontSize: 13 }}>
+                        No recent conversations yet.
                       </Text>
                     </View>
-                    <Text
-                      style={[styles.convPreview, { color: colors.primary }]}
+                  );
+                }
+
+                return activeList.map((contact, index) => {
+                  const isAI = contact.id === "unity_ai";
+                  const isLast = index === activeList.length - 1;
+                  const partnerFlag =
+                    contact.flag ||
+                    (isAI ? LANGS[currentUser.unityAILang]?.flag || "🌍" : "🇺🇸");
+                  const partnerLang =
+                    contact.lang || (isAI ? currentUser.unityAILang || "en" : "en");
+                  const partnerLangName =
+                    contact.langName ||
+                    (isAI ? LANGS[currentUser.unityAILang]?.name || "English" : "English");
+
+                  // Format relative timestamp
+                  let timeDisplay = "Just now";
+                  if (isAI && (!contact.timestamp || contact.timestamp <= 0)) {
+                    timeDisplay = "Always Online";
+                  } else if (contact.timestamp > 0) {
+                    const diff = Date.now() - contact.timestamp;
+                    if (diff < 60000) timeDisplay = "Just now";
+                    else if (diff < 3600000) timeDisplay = `${Math.floor(diff / 60000)}m ago`;
+                    else if (diff < 86400000) {
+                      timeDisplay = new Date(contact.timestamp).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      });
+                    } else if (diff < 172800000) timeDisplay = "Yesterday";
+                    else timeDisplay = new Date(contact.timestamp).toLocaleDateString([], { month: "short", day: "numeric" });
+                  }
+
+                  const previewText =
+                    contact.lastMsgText ||
+                    (isAI ? "AI is ready to chat!" : contact.status || "Tap to chat");
+
+                  return (
+                    <View
+                      key={contact.id || `conv_${index}`}
+                      style={[
+                        styles.convCard,
+                        !isLast ? { borderBottomColor: colors.border, borderBottomWidth: 1 } : { borderBottomWidth: 0 },
+                      ]}
                     >
-                      AI is ready to chat!
-                    </Text>
-                  </View>
-                  <View style={styles.convArrow}>
-                    <Svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={colors.textDimmed}
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <Path d="M9 18l6-6-6-6" />
-                    </Svg>
-                  </View>
-                </TouchableOpacity>
-              </View>
+                      <TouchableOpacity
+                        activeOpacity={0.85}
+                        hitSlop={8}
+                        onPress={() => openProfilePopup(contact)}
+                        style={styles.avatarContainer}
+                      >
+                        <Image
+                          source={
+                            typeof contact.avatar === "number"
+                              ? contact.avatar
+                              : { uri: contact.avatar || getDefaultAvatar(contact.name || "User") }
+                          }
+                          style={styles.avatar}
+                        />
+                        <View style={[styles.flagBadge, { backgroundColor: colors.bg }]}>
+                          {renderFlagOrEmoji(partnerFlag)}
+                        </View>
+                        {isOnlineStatus(contact.status) && (
+                          <View
+                            style={[
+                              styles.onlineBadge,
+                              { borderColor: colors.cardBg },
+                            ]}
+                          />
+                        )}
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() =>
+                          handlePartnerClick(
+                            contact.name,
+                            contact.avatar,
+                            partnerFlag,
+                            contact.id,
+                            contact.status,
+                            partnerLang,
+                            partnerLangName,
+                          )
+                        }
+                        style={styles.convBodyPress}
+                      >
+                        <View style={styles.convDetails}>
+                          <View style={styles.convHeader}>
+                            <Text
+                              style={[
+                                styles.partnerName,
+                                { color: colors.text, fontWeight: isAI ? "700" : "600" },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {contact.name}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.convTime,
+                                { color: contact.unreadCount > 0 ? colors.primary : colors.textDimmed, fontWeight: contact.unreadCount > 0 ? "700" : "400" },
+                              ]}
+                            >
+                              {timeDisplay}
+                            </Text>
+                          </View>
+                          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
+                            <Text
+                              style={[
+                                styles.convPreview,
+                                {
+                                  color: isAI
+                                    ? colors.primary
+                                    : contact.unreadCount > 0
+                                    ? colors.text
+                                    : colors.textMuted,
+                                  fontWeight: contact.unreadCount > 0 ? "600" : "400",
+                                  flex: 1,
+                                },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {previewText}
+                            </Text>
+
+                            {/* WhatsApp-style Unread Message Count Badge */}
+                            {contact.unreadCount > 0 && (
+                              <View
+                                style={{
+                                  backgroundColor: isDark ? "#8B5CF6" : "#4F46E5",
+                                  borderRadius: 12,
+                                  minWidth: 20,
+                                  height: 20,
+                                  paddingHorizontal: 6,
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  marginLeft: 8,
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    color: "#FFFFFF",
+                                    fontSize: 11,
+                                    fontWeight: "700",
+                                  }}
+                                >
+                                  {contact.unreadCount > 99 ? "99+" : contact.unreadCount}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                        <View style={styles.convArrow}>
+                          <Svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke={colors.textDimmed}
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <Path d="M9 18l6-6-6-6" />
+                          </Svg>
+                        </View>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                });
+              })()}
+            </View>
 
               {isDev && (
                 <>
