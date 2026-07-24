@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   StyleSheet,
@@ -305,6 +305,10 @@ export default function HomeScreen({ route, navigation }) {
   const [carouselIndex, setCarouselIndex] = useState(0);
   const carouselRef = useRef(null);
   const [newsBadgeCount, setNewsBadgeCount] = useState(0);
+  // Infinite-scroll pagination
+  const [newsDisplayCount, setNewsDisplayCount] = useState(8);
+  const [newsLoadingMore, setNewsLoadingMore] = useState(false);
+  const newsShimmerPos = useMemo(() => new Animated.Value(-1), []);
   const [exploreProfiles, setExploreProfiles] = useState(EXPLORE_PEOPLE);
   const [startConvModalVisible, setStartConvModalVisible] = useState(false);
   const [startConvSearch, setStartConvSearch] = useState("");
@@ -407,6 +411,20 @@ export default function HomeScreen({ route, navigation }) {
       clearInterval(pulseInterval);
     };
   }, [gradientAnim, pulseAnim1, pulseAnim2, pulseAnim3]);
+
+  // Sliding shimmer loop – powers the Facebook-style skeleton cards
+  useEffect(() => {
+    const shimAnim = Animated.loop(
+      Animated.timing(newsShimmerPos, {
+        toValue: 1,
+        duration: 1200,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+    shimAnim.start();
+    return () => shimAnim.stop();
+  }, [newsShimmerPos]);
 
   useEffect(() => {
     const checkOnboarding = async () => {
@@ -877,6 +895,58 @@ export default function HomeScreen({ route, navigation }) {
   const handleNewsShare = (article) => {
     setShareNewsTargetArticle(article);
     setShareSearchText("");
+  };
+
+  // Compute filtered news articles reactively
+  const filteredNewsArticles = useMemo(() => {
+    const userLangDetails = getLangDetails(currentUser?.nativeLang || "en");
+    const userCountry = detectedCountry || userLangDetails?.country || "Kenya";
+
+    const filtered = newsArticles.filter((art) => {
+      const matchesCategory =
+        selectedCategory.toLowerCase() === "all" ||
+        art.category.toLowerCase() === selectedCategory.toLowerCase() ||
+        (selectedCategory.toLowerCase() === "trending" && art.trending) ||
+        (userCountry && selectedCategory.toLowerCase() === userCountry.toLowerCase() && isArticleRelatedToCountry(art, userCountry));
+
+      const matchesBookmark = !showBookmarksOnly || art.bookmarked;
+
+      let matchesSearch = true;
+      if (newsSearchText.trim()) {
+        const q = newsSearchText.toLowerCase().trim();
+        matchesSearch =
+          art.title.toLowerCase().includes(q) ||
+          art.summary.toLowerCase().includes(q) ||
+          art.category.toLowerCase().includes(q) ||
+          art.publisher.toLowerCase().includes(q);
+      }
+
+      return matchesCategory && matchesBookmark && matchesSearch;
+    });
+
+    if (userCountry) {
+      filtered.sort((a, b) => {
+        const scoreA = getCountryScore(a, userCountry);
+        const scoreB = getCountryScore(b, userCountry);
+        if (scoreA !== scoreB) {
+          return scoreB - scoreA;
+        }
+        return (b.timestamp || 0) - (a.timestamp || 0);
+      });
+    }
+
+    return filtered;
+  }, [newsArticles, selectedCategory, showBookmarksOnly, newsSearchText, currentUser?.nativeLang, detectedCountry]);
+
+  // Load the next page of news cards with a natural staggered delay
+  const handleNewsLoadMore = () => {
+    if (newsLoadingMore || newsDisplayCount >= filteredNewsArticles.length) return;
+    setNewsLoadingMore(true);
+    const delay = 700 + Math.random() * 600;
+    setTimeout(() => {
+      setNewsDisplayCount((prev) => prev + 5);
+      setNewsLoadingMore(false);
+    }, delay);
   };
 
   const handleCarouselScroll = (e) => {
@@ -2506,6 +2576,13 @@ export default function HomeScreen({ route, navigation }) {
             {/* Main News Scroll Container */}
             <ScrollView
               showsVerticalScrollIndicator={false}
+              scrollEventThrottle={200}
+              onScroll={(e) => {
+                const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+                if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 350) {
+                  handleNewsLoadMore();
+                }
+              }}
               contentContainerStyle={{ paddingBottom: 100 }}
               refreshControl={
                 <RefreshControl
@@ -2561,6 +2638,9 @@ export default function HomeScreen({ route, navigation }) {
                     return (b.timestamp || 0) - (a.timestamp || 0);
                   });
                 }
+
+                // Track total article count for infinite scroll pagination
+                filteredNewsCountRef.current = filtered.length;
 
                 if (filtered.length === 0) {
                   return (
@@ -2711,7 +2791,7 @@ export default function HomeScreen({ route, navigation }) {
                       {showBookmarksOnly ? "Bookmarked News" : "Latest News"}
                     </Text>
                     <View style={{ paddingHorizontal: 20, gap: 16 }}>
-                      {filtered.map((art) => {
+                      {filtered.slice(0, newsDisplayCount).map((art) => {
                         const isAdmin = currentUser.email === "admin@gmail.com" || currentUser.name === "Admin" || currentUser.email === "dev@gmail.com";
                         return (
                           <View
@@ -2862,6 +2942,198 @@ export default function HomeScreen({ route, navigation }) {
                         );
                       })}
                     </View>
+
+                    {/* ─── Facebook-style sliding shimmer skeleton ─── */}
+                    {newsLoadingMore && (() => {
+                      const shimTX = newsShimmerPos.interpolate({ inputRange: [-1, 1], outputRange: [-300, 300] });
+                      const bg = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
+                      const grad = isDark
+                        ? ["transparent", "rgba(255,255,255,0.13)", "transparent"]
+                        : ["transparent", "rgba(255,255,255,0.75)", "transparent"];
+                      return (
+                        <View style={{ paddingHorizontal: 20, gap: 16, marginTop: 4 }}>
+
+                          {/* ── Skeleton card 1 ── */}
+                          <View style={[styles.newsCard, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
+                            <View style={{ flexDirection: "row", alignItems: "center", padding: 12, gap: 10 }}>
+                              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: bg, overflow: "hidden" }}>
+                                <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                  <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                </Animated.View>
+                              </View>
+                              <View style={{ flex: 1, gap: 6 }}>
+                                <View style={{ height: 11, borderRadius: 6, backgroundColor: bg, width: "58%", overflow: "hidden" }}>
+                                  <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                    <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                  </Animated.View>
+                                </View>
+                                <View style={{ height: 9, borderRadius: 5, backgroundColor: bg, width: "38%", overflow: "hidden" }}>
+                                  <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                    <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                  </Animated.View>
+                                </View>
+                              </View>
+                            </View>
+                            <View style={{ height: 180, backgroundColor: bg, overflow: "hidden" }}>
+                              <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 250, transform: [{ translateX: shimTX }] }}>
+                                <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                              </Animated.View>
+                            </View>
+                            <View style={{ padding: 14, gap: 9 }}>
+                              <View style={{ height: 13, borderRadius: 7, backgroundColor: bg, overflow: "hidden" }}>
+                                <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                  <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                </Animated.View>
+                              </View>
+                              <View style={{ height: 13, borderRadius: 7, backgroundColor: bg, width: "80%", overflow: "hidden" }}>
+                                <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                  <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                </Animated.View>
+                              </View>
+                              <View style={{ height: 11, borderRadius: 6, backgroundColor: bg, width: "55%", overflow: "hidden", marginTop: 2 }}>
+                                <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                  <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                </Animated.View>
+                              </View>
+                            </View>
+                            <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: 12, borderTopWidth: 1, borderTopColor: colors.border }}>
+                              {[44, 32, 24, 24].map((w, i) => (
+                                <View key={i} style={{ width: w, height: 10, borderRadius: 5, backgroundColor: bg, overflow: "hidden" }}>
+                                  <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -100, width: 100, transform: [{ translateX: shimTX }] }}>
+                                    <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                  </Animated.View>
+                                </View>
+                              ))}
+                            </View>
+                          </View>
+
+                          {/* ── Skeleton card 2 ── */}
+                          <View style={[styles.newsCard, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
+                            <View style={{ flexDirection: "row", alignItems: "center", padding: 12, gap: 10 }}>
+                              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: bg, overflow: "hidden" }}>
+                                <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                  <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                </Animated.View>
+                              </View>
+                              <View style={{ flex: 1, gap: 6 }}>
+                                <View style={{ height: 11, borderRadius: 6, backgroundColor: bg, width: "72%", overflow: "hidden" }}>
+                                  <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                    <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                  </Animated.View>
+                                </View>
+                                <View style={{ height: 9, borderRadius: 5, backgroundColor: bg, width: "45%", overflow: "hidden" }}>
+                                  <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                    <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                  </Animated.View>
+                                </View>
+                              </View>
+                            </View>
+                            <View style={{ height: 180, backgroundColor: bg, overflow: "hidden" }}>
+                              <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 250, transform: [{ translateX: shimTX }] }}>
+                                <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                              </Animated.View>
+                            </View>
+                            <View style={{ padding: 14, gap: 9 }}>
+                              <View style={{ height: 13, borderRadius: 7, backgroundColor: bg, overflow: "hidden" }}>
+                                <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                  <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                </Animated.View>
+                              </View>
+                              <View style={{ height: 13, borderRadius: 7, backgroundColor: bg, width: "65%", overflow: "hidden" }}>
+                                <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                  <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                </Animated.View>
+                              </View>
+                              <View style={{ height: 11, borderRadius: 6, backgroundColor: bg, width: "42%", overflow: "hidden", marginTop: 2 }}>
+                                <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                  <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                </Animated.View>
+                              </View>
+                            </View>
+                            <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: 12, borderTopWidth: 1, borderTopColor: colors.border }}>
+                              {[44, 32, 24, 24].map((w, i) => (
+                                <View key={i} style={{ width: w, height: 10, borderRadius: 5, backgroundColor: bg, overflow: "hidden" }}>
+                                  <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -100, width: 100, transform: [{ translateX: shimTX }] }}>
+                                    <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                  </Animated.View>
+                                </View>
+                              ))}
+                            </View>
+                          </View>
+
+                          {/* ── Skeleton card 3 ── */}
+                          <View style={[styles.newsCard, { backgroundColor: colors.cardBg, borderColor: colors.border }]}>
+                            <View style={{ flexDirection: "row", alignItems: "center", padding: 12, gap: 10 }}>
+                              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: bg, overflow: "hidden" }}>
+                                <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                  <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                </Animated.View>
+                              </View>
+                              <View style={{ flex: 1, gap: 6 }}>
+                                <View style={{ height: 11, borderRadius: 6, backgroundColor: bg, width: "85%", overflow: "hidden" }}>
+                                  <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                    <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                  </Animated.View>
+                                </View>
+                                <View style={{ height: 9, borderRadius: 5, backgroundColor: bg, width: "52%", overflow: "hidden" }}>
+                                  <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                    <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                  </Animated.View>
+                                </View>
+                              </View>
+                            </View>
+                            <View style={{ height: 180, backgroundColor: bg, overflow: "hidden" }}>
+                              <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 250, transform: [{ translateX: shimTX }] }}>
+                                <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                              </Animated.View>
+                            </View>
+                            <View style={{ padding: 14, gap: 9 }}>
+                              <View style={{ height: 13, borderRadius: 7, backgroundColor: bg, overflow: "hidden" }}>
+                                <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                  <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                </Animated.View>
+                              </View>
+                              <View style={{ height: 13, borderRadius: 7, backgroundColor: bg, width: "74%", overflow: "hidden" }}>
+                                <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                  <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                </Animated.View>
+                              </View>
+                              <View style={{ height: 11, borderRadius: 6, backgroundColor: bg, width: "60%", overflow: "hidden", marginTop: 2 }}>
+                                <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -200, width: 200, transform: [{ translateX: shimTX }] }}>
+                                  <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                </Animated.View>
+                              </View>
+                            </View>
+                            <View style={{ flexDirection: "row", justifyContent: "space-around", paddingVertical: 12, borderTopWidth: 1, borderTopColor: colors.border }}>
+                              {[44, 32, 24, 24].map((w, i) => (
+                                <View key={i} style={{ width: w, height: 10, borderRadius: 5, backgroundColor: bg, overflow: "hidden" }}>
+                                  <Animated.View style={{ position: "absolute", top: 0, bottom: 0, left: -100, width: 100, transform: [{ translateX: shimTX }] }}>
+                                    <LinearGradient colors={grad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ flex: 1 }} />
+                                  </Animated.View>
+                                </View>
+                              ))}
+                            </View>
+                          </View>
+
+                        </View>
+                      );
+                    })()}
+
+                    {/* ─── All caught up footer ─── */}
+                    {!newsLoadingMore && filteredNewsCountRef.current > 0 && newsDisplayCount >= filteredNewsCountRef.current && (
+                      <View style={{ alignItems: "center", paddingVertical: 36, paddingHorizontal: 20 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 }}>
+                          <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} />
+                          <Text style={{ fontSize: 12, color: colors.textDimmed, fontWeight: "500", letterSpacing: 0.4 }}>
+                            You're all caught up
+                          </Text>
+                          <View style={{ flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} />
+                        </View>
+                        <Text style={{ fontSize: 11, color: colors.textMuted, textAlign: "center" }}>
+                          Pull down to refresh for fresh stories
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 );
               })()}
@@ -3241,8 +3513,8 @@ export default function HomeScreen({ route, navigation }) {
         </Modal>
       )}
 
-      {/* Floating Action Button (Teal Gradient Floating Plus) for Contacts Tab */}
-      {activeTab === "contacts" && (
+      {/* Floating Action Button (Teal Gradient Floating Plus) for My Contacts Sub-Tab */}
+      {activeTab === "contacts" && contactsFilter === "my" && (
         <TouchableOpacity
           style={[
             styles.fab,
