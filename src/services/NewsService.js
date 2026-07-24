@@ -177,100 +177,52 @@ const getPublisherAvatar = (name) => {
   return `https://logo.clearbit.com/${domain}`;
 };
 
-export async function fetchLatestNews(category = "technology") {
+export async function fetchLatestNews(category = "all") {
+  const API_URL = typeof process !== 'undefined'
+    ? (process.env?.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com")
+    : "https://unity-3xc2.onrender.com";
+
   try {
-    // If no API Key configured, fallback immediately to curated mock news
-    if (!GNEWS_API_KEY) {
-      console.log("[NewsService] GNews API key not set, using high-quality fallback mock news");
-      await saveNewsArticles(MOCK_NEWS);
-      return MOCK_NEWS;
-    }
+    const catParam = category && category.toLowerCase() !== "all" ? `?category=${encodeURIComponent(category)}` : "";
+    console.log(`[NewsService] Fetching news from backend for category: ${category}...`);
 
-    const categoryMap = {
-      all: "technology",
-      trending: "technology",
-      ai: "artificial intelligence",
-      android: "android google",
-      cybersecurity: "cybersecurity security hacking",
-      gaming: "gaming video games console",
-      kenya: "kenya nairobi",
-      world: "global world international",
-      business: "business economy finance",
-      education: "education study university",
-      science: "science biology physics space",
-    };
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-    const query = categoryMap[category.toLowerCase()] || category;
-    const url = `${GNEWS_URL}/search?q=${encodeURIComponent(query)}&lang=en&token=${GNEWS_API_KEY}`;
-    
-    console.log(`[NewsService] Fetching news from GNews for category: ${category}...`);
-    const response = await fetch(url);
-    
-    if (response.status === 403 || response.status === 429) {
-      console.warn("[NewsService] GNews API limit reached - enough for today");
-      throw new Error("GNews limit reached");
-    }
+    const response = await fetch(`${API_URL}/api/news${catParam}`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch from GNews, status: ${response.status}`);
+      throw new Error(`Backend /api/news responded with status: ${response.status}`);
     }
 
     const data = await response.json();
-    if (!data.articles || !Array.isArray(data.articles)) {
-      throw new Error("Malformed GNews API response structure");
+    if (!data.news || !Array.isArray(data.news)) {
+      throw new Error("Invalid response structure from backend /api/news");
     }
 
-    // Map GNews articles to our premium News structure
-    const mappedArticles = data.articles.map((art, idx) => {
-      const artId = `gnews_${hashCode(art.title || art.url || idx.toString())}`;
-      const publishedDate = art.publishedAt ? new Date(art.publishedAt) : new Date();
-      
-      let relativeTime = "Just now";
-      const diffHours = Math.floor((new Date() - publishedDate) / 3600000);
-      if (diffHours > 24) {
-        relativeTime = `${Math.floor(diffHours / 24)} days ago`;
-      } else if (diffHours > 0) {
-        relativeTime = `${diffHours} hours ago`;
-      }
+    const articles = data.news;
+    console.log(`[NewsService] Received ${articles.length} articles from backend.`);
 
-      return {
-        id: artId,
-        title: art.title || "No Title Available",
-        slug: art.title ? art.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") : `news-${artId}`,
-        summary: art.description || "Tap to read full details on XayLite.",
-        fullContent: art.content || art.description || "Full content is restricted or loading. Tap details to read more on the publisher's main page.",
-        heroImage: art.image || "https://images.unsplash.com/photo-1504711434969-e33886168f5c?q=80&w=1000&auto=format&fit=crop",
-        galleryImages: [],
-        publisher: art.source?.name || "Global News",
-        publisherAvatar: getPublisherAvatar(art.source?.name),
-        category: category.charAt(0).toUpperCase() + category.slice(1),
-        tags: [category, art.source?.name || "News"].filter(Boolean),
-        publishedAt: relativeTime,
-        readingTime: calculateReadingTime(art.content || art.description),
-        likes: Math.floor(15 + Math.random() * 80),
-        views: Math.floor(120 + Math.random() * 800),
-        bookmarked: false,
-        liked: false,
-        featured: idx === 0,
-        breaking: idx === 0,
-        trending: idx < 3,
-        timestamp: publishedDate.getTime(),
-      };
-    });
+    // Save to local SQLite cache for offline fallback
+    if (articles.length > 0) {
+      await saveNewsArticles(articles);
+    }
 
-    // Save fetched GNews articles to local SQLite database
-    await saveNewsArticles(mappedArticles);
-    return mappedArticles;
+    return articles.length > 0 ? articles : MOCK_NEWS;
 
   } catch (error) {
-    console.warn(`[NewsService] Fetching failed: ${error.message}. Returning cached/mock fallback.`);
-    // Quota reached or offline - fetch local database cache
+    console.warn(`[NewsService] Backend fetch failed: ${error.message}. Falling back to local cache/mock.`);
+
+    // Try local SQLite cache first
     try {
       const cached = await getNewsArticles();
       if (cached && cached.length > 0) {
         if (category.toLowerCase() !== "all") {
-          const filtered = cached.filter(art => 
-            art.category.toLowerCase() === category.toLowerCase() || 
+          const filtered = cached.filter(art =>
+            art.category?.toLowerCase() === category.toLowerCase() ||
             (art.tags && art.tags.some(t => t.toLowerCase() === category.toLowerCase()))
           );
           if (filtered.length > 0) return filtered;
@@ -278,9 +230,12 @@ export async function fetchLatestNews(category = "technology") {
         return cached;
       }
     } catch (dbErr) {
-      console.warn("[NewsService] Database read fallback failed:", dbErr);
+      console.warn("[NewsService] Local cache fallback failed:", dbErr.message);
     }
-    
+
+    // Final fallback: static mock news
     return MOCK_NEWS;
   }
 }
+
+
