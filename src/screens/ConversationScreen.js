@@ -62,6 +62,7 @@ import * as Notifications from "expo-notifications";
 import { scheduleLocalNotification, setActiveChatPartnerId } from "../services/NotificationService";
 import UserProfilePopup from "../components/UserProfilePopup";
 import AudioWaveform from "../components/AudioWaveform";
+import { trackEvent } from "../utils/Analytics";
 import {
   saveChat,
   getChats,
@@ -212,7 +213,7 @@ export default function ConversationScreen({ route, navigation }) {
 
   const DEFAULT_AVATAR = getAssetUri(DEFAULT_AVATAR_REQ);
 
-  const { partnerName, partnerAvatar, partnerFlag, partnerId, partnerStatus } =
+  const { partnerName, partnerAvatar, partnerFlag, partnerId, partnerStatus, answeredCallId } =
     route.params || {
       partnerName: "unity Translation AI",
       partnerAvatar:
@@ -323,6 +324,7 @@ export default function ConversationScreen({ route, navigation }) {
   const callSubtitlesPollIntervalRef = useRef(null);
   const lastSubtitleTimestampRef = useRef(0);
   const subtitleRecorderRef = useRef(null);
+  const wasHandsFreeActiveBeforeCallRef = useRef(false);
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -531,6 +533,27 @@ export default function ConversationScreen({ route, navigation }) {
   // Initiate an outgoing call
   const startOutgoingCall = async () => {
     setMicMenuVisible(false);
+
+    // Smart Interrupt: Pause hands-free voice translation recording if active
+    if (handsFreeActiveRef.current) {
+      wasHandsFreeActiveBeforeCallRef.current = true;
+      setHandsFreeActive(false);
+      handsFreeActiveRef.current = false;
+      setIsRecording(false);
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+      isSpeakingRef.current = false;
+      try {
+        await recorder.stop();
+      } catch (err) {
+        console.warn("[Calls] Failed to stop hands-free recorder before outgoing call:", err);
+      }
+    } else {
+      wasHandsFreeActiveBeforeCallRef.current = false;
+    }
+
     setIsRealTimeCall(true);
     setCallStatus("connecting");
     setCallDuration(0);
@@ -584,12 +607,24 @@ export default function ConversationScreen({ route, navigation }) {
       } else {
         throw new Error("Initiate endpoint failed");
       }
-    } catch (err) {
-      console.error("[Calls] Outgoing call initiation failed:", err);
-      Alert.alert("Call failed", "Unable to start the call. Please try again.");
-      setIsRealTimeCall(false);
-      setCallStatus("disconnected");
-      stopRingtone();
+      // Restore hands-free if interrupted
+      if (wasHandsFreeActiveBeforeCallRef.current) {
+        wasHandsFreeActiveBeforeCallRef.current = false;
+        try {
+          await setAudioModeAsync({
+            allowsRecordingIOS: true,
+            playsInSilentModeIOS: true,
+          });
+          await recorder.prepareToRecordAsync(COMPRESSED_AUDIO_OPTIONS);
+          await recorder.record();
+          setHandsFreeActive(true);
+          handsFreeActiveRef.current = true;
+          setIsRecording(true);
+          setSubtitleUser("Listening...");
+        } catch (e) {
+          console.warn("[Calls] Failed to restore hands-free after call initiation failure:", e);
+        }
+      }
     }
   };
 
@@ -598,6 +633,27 @@ export default function ConversationScreen({ route, navigation }) {
     if (!incomingCallData) return;
     const callId = incomingCallData.id;
     setIncomingCallData(null);
+
+    // Smart Interrupt: Pause hands-free voice translation recording if active
+    if (handsFreeActiveRef.current) {
+      wasHandsFreeActiveBeforeCallRef.current = true;
+      setHandsFreeActive(false);
+      handsFreeActiveRef.current = false;
+      setIsRecording(false);
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+      isSpeakingRef.current = false;
+      try {
+        await recorder.stop();
+      } catch (err) {
+        console.warn("[Calls] Failed to stop hands-free recorder before accepting call:", err);
+      }
+    } else {
+      wasHandsFreeActiveBeforeCallRef.current = false;
+    }
+
     setIsRealTimeCall(true);
     setCallStatus("connected");
     setCallDuration(0);
@@ -957,12 +1013,26 @@ export default function ConversationScreen({ route, navigation }) {
       }
     }
 
-    // Restore standard audio settings
+    // Restore standard audio settings or resume hands-free
     try {
-      await setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-      });
+      if (wasHandsFreeActiveBeforeCallRef.current) {
+        wasHandsFreeActiveBeforeCallRef.current = false;
+        await setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+        });
+        await recorder.prepareToRecordAsync(COMPRESSED_AUDIO_OPTIONS);
+        await recorder.record();
+        setHandsFreeActive(true);
+        handsFreeActiveRef.current = true;
+        setIsRecording(true);
+        setSubtitleUser("Listening...");
+      } else {
+        await setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        });
+      }
     } catch (_) {}
 
     // Briefly alert user of status
@@ -975,7 +1045,8 @@ export default function ConversationScreen({ route, navigation }) {
     if (!currentUser || !myUid) return;
 
     const pollInterval = setInterval(async () => {
-      if (isRealTimeCall || handsFreeActive) return;
+      // Skip in-screen polling when the call was already answered globally
+      if (isRealTimeCall || handsFreeActive || answeredCallId) return;
 
       const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
 
@@ -1042,9 +1113,28 @@ export default function ConversationScreen({ route, navigation }) {
   useEffect(() => {
     let active = true;
     (async () => {
-      if (active) await checkPendingAnswer();
+      if (!active) return;
+
+      // ── Path 1: call was answered from GlobalIncomingCallModal ──────────
+      // The global modal already called /api/calls/accept before navigating
+      // here, so we just need to start the call machinery.
+      if (answeredCallId) {
+        console.log("[Calls] Auto-connecting call answered from global modal:", answeredCallId);
+        setIsRealTimeCall(true);
+        setCallStatus("connected");
+        setCallDuration(0);
+        setCallMuted(false);
+        setCallSpeakerActive(false);
+        setActiveCallId(answeredCallId);
+        connectCall(answeredCallId);
+        return;
+      }
+
+      // ── Path 2: call was answered from a background push notification ───
+      await checkPendingAnswer();
     })();
     return () => { active = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const recorder = useAudioRecorder(COMPRESSED_AUDIO_OPTIONS);

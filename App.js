@@ -21,10 +21,12 @@ import HomeScreen from "./src/screens/HomeScreen";
 import ConversationScreen from "./src/screens/ConversationScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import AppAnnouncerModal from "./src/components/AppAnnouncerModal";
+import GlobalIncomingCallModal from "./src/components/GlobalIncomingCallModal";
 import { initGlobalErrorHandler } from "./src/services/LogService";
 import { initProfileSync } from "./src/services/ProfileSyncService";
 import { trackEvent } from "./src/utils/Analytics";
 import { registerForPushNotificationsAsync, getExpoPushToken } from "./src/services/NotificationService";
+import { navigationRef } from "./src/utils/navigationRef";
 
 // Start catching uncaught app errors as early as possible
 initGlobalErrorHandler();
@@ -67,7 +69,7 @@ const AppContent = () => {
   return (
     <SafeAreaProvider>
       <StatusBar style={currentUser?.prefDarkTheme ? "light" : "dark"} />
-      <NavigationContainer>
+      <NavigationContainer ref={navigationRef}>
         <Stack.Navigator
           initialRouteName={initialRoute}
           screenOptions={{
@@ -84,6 +86,9 @@ const AppContent = () => {
       
       {/* Global Admin Popup Announcer */}
       <AppAnnouncerModal />
+
+      {/* Global Incoming Call overlay — visible on every screen */}
+      <GlobalIncomingCallModal />
 
       {/* Web-only App download promoter (triggers every 2 mins) */}
       <WebPromoModal />

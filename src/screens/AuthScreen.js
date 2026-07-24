@@ -130,7 +130,9 @@ export default function AuthScreen({ navigation }) {
         if (accessToken) {
           // Clear hash from URL immediately for clean address bar
           window.history.replaceState(null, null, " ");
-          handleWebGoogleLogin(accessToken);
+          (async () => {
+            await handleWebGoogleLogin(accessToken);
+          })();
         }
       }
     }

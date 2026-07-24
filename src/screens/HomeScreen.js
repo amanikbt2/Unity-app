@@ -4463,12 +4463,13 @@ export default function HomeScreen({ route, navigation }) {
                         return;
                       }
                       setStartConvModalVisible(false);
-                      handlePartnerClick(
-                        item.name,
-                        item.avatar_local_path || item.avatar,
-                        item.flag,
-                        item.id,
-                      );
+                      const targetName = item.name;
+                      const targetAvatar = item.avatar_local_path || item.avatar;
+                      const targetFlag = item.flag;
+                      const targetId = item.id;
+                      setTimeout(() => {
+                        handlePartnerClick(targetName, targetAvatar, targetFlag, targetId);
+                      }, 0);
                     }}
                     activeOpacity={0.7}
                   >

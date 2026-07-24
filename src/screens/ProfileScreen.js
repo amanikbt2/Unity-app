@@ -85,7 +85,7 @@ const AVATAR_PRESETS_REQ = [
 ];
 
 const MicLevelMeter = React.memo(
-  ({ isTestingMic, micTestRecorder, isDark, colors, styles }) => {
+  function MicLevelMeter({ isTestingMic, micTestRecorder, isDark, colors, styles }) {
     const micRecorderState = useAudioRecorderState(micTestRecorder, 30);
 
     const totalBars = 40;
@@ -644,7 +644,7 @@ export default function ProfileScreen({ route, navigation }) {
   useEffect(() => {
     if (isRecording && trainingRecorderState.metering !== undefined) {
       const currentLevel = trainingRecorderState.metering;
-      setAccumulatedMetering((prev) => [...prev, currentLevel]);
+      setTimeout(() => setAccumulatedMetering((prev) => [...prev, currentLevel]), 0);
 
       // Smart "Word" Detection based on microphone metering peaks
       // A word is roughly a spike above a threshold (-20dB) followed by a dip below it.
@@ -656,7 +656,7 @@ export default function ProfileScreen({ route, navigation }) {
         isCurrentlyLoudRef.current
       ) {
         isCurrentlyLoudRef.current = false;
-        setWordCount((c) => c + 1);
+        setTimeout(() => setWordCount((c) => c + 1), 0);
       }
     }
   }, [trainingRecorderState.metering, isRecording]);
@@ -667,7 +667,7 @@ export default function ProfileScreen({ route, navigation }) {
       // 1 word = 33%, 2 words = 66%, 3 words = 100%
       let newProgress = Math.min(100, Math.floor((wordCount / 3) * 100));
 
-      setTrainingProgress(newProgress);
+      setTimeout(() => setTrainingProgress(newProgress), 0);
 
       if (newProgress >= 100) {
         // We reached 3 words! Stop recording and advance

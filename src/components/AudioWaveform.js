@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { View, StyleSheet, Animated } from "react-native";
 
 /**
@@ -12,15 +12,18 @@ export default function AudioWaveform({ metering = -160, isRecording = false, co
   const normalizedLevel = Math.max(0.1, Math.min(1.0, (metering + 60) / 60));
 
   // Animating scale values for 7 bars
-  const anims = useRef([
-    new Animated.Value(0.1),
-    new Animated.Value(0.1),
-    new Animated.Value(0.1),
-    new Animated.Value(0.1),
-    new Animated.Value(0.1),
-    new Animated.Value(0.1),
-    new Animated.Value(0.1),
-  ]).current;
+  const anims = useMemo(
+    () => [
+      new Animated.Value(0.1),
+      new Animated.Value(0.1),
+      new Animated.Value(0.1),
+      new Animated.Value(0.1),
+      new Animated.Value(0.1),
+      new Animated.Value(0.1),
+      new Animated.Value(0.1),
+    ],
+    []
+  );
 
   // Track an internal oscillation phase
   const phaseRef = useRef(0);
