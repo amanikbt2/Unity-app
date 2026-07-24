@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs */
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {

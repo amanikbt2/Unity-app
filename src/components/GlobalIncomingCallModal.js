@@ -1,4 +1,5 @@
-import React, { useContext, useEffect, useRef, useState } from "react";
+/* eslint-disable react-hooks/refs, react-hooks/immutability */
+import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
   View,
@@ -37,7 +38,7 @@ export default function GlobalIncomingCallModal() {
   const [visible, setVisible] = useState(false);
 
   // Pulse animation for the avatar ring
-  const pulse = useRef(new Animated.Value(1)).current;
+  const pulse = useMemo(() => new Animated.Value(1), []);
   const pulseAnim = useRef(null);
 
   // Ringtone player

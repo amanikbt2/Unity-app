@@ -670,8 +670,7 @@ export default function ProfileScreen({ route, navigation }) {
       setTimeout(() => setTrainingProgress(newProgress), 0);
 
       if (newProgress >= 100) {
-        // We reached 3 words! Stop recording and advance
-        setIsRecording(false);
+        setTimeout(() => setIsRecording(false), 0);
 
         // Stop audio system
         if (micTestRecorder.isRecording) {
