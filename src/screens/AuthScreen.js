@@ -64,12 +64,76 @@ export default function AuthScreen({ navigation }) {
     });
   };
 
+  const handleWebGoogleLogin = async (accessToken) => {
+    setGoogleLoading(true);
+    const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
+    try {
+      console.log("[Google Signin Web] Fetching user profile from Google...");
+      const userRes = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${accessToken}`);
+      if (!userRes.ok) throw new Error("Failed to fetch Google user info.");
+      
+      const user = await userRes.json();
+      console.log("[Google Signin Web] User details fetched:", user);
+
+      let existingProfile = null;
+      try {
+        console.log(`[Google Signin Web] Checking if account exists for email: ${user.email}...`);
+        const checkRes = await fetch(`${API_URL}/api/users/email/${encodeURIComponent(user.email)}`);
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          if (checkData.exists && checkData.user) {
+            existingProfile = checkData.user;
+            console.log("[Google Signin Web] Reusing existing profile from server:", existingProfile);
+          }
+        }
+      } catch (err) {
+        console.warn("[Google Signin Web] Failed to query existing profile:", err);
+      }
+
+      if (existingProfile) {
+        await updateSettings({
+          ...existingProfile,
+          isRealUser: true,
+        });
+      } else {
+        await updateSettings({
+          name: user.name || "Google User",
+          email: user.email,
+          avatar: user.picture || DEFAULT_AVATAR,
+          isRealUser: true,
+        });
+      }
+      logLoginSuccess('google_web', user.name || 'Google User', user.email);
+      goHome();
+    } catch (err) {
+      console.error("[Google Signin Web] Login failed:", err);
+      alert("Google login failed: " + err.message);
+      logLoginFail('google_web', err.message);
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
   useEffect(() => {
-    GoogleSignin.configure({
-      webClientId:
-        process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "YOUR_WEB_CLIENT_ID",
-      offlineAccess: true,
-    });
+    if (Platform.OS !== "web") {
+      GoogleSignin.configure({
+        webClientId:
+          process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "YOUR_WEB_CLIENT_ID",
+        offlineAccess: true,
+      });
+    } else {
+      // Check if redirected back with OAuth2 access token in the URL hash
+      const hash = window.location.hash;
+      if (hash && hash.includes("access_token=")) {
+        const params = new URLSearchParams(hash.substring(1));
+        const accessToken = params.get("access_token");
+        if (accessToken) {
+          // Clear hash from URL immediately for clean address bar
+          window.history.replaceState(null, null, " ");
+          handleWebGoogleLogin(accessToken);
+        }
+      }
+    }
 
     // Log app open — include name if a saved account exists
     const knownName =
@@ -82,6 +146,21 @@ export default function AuthScreen({ navigation }) {
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     logLoginClick('google');
+
+    if (Platform.OS === "web") {
+      console.log("[Google Signin Web] Redirecting to Google OAuth2 flow...");
+      const client_id = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "YOUR_WEB_CLIENT_ID";
+      if (!client_id || client_id === "YOUR_WEB_CLIENT_ID") {
+        alert("Google Client ID is not configured. Please set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID in your environment.");
+        setGoogleLoading(false);
+        return;
+      }
+      const redirect_uri = window.location.origin;
+      const url = `https://accounts.google.com/o/oauth2/v2/auth?response_type=token&client_id=${client_id}&redirect_uri=${encodeURIComponent(redirect_uri)}&scope=openid%20profile%20email`;
+      window.location.href = url;
+      return;
+    }
+
     console.log("[Google Signin] Initiating Google login flow...");
 
     const API_URL = process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";

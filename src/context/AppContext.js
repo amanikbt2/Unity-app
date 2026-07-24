@@ -114,6 +114,22 @@ export const AppProvider = ({ children }) => {
       if (stored) {
         let profile = JSON.parse(stored);
         let needsUpdate = false;
+
+        // Check session expiration for web (1 month)
+        if (profile.isRealUser && Platform.OS === "web") {
+          const oneMonthMs = 30 * 24 * 60 * 60 * 1000;
+          if (profile.sessionCreatedAt) {
+            const timeElapsed = Date.now() - profile.sessionCreatedAt;
+            if (timeElapsed > oneMonthMs) {
+              console.log("[AppContext] Web session expired after 1 month. Resetting user to guest.");
+              profile = { ...DEFAULT_USER, uid: DEFAULT_USER.uid };
+              needsUpdate = true;
+            }
+          } else {
+            profile.sessionCreatedAt = Date.now();
+            needsUpdate = true;
+          }
+        }
         
         if (!profile.utid || profile.utid.includes("@")) {
           profile.utid = generateUtid();
@@ -184,6 +200,11 @@ export const AppProvider = ({ children }) => {
         ...storedBase,
         ...newSettings,
       };
+
+      // Set/update sessionCreatedAt if transitioning to a logged-in real user on web
+      if (Platform.OS === "web" && merged.isRealUser && !storedBase.isRealUser) {
+        merged.sessionCreatedAt = Date.now();
+      }
 
       if (!merged.utid || merged.utid.includes("@")) {
         merged.utid = generateUtid();
@@ -344,6 +365,9 @@ export const AppProvider = ({ children }) => {
         ...profile,
         uid: profile.uid || profile.id || profile.email || generateUid(),
       };
+      if (Platform.OS === "web") {
+        mergedProfile.sessionCreatedAt = Date.now();
+      }
       setCurrentUser(mergedProfile);
       await AsyncStorage.setItem(
         "amani_profile_settings",

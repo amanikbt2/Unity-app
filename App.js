@@ -62,7 +62,7 @@ const AppContent = () => {
   }
 
   const initialRoute =
-    Platform.OS === "web" || currentUser?.isRealUser ? "Home" : "Auth";
+    currentUser?.isRealUser ? "Home" : "Auth";
 
   return (
     <SafeAreaProvider>

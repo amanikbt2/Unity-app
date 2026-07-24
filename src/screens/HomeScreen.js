@@ -234,6 +234,7 @@ export default function HomeScreen({ route, navigation }) {
   const [shareNewsTargetArticle, setShareNewsTargetArticle] = useState(null);
   const [shareSearchText, setShareSearchText] = useState("");
   const [carouselIndex, setCarouselIndex] = useState(0);
+  const carouselRef = useRef(null);
   const [newsBadgeCount, setNewsBadgeCount] = useState(0);
   const [exploreProfiles, setExploreProfiles] = useState(EXPLORE_PEOPLE);
   const [startConvModalVisible, setStartConvModalVisible] = useState(false);
@@ -786,6 +787,29 @@ export default function HomeScreen({ route, navigation }) {
     setCarouselIndex(index);
   };
 
+  const breakingArticles = newsArticles.filter((art) => art.breaking);
+
+  // Auto-scroll Breaking News Carousel every 4 seconds
+  useEffect(() => {
+    if (activeTab !== "updates") return;
+    if (!breakingArticles || breakingArticles.length <= 1) return;
+
+    const interval = setInterval(() => {
+      setCarouselIndex((prevIndex) => {
+        const nextIndex = (prevIndex + 1) % breakingArticles.length;
+        if (carouselRef.current) {
+          carouselRef.current.scrollTo({
+            x: nextIndex * (width - 40),
+            animated: true,
+          });
+        }
+        return nextIndex;
+      });
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [activeTab, breakingArticles.length]);
+
   const handleNewsShareNative = async (article) => {
     try {
       const shareUrl = `${SERVER_URL}/news/${article.slug || article.id}`;
@@ -1285,7 +1309,7 @@ export default function HomeScreen({ route, navigation }) {
               {activeTab === "chats"
                 ? "Chats"
                 : activeTab === "updates"
-                  ? "Issues"
+                  ? "News"
                   : activeTab === "contacts"
                     ? "Contacts"
                     : "Calls"}
@@ -1294,7 +1318,7 @@ export default function HomeScreen({ route, navigation }) {
               {activeTab === "chats"
                 ? "You're ready to communicate instantly"
                 : activeTab === "updates"
-                  ? "Status & global community updates"
+                  ? "Sleek discoveries and premium world news"
                   : activeTab === "contacts"
                     ? "Manage your contacts & explore people"
                     : "Recent voice translation sessions"}
@@ -2443,6 +2467,7 @@ export default function HomeScreen({ route, navigation }) {
                       <View style={{ marginBottom: 20 }}>
                         <Text style={[styles.newsSectionTitle, { color: colors.text }]}>Breaking News</Text>
                         <ScrollView
+                          ref={carouselRef}
                           horizontal
                           pagingEnabled
                           showsHorizontalScrollIndicator={false}
@@ -3080,46 +3105,7 @@ export default function HomeScreen({ route, navigation }) {
         </TouchableOpacity>
       )}
 
-      {/* Floating Action Button for News Tab (Admin Only) */}
-      {activeTab === "updates" && (currentUser.email === "admin@gmail.com" || currentUser.name === "Admin" || currentUser.email === "dev@gmail.com") && (
-        <TouchableOpacity
-          style={[
-            styles.fab,
-            { bottom: 16 + 66 + (insets.bottom > 0 ? insets.bottom : 10) },
-          ]}
-          activeOpacity={0.8}
-          onPress={() => {
-            setAdminEditingId(null);
-            setAdminTitle("");
-            setAdminSummary("");
-            setAdminContent("");
-            setAdminHeroImage("");
-            setAdminCategory("Technology");
-            setNewsAdminModalVisible(true);
-          }}
-        >
-          <LinearGradient
-            colors={[colors.primary, "#6D28D9"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.fabGradient}
-          >
-            <Svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="white"
-              strokeWidth="3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <Line x1="12" y1="5" x2="12" y2="19" />
-              <Line x1="5" y1="12" x2="19" y2="12" />
-            </Svg>
-          </LinearGradient>
-        </TouchableOpacity>
-      )}
+
 
       {/* Bottom Tabs navigation bar */}
       <View
