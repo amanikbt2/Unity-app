@@ -1511,11 +1511,11 @@ export default function HomeScreen({ route, navigation }) {
     return isOnlineStatus(item?.status);
   };
 
-  const filteredContacts = contacts.filter((c) => {
+  const filteredContacts = useMemo(() => contacts.filter((c) => {
     if (c.id === "unity_ai") return true;
     if (c.id === "c1" || c.id === "c2") return isDev;
     return true;
-  });
+  }), [contacts, isDev]);
 
   const normalizeProfileObj = (person) => {
     if (!person) return null;
@@ -1525,17 +1525,34 @@ export default function HomeScreen({ route, navigation }) {
     };
   };
 
-  const displayedContacts = [
+  // Pre-sorted & pre-filtered contacts list — avoids doing filter+sort inside JSX on every render
+  const sortedFilteredContacts = useMemo(() => {
+    const q = contactSearchText.toLowerCase();
+    return filteredContacts
+      .filter((c) =>
+        !q ||
+        (c.name || "").toLowerCase().includes(q) ||
+        (c.id || "").toLowerCase().includes(q) ||
+        (c.uid || "").toLowerCase().includes(q)
+      )
+      .sort((a, b) => {
+        const aVal = a.isUnityUser === true || a.isUnityUser === 1 ? 1 : 0;
+        const bVal = b.isUnityUser === true || b.isUnityUser === 1 ? 1 : 0;
+        return bVal - aVal;
+      });
+  }, [filteredContacts, contactSearchText]);
+
+  const displayedContacts = useMemo(() => [
     myProfile,
     ...filteredContacts.map(normalizeProfileObj).filter((c) => c && c.id !== "me"),
-  ];
+  ], [myProfile, filteredContacts]);
 
-  const filteredExploreProfiles = exploreProfiles.filter((e) => {
+  const filteredExploreProfiles = useMemo(() => exploreProfiles.filter((e) => {
     if (e.id === "e1" || e.id === "e2") return isDev;
     return true;
-  });
+  }), [exploreProfiles, isDev]);
 
-  const displayedExplore = [
+  const displayedExplore = useMemo(() => [
     myProfile,
     ...filteredExploreProfiles.map(normalizeProfileObj).filter((e) => e && e.id !== "me"),
   ].filter((person) => {
@@ -1546,7 +1563,7 @@ export default function HomeScreen({ route, navigation }) {
       (person.utid && person.utid.toLowerCase().includes(q)) ||
       (person.uid && person.uid.toLowerCase().includes(q))
     );
-  });
+  }), [myProfile, filteredExploreProfiles, exploreSearchText]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
@@ -2334,180 +2351,161 @@ export default function HomeScreen({ route, navigation }) {
                     },
                   ]}
                 >
-                  {filteredContacts
-                    .filter((c) => {
-                      const q = contactSearchText.toLowerCase();
-                      return (
-                        (c.name || "").toLowerCase().includes(q) ||
-                        (c.id || "").toLowerCase().includes(q) ||
-                        (c.uid || "").toLowerCase().includes(q)
-                      );
-                    })
-                    .sort((a, b) => {
-                      const aVal =
-                        a.isUnityUser === true || a.isUnityUser === 1 ? 1 : 0;
-                      const bVal =
-                        b.isUnityUser === true || b.isUnityUser === 1 ? 1 : 0;
-                      return bVal - aVal;
-                    })
-                    .map((contact, index, arr) => (
-                      <TouchableOpacity
-                        key={contact.id}
-                        style={[
-                          styles.convCard,
-                          index === arr.length - 1
-                            ? { borderBottomWidth: 0 }
-                            : { borderBottomColor: colors.border },
-                        ]}
-                        activeOpacity={0.7}
-                        onPress={() => {
-                          if (!contact.isUnityUser) {
-                            const message =
-                              "🤯 I'm talking to people in different languages with Xaylite. You should try it too! Download: https://elitestore.keysire.com/app/com.amanikbt1.xaylite";
-                            const phone = (contact.phone || "").replace(
-                              /\D/g,
-                              "",
+                  {sortedFilteredContacts.map((contact, index, arr) => (
+                    <TouchableOpacity
+                      key={contact.id}
+                      style={[
+                        styles.convCard,
+                        index === arr.length - 1
+                          ? { borderBottomWidth: 0 }
+                          : { borderBottomColor: colors.border },
+                      ]}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        if (!contact.isUnityUser) {
+                          const message =
+                            "🤯 I'm talking to people in different languages with Xaylite. You should try it too! Download: https://elitestore.keysire.com/app/com.amanikbt1.xaylite";
+                          const phone = (contact.phone || "").replace(/\D/g, "");
+                          Linking.openURL(
+                            `whatsapp://send?text=${encodeURIComponent(message)}&phone=${phone}`,
+                          ).catch(() => {
+                            Alert.alert(
+                              "WhatsApp not found",
+                              "Could not open WhatsApp. Please make sure it is installed.",
                             );
-                            Linking.openURL(
-                              `whatsapp://send?text=${encodeURIComponent(message)}&phone=${phone}`,
-                            ).catch(() => {
-                              Alert.alert(
-                                "WhatsApp not found",
-                                "Could not open WhatsApp. Please make sure it is installed.",
-                              );
-                            });
-                            return;
-                          }
-                          handlePartnerClick(
-                            contact.name,
-                            contact.avatar,
-                            contact.flag,
-                            contact.id,
-                          );
+                          });
+                          return;
+                        }
+                        handlePartnerClick(
+                          contact.name,
+                          contact.avatar,
+                          contact.flag,
+                          contact.id,
+                        );
+                      }}
+                    >
+                      <TouchableOpacity
+                        activeOpacity={0.85}
+                        hitSlop={6}
+                        onPress={(e) => {
+                          e.stopPropagation && e.stopPropagation();
+                          openProfilePopup(contact);
                         }}
+                        style={styles.avatarContainer}
                       >
-                        <TouchableOpacity
-                          activeOpacity={0.85}
-                          hitSlop={6}
-                          onPress={(e) => {
-                            e.stopPropagation && e.stopPropagation();
-                            openProfilePopup(contact);
-                          }}
-                          style={styles.avatarContainer}
-                        >
-                          <Image
-                            source={getSafeAvatarSource(contact.avatar, contact.name || "User")}
-                            style={styles.avatar}
-                          />
-                          {isOnlineContact(contact) && (
-                            <View
-                              style={[
-                                styles.onlineBadge,
-                                { borderColor: colors.cardBg },
-                              ]}
-                            />
-                          )}
+                        <Image
+                          source={getSafeAvatarSource(contact.avatar, contact.name || "User")}
+                          style={styles.avatar}
+                        />
+                        {isOnlineContact(contact) && (
                           <View
                             style={[
-                              styles.flagBadge,
-                              { backgroundColor: colors.bg },
+                              styles.onlineBadge,
+                              { borderColor: colors.cardBg },
                             ]}
-                          >
-                            {renderFlagOrEmoji(contact.flag)}
-                          </View>
-                        </TouchableOpacity>
-                        <View style={styles.convDetails}>
-                          <View style={styles.convHeader}>
-                            <Text
-                              style={[
-                                styles.partnerName,
-                                { color: colors.text },
-                              ]}
-                            >
-                              {contact.name}
-                            </Text>
-                            {contact.unreadCount > 0 && (
-                              <View
-                                style={{
-                                  backgroundColor: "#EF4444",
-                                  borderRadius: 12,
-                                  minWidth: 20,
-                                  height: 20,
-                                  justifyContent: "center",
-                                  alignItems: "center",
-                                  marginLeft: 8,
-                                  paddingHorizontal: 6,
-                                }}
-                              >
-                                <Text
-                                  style={{
-                                    color: "#FFFFFF",
-                                    fontSize: 12,
-                                    fontWeight: "bold",
-                                  }}
-                                >
-                                  {contact.unreadCount}
-                                </Text>
-                              </View>
-                            )}
-                            <Text
-                              style={[
-                                styles.contactStatus,
-                                {
-                                  color: colors.accent,
-                                  marginLeft: contact.unreadCount > 0 ? 8 : 0,
-                                },
-                              ]}
-                            >
-                              {contact.status}
-                            </Text>
-                          </View>
+                          />
+                        )}
+                        <View
+                          style={[
+                            styles.flagBadge,
+                            { backgroundColor: colors.bg },
+                          ]}
+                        >
+                          {renderFlagOrEmoji(contact.flag)}
+                        </View>
+                      </TouchableOpacity>
+                      <View style={styles.convDetails}>
+                        <View style={styles.convHeader}>
                           <Text
                             style={[
-                              styles.convPreview,
-                              { color: colors.textMuted },
+                              styles.partnerName,
+                              { color: colors.text },
                             ]}
                           >
-                            Native: {contact.langName}
+                            {contact.name}
                           </Text>
-                        </View>
-                        <View style={styles.convArrow}>
-                          {!contact.isUnityUser ? (
+                          {contact.unreadCount > 0 && (
                             <View
                               style={{
-                                backgroundColor: colors.border,
-                                paddingHorizontal: 12,
-                                paddingVertical: 4,
+                                backgroundColor: "#EF4444",
                                 borderRadius: 12,
+                                minWidth: 20,
+                                height: 20,
+                                justifyContent: "center",
+                                alignItems: "center",
+                                marginLeft: 8,
+                                paddingHorizontal: 6,
                               }}
                             >
                               <Text
                                 style={{
-                                  color: colors.text,
+                                  color: "#FFFFFF",
                                   fontSize: 12,
-                                  fontWeight: "600",
+                                  fontWeight: "bold",
                                 }}
                               >
-                                Invite
+                                {contact.unreadCount}
                               </Text>
                             </View>
-                          ) : (
-                            <Svg
-                              width="16"
-                              height="16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke={colors.textDimmed}
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <Path d="M9 18l6-6-6-6" />
-                            </Svg>
                           )}
+                          <Text
+                            style={[
+                              styles.contactStatus,
+                              {
+                                color: colors.accent,
+                                marginLeft: contact.unreadCount > 0 ? 8 : 0,
+                              },
+                            ]}
+                          >
+                            {contact.status}
+                          </Text>
                         </View>
-                      </TouchableOpacity>
-                    ))}
+                        <Text
+                          style={[
+                            styles.convPreview,
+                            { color: colors.textMuted },
+                          ]}
+                        >
+                          Native: {contact.langName}
+                        </Text>
+                      </View>
+                      <View style={styles.convArrow}>
+                        {!contact.isUnityUser ? (
+                          <View
+                            style={{
+                              backgroundColor: colors.border,
+                              paddingHorizontal: 12,
+                              paddingVertical: 4,
+                              borderRadius: 12,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: colors.text,
+                                fontSize: 12,
+                                fontWeight: "600",
+                              }}
+                            >
+                              Invite
+                            </Text>
+                          </View>
+                        ) : (
+                          <Svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke={colors.textDimmed}
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <Path d="M9 18l6-6-6-6" />
+                          </Svg>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
                 </View>
               </View>
             )}
