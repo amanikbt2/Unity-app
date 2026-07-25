@@ -3570,10 +3570,17 @@ const styles = StyleSheet.create({
     maxHeight: "80%",
     borderRadius: 24,
     padding: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.35,
-    shadowRadius: 20,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 10px 20px rgba(0,0,0,0.35)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.35,
+        shadowRadius: 20,
+      },
+    }),
     elevation: 8,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
@@ -3715,10 +3722,17 @@ const styles = StyleSheet.create({
     borderRadius: 36,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 4px 8px rgba(0,0,0,0.2)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+      },
+    }),
     elevation: 4,
   },
   recordHint: {
@@ -3825,10 +3839,17 @@ const styles = StyleSheet.create({
   },
   glowSection: {
     backgroundColor: "rgba(245, 158, 11, 0.08)",
-    shadowColor: "#F59E0B",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 0px 10px rgba(245, 158, 11, 0.5)",
+      },
+      default: {
+        shadowColor: "#F59E0B",
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.5,
+        shadowRadius: 10,
+      },
+    }),
     elevation: 3,
   },
 });

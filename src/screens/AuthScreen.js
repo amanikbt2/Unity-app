@@ -573,10 +573,17 @@ const styles = StyleSheet.create({
     height: 92,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#8B5CF6",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.25,
-    shadowRadius: 15,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 10px 15px rgba(139, 92, 246, 0.25)",
+      },
+      default: {
+        shadowColor: "#8B5CF6",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.25,
+        shadowRadius: 15,
+      },
+    }),
     elevation: 8,
   },
   logoImage: {
@@ -613,10 +620,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 2px 4px rgba(0,0,0,0.05)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+      },
+    }),
     elevation: 2,
   },
   btnContent: {

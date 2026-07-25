@@ -415,7 +415,7 @@ export default function HomeScreen({ route, navigation }) {
         toValue: 1,
         duration: 1200,
         easing: Easing.linear,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== "web",
       })
     );
     shimAnim.start();

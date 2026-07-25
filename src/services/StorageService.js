@@ -167,7 +167,7 @@ export async function runSmartStorageCleanup() {
     // Map of active local paths to protect from deletion
     const protectedAvatars = new Set();
     activeContacts.forEach((c) => {
-      if (c.avatar && c.avatar.startsWith("file:///")) {
+      if (c.avatar && typeof c.avatar === "string" && c.avatar.startsWith("file:///")) {
         // Extract filename from file path
         const filename = c.avatar.split("/").pop();
         if (filename) protectedAvatars.add(filename);

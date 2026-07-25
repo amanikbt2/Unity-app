@@ -167,12 +167,12 @@ const TypingIndicator = ({ color }) => {
         RNAnimated.timing(dot, {
           toValue: -5,
           duration: 250,
-          useNativeDriver: true,
+          useNativeDriver: Platform.OS !== "web",
         }),
         RNAnimated.timing(dot, {
           toValue: 0,
           duration: 250,
-          useNativeDriver: true,
+          useNativeDriver: Platform.OS !== "web",
         }),
       ]);
     };
@@ -2896,21 +2896,20 @@ export default function ConversationScreen({ route, navigation }) {
 
             {/* Action buttons */}
             <View style={styles.callActionsContainer}>
-              {/* Mute Button */}
+              {/* Mute / End Call Mic Button */}
               <TouchableOpacity
                 style={[
                   styles.callActionButton,
-                  callMuted ? { backgroundColor: 'white' } : { backgroundColor: 'rgba(255,255,255,0.1)' }
+                  { backgroundColor: 'rgba(255,255,255,0.1)' }
                 ]}
-                onPress={() => setCallMuted(prev => !prev)}
+                onPress={() => endCall(activeCallId, "Call Ended")}
               >
-                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={callMuted ? 'black' : 'white'} strokeWidth="2">
+                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
                   <Path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
                   <Path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                   <Line x1="12" y1="19" x2="12" y2="22" />
-                  {callMuted && <Line x1="1" y1="1" x2="23" y2="23" stroke="red" strokeWidth="2.5" />}
                 </Svg>
-                <Text style={[styles.callActionLabel, { color: 'white' }]}>Mute</Text>
+                <Text style={[styles.callActionLabel, { color: 'white' }]}>End Call</Text>
               </TouchableOpacity>
 
               {/* End Call Button */}
@@ -3345,10 +3344,17 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     padding: 24,
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 10px 20px rgba(0,0,0,0.15)",
+      },
+      default: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.15,
+        shadowRadius: 20,
+      },
+    }),
     elevation: 8,
   },
   incomingCallTitle: {

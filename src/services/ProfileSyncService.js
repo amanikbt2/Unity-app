@@ -81,7 +81,7 @@ async function sendSyncRequest(action, profile) {
   try {
     if (action === "save") {
       // If the avatar is a local file path, upload it to ImageKit first!
-      if (profile.avatar && profile.avatar.startsWith("file://")) {
+      if (profile.avatar && typeof profile.avatar === "string" && profile.avatar.startsWith("file://")) {
         const slotIdx = profile.activeAvatarSlot || 0;
         const emailAddr = profile.email || "guest";
         console.log(`[ProfileSync] Uploading local profile picture to ImageKit: slot ${slotIdx}...`);
@@ -92,6 +92,10 @@ async function sendSyncRequest(action, profile) {
           // If ImageKit upload fails, we clear the local path so we don't send file:// to database
           profile.avatar = "";
         }
+      }
+      // If avatar is still not a string (e.g. a require() asset number), clear it
+      if (profile.avatar && typeof profile.avatar !== "string") {
+        profile.avatar = "";
       }
 
       const response = await fetch(`${SERVER_URL}/api/users`, {

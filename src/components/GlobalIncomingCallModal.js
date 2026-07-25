@@ -92,12 +92,12 @@ export default function GlobalIncomingCallModal() {
           Animated.timing(pulse, {
             toValue: 1.18,
             duration: 700,
-            useNativeDriver: true,
+            useNativeDriver: Platform.OS !== "web",
           }),
           Animated.timing(pulse, {
             toValue: 1,
             duration: 700,
-            useNativeDriver: true,
+            useNativeDriver: Platform.OS !== "web",
           }),
         ]),
       );
@@ -248,10 +248,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 40,
     paddingHorizontal: 28,
-    shadowColor: "#8B5CF6",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.55,
-    shadowRadius: 28,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 12px 28px rgba(139, 92, 246, 0.55)",
+      },
+      default: {
+        shadowColor: "#8B5CF6",
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.55,
+        shadowRadius: 28,
+      },
+    }),
     elevation: 24,
     borderWidth: 1,
     borderColor: "rgba(139, 92, 246, 0.35)",
@@ -285,10 +292,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 40,
-    shadowColor: "#8B5CF6",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.7,
-    shadowRadius: 20,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 0px 20px rgba(139, 92, 246, 0.7)",
+      },
+      default: {
+        shadowColor: "#8B5CF6",
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.7,
+        shadowRadius: 20,
+      },
+    }),
     elevation: 12,
   },
   avatar: {
@@ -310,18 +324,32 @@ const styles = StyleSheet.create({
   },
   declineBtn: {
     backgroundColor: "#EF4444",
-    shadowColor: "#EF4444",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.45,
-    shadowRadius: 12,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 4px 12px rgba(239, 68, 68, 0.45)",
+      },
+      default: {
+        shadowColor: "#EF4444",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.45,
+        shadowRadius: 12,
+      },
+    }),
     elevation: 8,
   },
   acceptBtn: {
     backgroundColor: "#22C55E",
-    shadowColor: "#22C55E",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.45,
-    shadowRadius: 12,
+    ...Platform.select({
+      web: {
+        boxShadow: "0px 4px 12px rgba(34, 197, 94, 0.45)",
+      },
+      default: {
+        shadowColor: "#22C55E",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.45,
+        shadowRadius: 12,
+      },
+    }),
     elevation: 8,
   },
   btnIcon: {
