@@ -21,7 +21,7 @@ import Constants from 'expo-constants';
 import Svg, { Path } from 'react-native-svg';
 import customJson from '../customJson.json';
 
-const { width, height } = Dimensions.get('window');
+const { height } = Dimensions.get('window');
 
 const AppAnnouncerModal = () => {
   const { currentUser } = useContext(AppContext);
@@ -97,7 +97,7 @@ const AppAnnouncerModal = () => {
       if (active) await fetchLatestPopup();
     })();
     return () => { active = false; };
-  }, []);
+  }, [currentUser?.email]);
 
   const handleDismiss = async () => {
     if (popup?.id) {

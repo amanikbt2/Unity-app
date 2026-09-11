@@ -1,4 +1,4 @@
-/* eslint-disable react-hooks/refs, react-hooks/immutability */
+/* eslint-disable react-hooks/immutability */
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
@@ -117,7 +117,7 @@ export default function GlobalIncomingCallModal() {
       }
       pulse.setValue(1);
     }
-  }, [visible]);
+  }, [visible, pulse, ringtonePlayer]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const stopAndDismiss = () => {

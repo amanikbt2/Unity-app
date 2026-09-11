@@ -11,7 +11,6 @@ import {
   Switch,
   ActivityIndicator,
   Modal,
-  Dimensions,
   Alert,
   Linking,
   Animated,
@@ -46,8 +45,6 @@ import {
   useAudioRecorderState,
 } from "expo-audio";
 import * as Speech from "expo-speech";
-
-const { height } = Dimensions.get("window");
 
 const MIC_TEST_AUDIO_OPTIONS = {
   android: {
@@ -269,12 +266,12 @@ export default function ProfileScreen({ route, navigation }) {
     videosSize: "0.00",
     totalSize: "0.00",
   });
-  const [communityStats, setCommunityStats] = useState({
+  const [_communityStats, setCommunityStats] = useState({
     totalOnline: 0,
     totalRegistered: 0,
   });
-  const [communityStatsLoading, setCommunityStatsLoading] = useState(true);
-  const [communityStatsError, setCommunityStatsError] = useState(false);
+  const [_communityStatsLoading, setCommunityStatsLoading] = useState(true);
+  const [_communityStatsError, setCommunityStatsError] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
@@ -724,6 +721,8 @@ export default function ProfileScreen({ route, navigation }) {
     trainingStep,
     accumulatedMetering,
     micTestRecorder,
+    handleAutoSave,
+    trainingSentences.length,
   ]);
 
   // Test playback with actual TTS and progress simulation

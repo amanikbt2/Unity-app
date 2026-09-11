@@ -259,7 +259,7 @@ export default function HomeScreen({ route, navigation }) {
   const [syncedCount, setSyncedCount] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
   const handleImportContactsRef = useRef(null);
-  const [imported, setImported] = useState(false);
+  const [_imported, setImported] = useState(false);
   const [showImportSuccess, setShowImportSuccess] = useState(false);
   const [contactSearchText, setContactSearchText] = useState("");
   const [exploreSearchText, setExploreSearchText] = useState("");
@@ -591,7 +591,7 @@ export default function HomeScreen({ route, navigation }) {
       }
       findAndOpen();
     }
-  }, [route.params?.openNewsId, newsArticles]);
+  }, [route.params?.openNewsId, newsArticles, navigation]);
 
   useEffect(() => {
     // Show 9+ badge after 5 minutes, recurring every 5 minutes if not on updates tab
@@ -1007,7 +1007,7 @@ export default function HomeScreen({ route, navigation }) {
     }
 
     return filtered;
-  }, [newsArticles, selectedCategory, showBookmarksOnly, newsSearchText, currentUser?.nativeLang, detectedCountry]);
+  }, [newsArticles, selectedCategory, showBookmarksOnly, newsSearchText, currentUser?.nativeLang, detectedCountry, getLangDetails]);
 
   // Keep the ref in sync so external logic can read filtered count without a re-render
   useEffect(() => {
@@ -1053,7 +1053,7 @@ export default function HomeScreen({ route, navigation }) {
     }, 4000);
 
     return () => clearInterval(interval);
-  }, [activeTab, breakingArticles.length]);
+  }, [activeTab, breakingArticles]);
 
   const handleNewsShareNative = async (article) => {
     try {
@@ -1485,7 +1485,7 @@ export default function HomeScreen({ route, navigation }) {
     status: currentUser.bio || "Online",
     bio: currentUser.bio || "This is me!",
     isMe: true,
-  }), [currentUser.name, currentUser.avatar, currentUser.nativeLang, currentUser.bio]);
+  }), [currentUser.name, currentUser.avatar, currentUser.nativeLang, currentUser.bio, getLangDetails]);
 
   const isOnlineContact = (item) => {
     if (item?.isMe || item?.id === "unity_ai") return true;

@@ -143,7 +143,7 @@ export default function AuthScreen({ navigation }) {
         ? savedAccounts[0].name
         : null;
     logAppOpen(knownName);
-  }, []);
+  }, [savedAccounts, handleWebGoogleLogin]);
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
@@ -287,11 +287,6 @@ export default function AuthScreen({ navigation }) {
   const toggleEmailPanel = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setShowEmailPanel(!showEmailPanel);
-  };
-
-  const openProfilePopup = (profile) => {
-    setProfilePopupData(profile);
-    setProfilePopupVisible(true);
   };
 
   const handleEmailContinue = async () => {

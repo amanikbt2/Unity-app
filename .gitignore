@@ -43,3 +43,7 @@ yarn-error.*
 /jdk17
 
 google-services.json
+credentials-backup/
+eas/
+*.keystore
+

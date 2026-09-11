@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/immutability */
 import React, {
   useState,
   useEffect,
@@ -268,7 +267,7 @@ export default function ConversationScreen({ route, navigation }) {
           setBothInRoom(!!data.bothInRoom);
           setPartnerOnline(!!data.isOnline);
         }
-      } catch (e) {}
+      } catch (_e) {}
     };
 
     checkRoomPresence();
@@ -319,7 +318,6 @@ export default function ConversationScreen({ route, navigation }) {
   const callAudioPollIntervalRef = useRef(null);
   const lastAudioTimestampRef = useRef(0);
   const callAudioRecorderRef = useRef(null);
-  const ringtonePlayerRef = useRef(null);
   const [callSubtitlesList, setCallSubtitlesList] = useState([]);
   const callSubtitlesPollIntervalRef = useRef(null);
   const lastSubtitleTimestampRef = useRef(0);
@@ -1092,7 +1090,7 @@ export default function ConversationScreen({ route, navigation }) {
     }, 3000);
 
     return () => clearInterval(pollInterval);
-  }, [currentUser, isRealTimeCall, handsFreeActive, incomingCallData]);
+  }, [currentUser, isRealTimeCall, handsFreeActive, incomingCallData, answeredCallId, playRingtone, stopRingtone]);
 
   // Handle call answered from background notification on mount/focus
   const checkPendingAnswer = async () => {
@@ -1279,7 +1277,7 @@ export default function ConversationScreen({ route, navigation }) {
         console.error(err);
       }
     };
-  }, [navigation, partnerId, recorder]);
+  }, [navigation, partnerId, recorder, checkPendingAnswer]);
 
   const silenceTimerRef = useRef(null);
 
@@ -1577,6 +1575,9 @@ export default function ConversationScreen({ route, navigation }) {
     getLangCodeFromFlag,
     getLangDetails,
     partnerFlag,
+    partnerAvatar,
+    partnerName,
+    partnerStatus,
   ]);
 
   // Real-time message sync polling for human-to-human chats
@@ -1656,7 +1657,7 @@ export default function ConversationScreen({ route, navigation }) {
     pollRemoteMessages();
     const interval = setInterval(pollRemoteMessages, 3000);
     return () => clearInterval(interval);
-  }, [currentUser?.uid, partnerId, partnerFlag, currentUser.nativeLang]);
+  }, [currentUser?.uid, partnerId, partnerFlag, currentUser.nativeLang, getLangCodeFromFlag, getLangDetails]);
 
   // Scroll to bottom helper
   useEffect(() => {
