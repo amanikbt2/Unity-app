@@ -16,7 +16,6 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   Alert,
   Linking,
   Share,
@@ -65,6 +64,7 @@ import {
 import {
   saveLastAutoSyncDate,
   getLastAutoSyncDate,
+  saveLastImportCheckTime,
 } from "../services/SecureStorage";
 import UserProfilePopup from "../components/UserProfilePopup";
 import { getSafeAvatarSource } from "../utils/avatarUtils";

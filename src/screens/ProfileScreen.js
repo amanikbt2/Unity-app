@@ -269,6 +269,12 @@ export default function ProfileScreen({ route, navigation }) {
     videosSize: "0.00",
     totalSize: "0.00",
   });
+  const [communityStats, setCommunityStats] = useState({
+    totalOnline: 0,
+    totalRegistered: 0,
+  });
+  const [communityStatsLoading, setCommunityStatsLoading] = useState(true);
+  const [communityStatsError, setCommunityStatsError] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
@@ -611,7 +617,7 @@ export default function ProfileScreen({ route, navigation }) {
 
       return () => clearTimeout(scrollTimer);
     }
-  }, [route.params]);
+  }, [route.params, glowAnim, handleAutoSave]);
 
   const micTestTimeoutRef = useRef(null);
   const micTestRecorder = useAudioRecorder(MIC_TEST_AUDIO_OPTIONS);
