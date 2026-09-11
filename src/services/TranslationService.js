@@ -241,7 +241,7 @@ export async function translateVoice(audioUri, targetLang) {
         try {
           const body = JSON.parse(response.body);
           if (body.error) errorMsg = body.error;
-        } catch (e) {}
+        } catch (_e) {}
         throw new Error(errorMsg);
       }
 

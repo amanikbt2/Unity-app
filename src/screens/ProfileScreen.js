@@ -18,7 +18,6 @@ import {
   Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import Constants from "expo-constants";
 import Svg, {
   Path,
@@ -48,7 +47,7 @@ import {
 } from "expo-audio";
 import * as Speech from "expo-speech";
 
-const { width, height } = Dimensions.get("window");
+const { height } = Dimensions.get("window");
 
 const MIC_TEST_AUDIO_OPTIONS = {
   android: {
@@ -254,7 +253,6 @@ export default function ProfileScreen({ route, navigation }) {
   const [trainingProgress, setTrainingProgress] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [wordCount, setWordCount] = useState(0);
-  const [isCurrentlyLoud, setIsCurrentlyLoud] = useState(false);
 
   // Voice AI Testing state
   const [playingLang, setPlayingLang] = useState(null);
@@ -271,12 +269,6 @@ export default function ProfileScreen({ route, navigation }) {
     videosSize: "0.00",
     totalSize: "0.00",
   });
-  const [communityStats, setCommunityStats] = useState({
-    totalOnline: 0,
-    totalRegistered: 0,
-  });
-  const [communityStatsLoading, setCommunityStatsLoading] = useState(true);
-  const [communityStatsError, setCommunityStatsError] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
@@ -932,14 +924,6 @@ export default function ProfileScreen({ route, navigation }) {
     startMicTest();
   };
 
-  const getNativePills = () => {
-    const list = Object.keys(LANGS).slice(0, 4);
-    if (currentUser.nativeLang && !list.includes(currentUser.nativeLang)) {
-      list.push(currentUser.nativeLang);
-    }
-    return list;
-  };
-
   const startVoiceTraining = () => {
     setTrainingStep(0);
     setTrainingProgress(0);
@@ -957,7 +941,6 @@ export default function ProfileScreen({ route, navigation }) {
       await micTestRecorder.prepareToRecordAsync();
       micTestRecorder.record();
       setWordCount(0);
-      setIsCurrentlyLoud(false);
       setAccumulatedMetering([]);
       setIsRecording(true);
     } catch (err) {
@@ -971,7 +954,7 @@ export default function ProfileScreen({ route, navigation }) {
       if (micTestRecorder.isRecording) {
         await micTestRecorder.stop();
       }
-    } catch (err) {}
+    } catch (_err) {}
     await AudioModule.setAudioModeAsync({
       allowsRecordingIOS: false,
       playsInSilentModeIOS: true,

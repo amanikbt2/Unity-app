@@ -1,8 +1,4 @@
-import { Platform } from "react-native";
 import { saveNewsArticles, getNewsArticles } from "./DatabaseService";
-
-const GNEWS_API_KEY = process.env.EXPO_PUBLIC_GNEWS_API_KEY || ""; // Set if available
-const GNEWS_URL = "https://gnews.io/api/v4";
 
 // High-quality mock news covering technology, AI, Android, Gaming, Cybersecurity, Kenyan, and World news
 export const MOCK_NEWS = [
@@ -154,7 +150,7 @@ export const MOCK_NEWS = [
 ];
 
 // Helper to hash GNews title/url into unique alphanumeric ID
-const hashCode = (str) => {
+export const hashCode = (str) => {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = (hash << 5) - hash + str.charCodeAt(i);
@@ -164,14 +160,14 @@ const hashCode = (str) => {
 };
 
 // Calculate estimate reading time from content
-const calculateReadingTime = (text) => {
+export const calculateReadingTime = (text) => {
   const words = (text || "").split(/\s+/).length;
   const mins = Math.max(1, Math.round(words / 180));
   return `${mins} min read`;
 };
 
 // Publisher avatar mappings
-const getPublisherAvatar = (name) => {
+export const getPublisherAvatar = (name) => {
   if (!name) return "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=100&auto=format&fit=crop";
   const domain = name.toLowerCase().replace(/\s+/g, "") + ".com";
   return `https://logo.clearbit.com/${domain}`;

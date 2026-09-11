@@ -33,24 +33,18 @@ import Svg, {
   Polygon,
   Line,
   Circle,
-  Rect,
   Polyline,
 } from "react-native-svg";
-import { Ionicons, MaterialIcons, Feather } from "@expo/vector-icons";
-import { Picker } from "@react-native-picker/picker";
+import { Ionicons } from "@expo/vector-icons";
 import { trackEvent } from "../utils/Analytics";
 import * as Contacts from "expo-contacts/legacy";
-import * as ImagePicker from "expo-image-picker";
 import { AppContext } from "../context/AppContext";
-import { translateText } from "../services/TranslationService";
 import { fetchLatestNews } from "../services/NewsService";
-import { scheduleLocalNotification } from "../services/NotificationService";
 import {
   initDatabase,
   getContacts as getDbContacts,
   saveContacts as saveDbContacts,
   getNewsArticles as getDbNewsArticles,
-  saveNewsArticles as saveDbNewsArticles,
   toggleNewsBookmark as toggleDbNewsBookmark,
   toggleNewsLike as toggleDbNewsLike,
   incrementNewsView as incrementDbNewsView,
@@ -61,9 +55,6 @@ import {
   getCallLogs as getDbCallLogs,
   getRecentConversationsMap as getDbRecentConversationsMap,
   clearContactUnread as clearDbContactUnread,
-  hasUnsyncedContacts,
-  getUnsyncedContactsCount,
-  incrementContactUnread,
   saveChat,
 } from "../services/DatabaseService";
 import {
@@ -72,19 +63,14 @@ import {
   triggerCloudBackup,
 } from "../services/StorageService";
 import {
-  saveLastImportCheckTime,
-  getLastImportCheckTime,
-  saveFirstTimeImportStatus,
-  isFirstTimeImport,
   saveLastAutoSyncDate,
   getLastAutoSyncDate,
 } from "../services/SecureStorage";
 import UserProfilePopup from "../components/UserProfilePopup";
+import { getSafeAvatarSource } from "../utils/avatarUtils";
 
 const { width, height } = Dimensions.get("window");
 const getCurrentTimestamp = () => Date.now();
-
-import { getSafeAvatarSource, DEFAULT_AVATARS } from "../utils/avatarUtils";
 
 const getDefaultAvatar = (seed) => getSafeAvatarSource(null, seed);
 
@@ -1484,7 +1470,7 @@ export default function HomeScreen({ route, navigation }) {
   });
 
   // Prepare current user profile for injection
-  const myProfile = {
+  const myProfile = useMemo(() => ({
     id: "me",
     name: `(Me) ${currentUser.name && currentUser.name !== "User124" ? currentUser.name : "User124"}`,
     avatar:
@@ -1499,7 +1485,7 @@ export default function HomeScreen({ route, navigation }) {
     status: currentUser.bio || "Online",
     bio: currentUser.bio || "This is me!",
     isMe: true,
-  };
+  }), [currentUser.name, currentUser.avatar, currentUser.nativeLang, currentUser.bio]);
 
   const isOnlineContact = (item) => {
     if (item?.isMe || item?.id === "unity_ai") return true;
