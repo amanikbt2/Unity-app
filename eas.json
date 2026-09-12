@@ -25,5 +25,13 @@
         "EXPO_PUBLIC_API_URL": "https://unity-3xc2.onrender.com"
       }
     }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./credentials-backup/api-key.json",
+        "track": "internal"
+      }
+    }
   }
 }
