@@ -249,8 +249,19 @@ const SERVER_URL =
 export default function HomeScreen({ route, navigation }) {
   const { currentUser, getLangDetails, getLangDetailsFromFlag, LANGS } =
     useContext(AppContext);
-  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState("chats");
+  const [isTabLoading, setIsTabLoading] = useState(false);
+
+  const handleTabSwitch = (newTab) => {
+    if (activeTab === newTab) return;
+    setActiveTab(newTab);
+    setIsTabLoading(true);
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        setIsTabLoading(false);
+      }, 50);
+    });
+  };
   const [callsFilter, setCallsFilter] = useState("all");
   const [callLogs, setCallLogs] = useState([]);
   const [onboardingVisible, setOnboardingVisible] = useState(false);
@@ -1616,11 +1627,18 @@ export default function HomeScreen({ route, navigation }) {
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
         onScroll={(e) => {
-          scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
-        }}
       >
-        {activeTab === "chats" && (
-          <View>
+        {isTabLoading ? (
+          <View style={{ paddingVertical: 120, alignItems: "center", justifyContent: "center" }}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={{ marginTop: 14, fontSize: 13, fontWeight: "600", color: colors.textMuted }}>
+              Loading...
+            </Text>
+          </View>
+        ) : (
+          <>
+            {activeTab === "chats" && (
+              <View>
             {/* Giant start mic CTA */}
             <View style={styles.ctaContainer}>
               <View style={styles.ctaButtonWrapper}>
@@ -3483,6 +3501,8 @@ export default function HomeScreen({ route, navigation }) {
             })()}
           </View>
         )}
+        </>
+      )}
       </ScrollView>
 
       <UserProfilePopup
@@ -3697,7 +3717,7 @@ export default function HomeScreen({ route, navigation }) {
       >
         <TouchableOpacity
           style={styles.tabBarBtn}
-          onPress={() => setActiveTab("chats")}
+          onPress={() => handleTabSwitch("chats")}
         >
           <View
             style={[
@@ -3734,7 +3754,7 @@ export default function HomeScreen({ route, navigation }) {
 
         <TouchableOpacity
           style={styles.tabBarBtn}
-          onPress={() => setActiveTab("contacts")}
+          onPress={() => handleTabSwitch("contacts")}
         >
           <View
             style={[
@@ -3776,7 +3796,7 @@ export default function HomeScreen({ route, navigation }) {
 
         <TouchableOpacity
           style={styles.tabBarBtn}
-          onPress={() => setActiveTab("calls")}
+          onPress={() => handleTabSwitch("calls")}
         >
           <View
             style={[
@@ -3814,7 +3834,7 @@ export default function HomeScreen({ route, navigation }) {
         <TouchableOpacity
           style={styles.tabBarBtn}
           onPress={() => {
-            setActiveTab("updates");
+            handleTabSwitch("updates");
             setNewsBadgeCount(0);
           }}
         >
