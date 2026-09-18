@@ -194,24 +194,6 @@ const INITIAL_CONTACTS = [
     status: "Ready to chat",
     isUnityUser: true,
   },
-  {
-    id: "c1",
-    name: "Marcus Sterling",
-    avatar: require("../../assets/default-avatar-1.jpg"),
-    flag: "🇺🇸",
-    langName: "English (US)",
-    status: "Busy",
-    isUnityUser: true,
-  },
-  {
-    id: "c2",
-    name: "Yuki Tanaka",
-    avatar: require("../../assets/default-avatar-2.jpg"),
-    flag: "🇯🇵",
-    langName: "Japanese",
-    status: "Available",
-    isUnityUser: true,
-  },
 ];
 
 const EXPLORE_PEOPLE = [
@@ -248,6 +230,7 @@ const SERVER_URL =
   process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
 
 export default function HomeScreen({ route, navigation }) {
+  const insets = useSafeAreaInsets();
   const { currentUser, getLangDetails, getLangDetailsFromFlag, LANGS } =
     useContext(AppContext);
   const [activeTab, setActiveTab] = useState("chats");
@@ -519,8 +502,10 @@ export default function HomeScreen({ route, navigation }) {
 
         await initDirectories();
 
-        // 1. Load Contacts
-        const localContacts = await getDbContacts();
+        // 1. Load Contacts & purge any legacy fake contacts
+        await deleteDbContact("c1");
+        await deleteDbContact("c2");
+        const localContacts = (await getDbContacts()).filter(c => c.id !== "c1" && c.id !== "c2");
         if (localContacts.length > 0) {
           setContacts(localContacts);
           setImported(true);
@@ -655,9 +640,9 @@ export default function HomeScreen({ route, navigation }) {
         };
       });
 
-      // Filter to items with active conversations or AI
+      // Filter to items with active conversations or AI (excluding fake contacts)
       const activeConvs = merged.filter(c =>
-        c.id === "unity_ai" || c.timestamp > 0 || c.unreadCount > 0 || c.isUnityUser
+        c.id !== "c1" && c.id !== "c2" && (c.id === "unity_ai" || (c.timestamp && c.timestamp > 0) || c.unreadCount > 0)
       );
 
       // Sort strictly by timestamp DESC (latest activity at top!)
@@ -866,15 +851,17 @@ export default function HomeScreen({ route, navigation }) {
   // Once profile reaches 100%, it closes and is saved as dismissed forever.
   useEffect(() => {
     if (onboardingPct === 100) {
-      setOnboardingVisible(false);
+      if (onboardingVisible) {
+        setTimeout(() => setOnboardingVisible(false), 0);
+      }
       AsyncStorage.setItem("@onboarding_dismissed", "true").catch((e) =>
         console.error("Failed to mark onboarding as dismissed", e)
       );
     } else if (!hasCheckedOnboardingRef.current) {
       hasCheckedOnboardingRef.current = true;
-      setOnboardingVisible(true);
+      setTimeout(() => setOnboardingVisible(true), 0);
     }
-  }, [onboardingPct]);
+  }, [onboardingPct, onboardingVisible]);
 
   const handleCloseOnboarding = async () => {
     setOnboardingVisible(false);
@@ -1534,9 +1521,9 @@ export default function HomeScreen({ route, navigation }) {
 
   const filteredContacts = useMemo(() => contacts.filter((c) => {
     if (c.id === "unity_ai") return true;
-    if (c.id === "c1" || c.id === "c2") return isDev;
+    if (c.id === "c1" || c.id === "c2") return false;
     return true;
-  }), [contacts, isDev]);
+  }), [contacts]);
 
   const normalizeProfileObj = (person) => {
     if (!person) return null;
@@ -4100,7 +4087,7 @@ export default function HomeScreen({ route, navigation }) {
               </Svg>
               <TextInput
                 style={[styles.modalSearchInput, { color: colors.text }]}
-                placeholder="Search by name or UID"
+                placeholder="Search by name or XLID"
                 placeholderTextColor={colors.textDimmed}
                 value={startConvSearch}
                 onChangeText={setStartConvSearch}

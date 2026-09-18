@@ -19,7 +19,7 @@ const DEFAULT_AVATARS_LIST = [
 const randomAvatarReq = DEFAULT_AVATARS_LIST[Math.floor(Math.random() * DEFAULT_AVATARS_LIST.length)];
 
 const DEFAULT_USER = {
-  uid: "UID-000000",
+  uid: "XLID-000000",
   name: "User124",
   avatar: getAssetUri(randomAvatarReq),
   avatarSlots: [
@@ -92,7 +92,7 @@ const FLAG_MAP = {
 };
 
 const generateUid = () =>
-  "UID-" + Math.random().toString(36).slice(2, 8).toUpperCase();
+  "XLID-" + Math.random().toString(36).slice(2, 8).toUpperCase();
 
 const generateUtid = () => {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -114,6 +114,11 @@ export const AppProvider = ({ children }) => {
       if (stored) {
         let profile = JSON.parse(stored);
         let needsUpdate = false;
+
+        if (profile.uid && typeof profile.uid === "string" && profile.uid.startsWith("UID-")) {
+          profile.uid = profile.uid.replace(/^UID-/, "XLID-");
+          needsUpdate = true;
+        }
 
         // Check session expiration for web (1 month)
         if (profile.isRealUser && Platform.OS === "web") {

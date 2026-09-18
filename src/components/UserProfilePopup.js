@@ -16,7 +16,7 @@ const DEFAULT_PROFILE = {
   avatar: "",
   country: "",
   language: "Unknown",
-  uid: "UID-UNKNOWN",
+  uid: "XLID-UNKNOWN",
 };
 
 const getProfileUtid = (profile) => {
@@ -25,7 +25,7 @@ const getProfileUtid = (profile) => {
     return profile.utid;
   }
   const rawId = profile.uid || profile.id || profile.email || "";
-  if (!rawId || rawId.includes("@") || rawId.startsWith("UID-") || rawId.startsWith("UID_") || rawId === "UID-UNKNOWN") {
+  if (!rawId || rawId.includes("@") || rawId.startsWith("XLID-") || rawId.startsWith("XLID_") || rawId.startsWith("UID-") || rawId.startsWith("UID_") || rawId === "XLID-UNKNOWN" || rawId === "UID-UNKNOWN") {
     const fallbackStr = profile.email || profile.name || "User";
     const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let hash = 0;
@@ -40,7 +40,7 @@ const getProfileUtid = (profile) => {
     }
     return utid;
   }
-  return rawId.replace(/^UID-/i, "");
+  return rawId.replace(/^(XLID|UID)-/i, "");
 };
 
 const getJoinedDate = (profile) => {

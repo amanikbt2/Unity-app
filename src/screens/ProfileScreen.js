@@ -1392,6 +1392,71 @@ export default function ProfileScreen({ route, navigation }) {
                 <Path d="M7 11V7a5 5 0 0 1 10 0v4" />
               </Svg>
             </View>
+
+            {/* XLID — Unique ID field */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                borderTopWidth: 1,
+                borderTopColor: colors.border,
+                paddingVertical: 8,
+              }}
+            >
+              <Svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={colors.textMuted}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ marginRight: 12 }}
+              >
+                <Path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" />
+                <Path d="M4 6v12c0 1.1.9 2 2 2h14v-4" />
+                <Path d="M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4h-4z" />
+              </Svg>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    color: colors.text,
+                    paddingVertical: 8,
+                    fontWeight: "600",
+                    letterSpacing: 0.5,
+                  }}
+                  numberOfLines={1}
+                >
+                  {currentUser.uid || "XLID-000000"}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: colors.textDimmed,
+                    marginTop: -6,
+                    marginBottom: 2,
+                  }}
+                >
+                  XLID · Unique User Identifier
+                </Text>
+              </View>
+              {/* Lock badge */}
+              <Svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={colors.textDimmed}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <Rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <Path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </Svg>
+            </View>
           </View>
         </View>
 
