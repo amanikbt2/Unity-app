@@ -15,6 +15,7 @@ import {
   Linking,
   Animated,
   Platform,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Constants from "expo-constants";
@@ -179,6 +180,7 @@ export default function ProfileScreen({ route, navigation }) {
   const scrollRef = useRef(null);
   const layoutOffsets = useRef({});
   const [glowTarget, setGlowTarget] = useState(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const glowAnim = useRef(new Animated.Value(0)).current;
 
   // Modal Visibility states
@@ -398,7 +400,8 @@ export default function ProfileScreen({ route, navigation }) {
       avatar: currentUser.avatar,
       nativeLang: currentUser.nativeLang,
       uid: currentUser.uid,
-      utid: currentUser.utid,
+      xlid: currentUser.xlid || currentUser.utid,
+      utid: currentUser.xlid || currentUser.utid,
       dateJoined: currentUser.dateJoined,
     });
     setProfilePopupVisible(true);
@@ -1121,6 +1124,20 @@ export default function ProfileScreen({ route, navigation }) {
         ref={scrollRef}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={async () => {
+              setIsRefreshing(true);
+              try {
+                await loadStats();
+              } catch (_) {}
+              setIsRefreshing(false);
+            }}
+            tintColor={colors.primary || "#8B5CF6"}
+            colors={[colors.primary || "#8B5CF6"]}
+          />
+        }
       >
         {/* Avatar presets selector */}
         <View

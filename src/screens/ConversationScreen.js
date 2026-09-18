@@ -21,6 +21,7 @@ import {
   AppState,
   Keyboard,
   Modal,
+  RefreshControl,
 } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -243,6 +244,7 @@ export default function ConversationScreen({ route, navigation }) {
   const [partnerOnline, setPartnerOnline] = useState(
     typeof partnerIsOnlineParam === "boolean" ? partnerIsOnlineParam : true
   );
+  const [isChatRefreshing, setIsChatRefreshing] = useState(false);
 
   // Track if both users are actively in this conversation room
   useEffect(() => {
@@ -2475,6 +2477,23 @@ export default function ConversationScreen({ route, navigation }) {
           style={[styles.chatScrollView, { backgroundColor: colors.chatLogBg }]}
           contentContainerStyle={styles.chatScrollContent}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isChatRefreshing}
+              onRefresh={async () => {
+                setIsChatRefreshing(true);
+                try {
+                  const dbChats = await getChats(partnerId);
+                  if (dbChats && dbChats.length > 0) {
+                    setChatBubbles(dbChats);
+                  }
+                } catch (_) {}
+                setIsChatRefreshing(false);
+              }}
+              tintColor={colors.primary || "#8B5CF6"}
+              colors={[colors.primary || "#8B5CF6"]}
+            />
+          }
         >
           <View style={styles.systemMsgContainer}>
             <Text

@@ -94,7 +94,7 @@ const FLAG_MAP = {
 const generateUid = () =>
   "XLID-" + Math.random().toString(36).slice(2, 8).toUpperCase();
 
-const generateUtid = () => {
+const generateXlid = () => {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   let result = "";
   for (let i = 0; i < 5; i++) {
@@ -136,8 +136,15 @@ export const AppProvider = ({ children }) => {
           }
         }
         
-        if (!profile.utid || profile.utid.includes("@")) {
-          profile.utid = generateUtid();
+        const xlidVal = profile.xlid || profile.utid;
+        if (!xlidVal || xlidVal.includes("@")) {
+          const newXlid = generateXlid();
+          profile.xlid = newXlid;
+          profile.utid = newXlid;
+          needsUpdate = true;
+        } else if (!profile.xlid || !profile.utid) {
+          profile.xlid = xlidVal;
+          profile.utid = xlidVal;
           needsUpdate = true;
         }
         if (!profile.dateJoined) {
@@ -156,9 +163,11 @@ export const AppProvider = ({ children }) => {
       } else {
         const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         const now = new Date();
+        const initialXlid = generateXlid();
         const initialProfile = {
           ...DEFAULT_USER,
-          utid: generateUtid(),
+          xlid: initialXlid,
+          utid: initialXlid,
           dateJoined: `${months[now.getMonth()]} ${now.getFullYear()}`,
         };
         setCurrentUser(initialProfile);
@@ -211,8 +220,14 @@ export const AppProvider = ({ children }) => {
         merged.sessionCreatedAt = Date.now();
       }
 
-      if (!merged.utid || merged.utid.includes("@")) {
-        merged.utid = generateUtid();
+      const currentXlid = merged.xlid || merged.utid;
+      if (!currentXlid || currentXlid.includes("@")) {
+        const gen = generateXlid();
+        merged.xlid = gen;
+        merged.utid = gen;
+      } else {
+        merged.xlid = currentXlid;
+        merged.utid = currentXlid;
       }
       if (!merged.dateJoined) {
         const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

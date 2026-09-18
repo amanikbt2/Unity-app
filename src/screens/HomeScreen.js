@@ -294,6 +294,7 @@ export default function HomeScreen({ route, navigation }) {
   const [profilePopupData, setProfilePopupData] = useState(null);
   const [detectedCountry, setDetectedCountry] = useState(null);
   const [recentConversations, setRecentConversations] = useState([]);
+  const [isGlobalRefreshing, setIsGlobalRefreshing] = useState(false);
 
   // Non-blocking IP Geo-location lookup with a strict timeout
   useEffect(() => {
@@ -486,6 +487,30 @@ export default function HomeScreen({ route, navigation }) {
       }
     } catch (err) {
       console.warn("[HomeScreen] News/Explore pre-fetch failed:", err.message);
+    }
+  };
+
+  const handleGlobalRefresh = async () => {
+    setIsGlobalRefreshing(true);
+    try {
+      await deleteDbContact("c1");
+      await deleteDbContact("c2");
+      const localContacts = (await getDbContacts()).filter(c => c.id !== "c1" && c.id !== "c2");
+      if (localContacts.length > 0) {
+        setContacts(localContacts);
+      }
+      
+      const localExplore = await getDbExplore();
+      if (localExplore.length > 0) {
+        setExploreProfiles(localExplore);
+      }
+
+      await loadRecentConversationsData();
+      await preFetchServerData();
+    } catch (err) {
+      console.warn("[HomeScreen] Global refresh error:", err);
+    } finally {
+      setIsGlobalRefreshing(false);
     }
   };
 
@@ -1568,7 +1593,7 @@ export default function HomeScreen({ route, navigation }) {
     const q = exploreSearchText.toLowerCase();
     return (
       (person.name && person.name.toLowerCase().includes(q)) ||
-      (person.utid && person.utid.toLowerCase().includes(q)) ||
+      ((person.xlid || person.utid) && (person.xlid || person.utid).toLowerCase().includes(q)) ||
       (person.uid && person.uid.toLowerCase().includes(q))
     );
   }), [myProfile, filteredExploreProfiles, exploreSearchText]);
@@ -1640,6 +1665,14 @@ export default function HomeScreen({ route, navigation }) {
         onScroll={(e) => {
           scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
         }}
+        refreshControl={
+          <RefreshControl
+            refreshing={isGlobalRefreshing}
+            onRefresh={handleGlobalRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
       >
         {isTabLoading ? (
           <View style={{ paddingVertical: 120, alignItems: "center", justifyContent: "center" }}>
@@ -2053,7 +2086,7 @@ export default function HomeScreen({ route, navigation }) {
                       fontSize: 14,
                       outlineStyle: "none",
                     }}
-                    placeholder="Search by name or UTID"
+                    placeholder="Search by name or XLID"
                     placeholderTextColor={colors.textMuted}
                     onChangeText={setContactSearchText}
                     value={contactSearchText}
@@ -2331,7 +2364,7 @@ export default function HomeScreen({ route, navigation }) {
                       fontSize: 14,
                       outlineStyle: "none",
                     }}
-                    placeholder="Search by name or UTID"
+                    placeholder="Search by name or XLID"
                     placeholderTextColor={colors.textMuted}
                     onChangeText={setExploreSearchText}
                     value={exploreSearchText}
@@ -4099,6 +4132,14 @@ export default function HomeScreen({ route, navigation }) {
               style={styles.modalScrollList}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              refreshControl={
+                <RefreshControl
+                  refreshing={isGlobalRefreshing}
+                  onRefresh={handleGlobalRefresh}
+                  tintColor={colors.primary}
+                  colors={[colors.primary]}
+                />
+              }
             >
               {(() => {
                 const sourceList =
@@ -4576,13 +4617,14 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   exploreGrid: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
+    rowGap: 12,
   },
   exploreCard: {
-    width: (width - 54) / 2,
+    width: Platform.OS === "web" ? "calc(50% - 8px)" : "48%",
     borderRadius: 20,
     borderWidth: 1,
     overflow: "hidden",
@@ -4590,6 +4632,7 @@ const styles = StyleSheet.create({
     ...Platform.select({
       web: {
         boxShadow: "0px 4px 8px rgba(0,0,0,0.04)",
+        boxSizing: "border-box",
       },
       default: {
         shadowColor: "#000",

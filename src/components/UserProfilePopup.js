@@ -19,10 +19,11 @@ const DEFAULT_PROFILE = {
   uid: "XLID-UNKNOWN",
 };
 
-const getProfileUtid = (profile) => {
+const getProfileXlid = (profile) => {
   if (!profile) return "wH5I7";
-  if (profile.utid && typeof profile.utid === "string" && !profile.utid.includes("@")) {
-    return profile.utid;
+  const idVal = profile.xlid || profile.utid;
+  if (idVal && typeof idVal === "string" && !idVal.includes("@")) {
+    return idVal;
   }
   const rawId = profile.uid || profile.id || profile.email || "";
   if (!rawId || rawId.includes("@") || rawId.startsWith("XLID-") || rawId.startsWith("XLID_") || rawId.startsWith("UID-") || rawId.startsWith("UID_") || rawId === "XLID-UNKNOWN" || rawId === "UID-UNKNOWN") {
@@ -33,12 +34,12 @@ const getProfileUtid = (profile) => {
       hash = (hash << 5) - hash + fallbackStr.charCodeAt(i);
       hash |= 0;
     }
-    let utid = "";
+    let xlid = "";
     for (let i = 0; i < 5; i++) {
       const idx = Math.abs((hash * (i + 1) * 31) % chars.length);
-      utid += chars.charAt(idx);
+      xlid += chars.charAt(idx);
     }
-    return utid;
+    return xlid;
   }
   return rawId.replace(/^(XLID|UID)-/i, "");
 };
@@ -93,10 +94,12 @@ export default function UserProfilePopup({
 
   const resolvedProfile = useMemo(() => {
     const base = profile || DEFAULT_PROFILE;
+    const xlidVal = getProfileXlid(base);
     return {
       ...DEFAULT_PROFILE,
       ...base,
-      utid: getProfileUtid(base),
+      xlid: xlidVal,
+      utid: xlidVal,
       dateJoined: getJoinedDate(base),
       country: getCountryLabel(base, getLangDetails, getLangDetailsFromFlag),
       language: getLanguageLabel(base, getLangDetails),
@@ -202,13 +205,13 @@ export default function UserProfilePopup({
                 ]}
               >
                 <Text style={[styles.infoLabel, { color: colors.textDimmed }]}>
-                  UTID
+                  XLID
                 </Text>
                 <Text
                   style={[styles.infoValue, { color: colors.text }]}
                   numberOfLines={1}
                 >
-                  {resolvedProfile.utid}
+                  {resolvedProfile.xlid || resolvedProfile.utid}
                 </Text>
               </View>
 
