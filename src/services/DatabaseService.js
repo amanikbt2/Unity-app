@@ -529,6 +529,16 @@ export async function getContacts() {
   }
 }
 
+export async function deleteContact(contactId) {
+  try {
+    await dbRunAsync("DELETE FROM contacts WHERE id = ?;", [contactId]);
+    return true;
+  } catch (error) {
+    console.error("[Database] deleteContact error:", error);
+    return false;
+  }
+}
+
 export async function saveContacts(contactsArray) {
   try {
     for (const contact of contactsArray) {

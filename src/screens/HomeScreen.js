@@ -54,6 +54,7 @@ import {
   getCallLogs as getDbCallLogs,
   getRecentConversationsMap as getDbRecentConversationsMap,
   clearContactUnread as clearDbContactUnread,
+  deleteContact as deleteDbContact,
   saveChat,
 } from "../services/DatabaseService";
 import {
@@ -265,6 +266,7 @@ export default function HomeScreen({ route, navigation }) {
   const [callsFilter, setCallsFilter] = useState("all");
   const [callLogs, setCallLogs] = useState([]);
   const [onboardingVisible, setOnboardingVisible] = useState(false);
+  const hasCheckedOnboardingRef = useRef(false);
   const [contactsFilter, setContactsFilter] = useState("my");
   const [contacts, setContacts] = useState(INITIAL_CONTACTS);
   const [syncedCount, setSyncedCount] = useState(0);
@@ -419,20 +421,7 @@ export default function HomeScreen({ route, navigation }) {
     return () => shimAnim.stop();
   }, [newsShimmerPos]);
 
-  useEffect(() => {
-    const checkOnboarding = async () => {
-      try {
-        const dismissed = await AsyncStorage.getItem("@onboarding_dismissed");
-        if (dismissed !== "true") {
-          setOnboardingVisible(true);
-        }
-      } catch (e) {
-        console.error("Failed to read onboarding dismiss state", e);
-        setOnboardingVisible(true);
-      }
-    };
-    checkOnboarding();
-  }, []);
+
 
   /**
    * Auto-sync contacts on app open (weekly interval or upon new login/signup).
@@ -871,12 +860,30 @@ export default function HomeScreen({ route, navigation }) {
     });
   };
 
+  // Manage onboarding popup visibility:
+  // Shows continuously on app open while profile is < 100%.
+  // Dismissing closes it for current session only.
+  // Once profile reaches 100%, it closes and is saved as dismissed forever.
+  useEffect(() => {
+    if (onboardingPct === 100) {
+      setOnboardingVisible(false);
+      AsyncStorage.setItem("@onboarding_dismissed", "true").catch((e) =>
+        console.error("Failed to mark onboarding as dismissed", e)
+      );
+    } else if (!hasCheckedOnboardingRef.current) {
+      hasCheckedOnboardingRef.current = true;
+      setOnboardingVisible(true);
+    }
+  }, [onboardingPct]);
+
   const handleCloseOnboarding = async () => {
     setOnboardingVisible(false);
-    try {
-      await AsyncStorage.setItem("@onboarding_dismissed", "true");
-    } catch (e) {
-      console.error("Failed to dismiss onboarding", e);
+    if (onboardingPct === 100) {
+      try {
+        await AsyncStorage.setItem("@onboarding_dismissed", "true");
+      } catch (e) {
+        console.error("Failed to dismiss onboarding", e);
+      }
     }
   };
 
@@ -884,10 +891,12 @@ export default function HomeScreen({ route, navigation }) {
     const targetStr = typeof target === "string" ? target : "menu";
     trackEvent("opened_settings", currentUser, { target: targetStr });
     setOnboardingVisible(false);
-    try {
-      await AsyncStorage.setItem("@onboarding_dismissed", "true");
-    } catch (e) {
-      console.error("Failed to mark onboarding as dismissed", e);
+    if (onboardingPct === 100) {
+      try {
+        await AsyncStorage.setItem("@onboarding_dismissed", "true");
+      } catch (e) {
+        console.error("Failed to mark onboarding as dismissed", e);
+      }
     }
     navigation.navigate("Profile", { scrollTo: targetStr });
   };
@@ -1202,6 +1211,8 @@ export default function HomeScreen({ route, navigation }) {
           .filter((num) => num !== "");
 
         let unityUserMap = {};
+        const normalizePhone = (num) => (num || "").replace(/\D/g, "");
+
         try {
           console.log("[Contacts] Checking backend for Xaylite accounts...");
           const res = await fetch(`${SERVER_URL}/api/check-contacts`, {
@@ -1212,7 +1223,14 @@ export default function HomeScreen({ route, navigation }) {
           const checkData = await res.json();
           if (checkData && checkData.contacts) {
             checkData.contacts.forEach((c) => {
-              unityUserMap[c.phone] = c;
+              if (c.phone) {
+                unityUserMap[c.phone] = c;
+                const clean = normalizePhone(c.phone);
+                if (clean) unityUserMap[clean] = c;
+              }
+              if (c.email) {
+                unityUserMap[c.email.toLowerCase().trim()] = c;
+              }
             });
           }
         } catch (backendErr) {
@@ -1237,10 +1255,16 @@ export default function HomeScreen({ route, navigation }) {
             const email =
               item.emails && item.emails.length > 0 ? item.emails[0].email : "";
 
-            const unityInfo = unityUserMap[phone];
+            const cleanPhone = normalizePhone(phone);
+            const cleanEmail = (email || "").toLowerCase().trim();
+            const unityInfo =
+              unityUserMap[phone] ||
+              (cleanPhone ? unityUserMap[cleanPhone] : null) ||
+              (cleanEmail ? unityUserMap[cleanEmail] : null);
+
             const isUnityUser = !!(
               unityInfo &&
-              (unityInfo.hasUnityAccount || unityInfo.hasAccount)
+              (unityInfo.hasUnityAccount || unityInfo.hasAccount || unityInfo.isRegistered)
             );
 
             let flag = "";
@@ -1297,7 +1321,7 @@ export default function HomeScreen({ route, navigation }) {
               email: email,
               flag: flag,
               langName: lang,
-              status: isUnityUser ? "Available on Xaylite" : "Not on Xaylite",
+              status: isUnityUser ? (unityInfo?.status || "Available on Xaylite") : "Not on Xaylite",
               is_synced: 1,
               avatar: localAvatar,
               isUnityUser: isUnityUser ? 1 : 0,
@@ -1627,6 +1651,8 @@ export default function HomeScreen({ route, navigation }) {
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
         onScroll={(e) => {
+          scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+        }}
       >
         {isTabLoading ? (
           <View style={{ paddingVertical: 120, alignItems: "center", justifyContent: "center" }}>
@@ -1761,13 +1787,7 @@ export default function HomeScreen({ route, navigation }) {
               ]}
             >
               {(() => {
-                // Compute or fallback list of recent conversations
-                const activeList =
-                  recentConversations.length > 0
-                    ? recentConversations
-                    : displayedContacts;
-
-                if (!activeList || activeList.length === 0) {
+                if (!recentConversations || recentConversations.length === 0) {
                   return (
                     <View style={{ padding: 24, alignItems: "center" }}>
                       <Text style={{ color: colors.textDimmed, fontSize: 13 }}>
@@ -1776,6 +1796,8 @@ export default function HomeScreen({ route, navigation }) {
                     </View>
                   );
                 }
+
+                const activeList = recentConversations;
 
                 return activeList.map((contact, index) => {
                   const isAI = contact.id === "unity_ai";
@@ -1941,247 +1963,11 @@ export default function HomeScreen({ route, navigation }) {
                   );
                 });
               })()}
-
-              {isDev && (
-                <>
-                  {/* Partner Card 1 */}
-                  <View
-                    style={[styles.convCard, { borderBottomColor: colors.border }]}
-                  >
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      hitSlop={8}
-                      onPress={() =>
-                        openProfilePopup({
-                          name: "Sophia Martinez",
-                          avatar:
-                            "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
-                          flag: "🇪🇸",
-                          langName: "Spanish",
-                          uid: "recent_sophia",
-                        })
-                      }
-                      style={styles.avatarContainer}
-                    >
-                      <Image
-                        source={{
-                          uri: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
-                        }}
-                        style={styles.avatar}
-                      />
-                      <View
-                        style={[styles.flagBadge, { backgroundColor: colors.bg }]}
-                      >
-                        {renderFlagOrEmoji("🇪🇸")}
-                      </View>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      activeOpacity={0.7}
-                      onPress={() =>
-                        handlePartnerClick(
-                          "Sophia Martinez",
-                          "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=100&h=100&q=80",
-                          "🇪🇸",
-                        )
-                      }
-                      style={styles.convBodyPress}
-                    >
-                      <View style={styles.convDetails}>
-                        <View style={styles.convHeader}>
-                          <Text
-                            style={[styles.partnerName, { color: colors.text }]}
-                          >
-                            Sophia Martinez
-                          </Text>
-                          <Text
-                            style={[styles.convTime, { color: colors.textDimmed }]}
-                          >
-                            2m ago
-                          </Text>
-                        </View>
-                        <Text
-                          style={[styles.convPreview, { color: colors.textMuted }]}
-                        >
-                          English ⇄ Spanish (Active)
-                        </Text>
-                      </View>
-                      <View style={styles.convArrow}>
-                        <Svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke={colors.textDimmed}
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <Path d="M9 18l6-6-6-6" />
-                        </Svg>
-                      </View>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Partner Card 2 */}
-                  <View
-                    style={[styles.convCard, { borderBottomColor: colors.border }]}
-                  >
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      hitSlop={8}
-                      onPress={() =>
-                        openProfilePopup({
-                          name: "Kenji Sato",
-                          avatar:
-                            "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
-                          flag: "🇯🇵",
-                          langName: "Japanese",
-                          uid: "recent_kenji",
-                        })
-                      }
-                      style={styles.avatarContainer}
-                    >
-                      <Image
-                        source={{
-                          uri: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
-                        }}
-                        style={styles.avatar}
-                      />
-                      <View
-                        style={[styles.flagBadge, { backgroundColor: colors.bg }]}
-                      >
-                        {renderFlagOrEmoji("🇯🇵")}
-                      </View>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      activeOpacity={0.7}
-                      onPress={() =>
-                        handlePartnerClick(
-                          "Kenji Sato",
-                          "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&h=100&q=80",
-                          "🇯🇵",
-                        )
-                      }
-                      style={styles.convBodyPress}
-                    >
-                      <View style={styles.convDetails}>
-                        <View style={styles.convHeader}>
-                          <Text
-                            style={[styles.partnerName, { color: colors.text }]}
-                          >
-                            Kenji Sato
-                          </Text>
-                          <Text
-                            style={[styles.convTime, { color: colors.textDimmed }]}
-                          >
-                            1h ago
-                          </Text>
-                        </View>
-                        <Text
-                          style={[styles.convPreview, { color: colors.textMuted }]}
-                        >
-                          English ⇄ Japanese
-                        </Text>
-                      </View>
-                      <View style={styles.convArrow}>
-                        <Svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke={colors.textDimmed}
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <Path d="M9 18l6-6-6-6" />
-                        </Svg>
-                      </View>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Partner Card 3 */}
-                  <View style={[styles.convCard, { borderBottomWidth: 0 }]}>
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      hitSlop={8}
-                      onPress={() =>
-                        openProfilePopup({
-                          name: "Amara Okoro",
-                          avatar:
-                            "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=100&h=100&q=80",
-                          flag: "🇰🇪",
-                          langName: "Swahili",
-                          uid: "recent_amara",
-                        })
-                      }
-                      style={styles.avatarContainer}
-                    >
-                      <Image
-                        source={{
-                          uri: "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=100&h=100&q=80",
-                        }}
-                        style={styles.avatar}
-                      />
-                      <View
-                        style={[styles.flagBadge, { backgroundColor: colors.bg }]}
-                      >
-                        {renderFlagOrEmoji("🇰🇪")}
-                      </View>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      activeOpacity={0.7}
-                      onPress={() =>
-                        handlePartnerClick(
-                          "Amara Okoro",
-                          "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=100&h=100&q=80",
-                          "🇰🇪",
-                        )
-                      }
-                      style={styles.convBodyPress}
-                    >
-                      <View style={styles.convDetails}>
-                        <View style={styles.convHeader}>
-                          <Text
-                            style={[styles.partnerName, { color: colors.text }]}
-                          >
-                            Amara Okoro
-                          </Text>
-                          <Text
-                            style={[styles.convTime, { color: colors.textDimmed }]}
-                          >
-                            Yesterday
-                          </Text>
-                        </View>
-                        <Text
-                          style={[styles.convPreview, { color: colors.textMuted }]}
-                        >
-                          English ⇄ Swahili
-                        </Text>
-                      </View>
-                      <View style={styles.convArrow}>
-                        <Svg
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke={colors.textDimmed}
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <Path d="M9 18l6-6-6-6" />
-                        </Svg>
-                      </View>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              )}
             </View>
           </View>
         )}
-
         {activeTab === "contacts" && (
+
           <View>
             <View style={styles.filterContainer}>
               <TouchableOpacity
@@ -2456,12 +2242,14 @@ export default function HomeScreen({ route, navigation }) {
                             style={[
                               styles.contactStatus,
                               {
-                                color: colors.accent,
+                                color: contact.isUnityUser ? colors.accent : colors.textMuted,
                                 marginLeft: contact.unreadCount > 0 ? 8 : 0,
                               },
                             ]}
                           >
-                            {contact.status}
+                            {contact.isUnityUser
+                              ? (contact.status && contact.status !== "Not on Xaylite" ? contact.status : "Available on Xaylite")
+                              : "Not on Xaylite"}
                           </Text>
                         </View>
                         <Text
