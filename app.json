@@ -3,7 +3,7 @@
     "name": "Xaylite",
     "slug": "Unity-app",
     "scheme": "unityapp",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -21,6 +21,7 @@
     },
     "android": {
       "package": "com.amanikbt1.xaylite",
+      "versionCode": 2,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
