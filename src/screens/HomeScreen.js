@@ -2113,7 +2113,7 @@ export default function HomeScreen({ route, navigation }) {
                   />
                 </View>
 
-                {/* Subtle syncing indicator (no manual button) */}
+                {/* Subtle syncing indicator with animated sliding shimmer */}
                 {isImporting ? (
                   <View
                     style={[
@@ -2121,24 +2121,65 @@ export default function HomeScreen({ route, navigation }) {
                       {
                         backgroundColor: colors.cardBg,
                         borderColor: colors.border,
-                        flexDirection: "row",
-                        alignItems: "center",
+                        overflow: "hidden",
+                        paddingVertical: 12,
+                        paddingHorizontal: 16,
                       },
                     ]}
                   >
-                    <ActivityIndicator
-                      size="small"
-                      color={colors.primary}
-                      style={{ marginRight: 10 }}
-                    />
-                    <Text
-                      style={[
-                        styles.importSuccessText,
-                        { color: colors.textMuted },
-                      ]}
+                    <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+                      <ActivityIndicator
+                        size="small"
+                        color={colors.primary}
+                        style={{ marginRight: 10 }}
+                      />
+                      <Text
+                        style={[
+                          styles.importSuccessText,
+                          { color: colors.textMuted, fontWeight: "600" },
+                        ]}
+                      >
+                        Syncing contacts & discovering users...
+                      </Text>
+                    </View>
+                    <View
+                      style={{
+                        height: 4,
+                        borderRadius: 2,
+                        backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+                        overflow: "hidden",
+                        position: "relative",
+                      }}
                     >
-                      Syncing contacts...
-                    </Text>
+                      <Animated.View
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          bottom: 0,
+                          left: -150,
+                          width: 150,
+                          transform: [
+                            {
+                              translateX: newsShimmerPos.interpolate({
+                                inputRange: [-1, 1],
+                                outputRange: [-150, 350],
+                              }),
+                            },
+                          ],
+                        }}
+                      >
+                        <LinearGradient
+                          colors={
+                            isDark
+                              ? ["transparent", "rgba(255,255,255,0.4)", "transparent"]
+                              : ["transparent", "rgba(0,0,0,0.25)", "transparent"]
+                          }
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={{ flex: 1 }}
+                        />
+                      </Animated.View>
+                    </View>
                   </View>
                 ) : null}
 
@@ -2391,8 +2432,120 @@ export default function HomeScreen({ route, navigation }) {
                   />
                 </View>
 
-                <View style={styles.exploreGrid}>
-                  {displayedExplore.map((person) => (
+                {displayedExplore.length === 0 ? (
+                  <View style={styles.exploreGrid}>
+                    {[1, 2, 3, 4].map((key) => {
+                      const shimTX = newsShimmerPos.interpolate({
+                        inputRange: [-1, 1],
+                        outputRange: [-200, 200],
+                      });
+                      const bg = isDark
+                        ? "rgba(255,255,255,0.07)"
+                        : "rgba(0,0,0,0.06)";
+                      const grad = isDark
+                        ? ["transparent", "rgba(255,255,255,0.13)", "transparent"]
+                        : ["transparent", "rgba(255,255,255,0.75)", "transparent"];
+                      return (
+                        <View
+                          key={key}
+                          style={[
+                            styles.exploreCard,
+                            {
+                              backgroundColor: colors.cardBg,
+                              borderColor: colors.border,
+                              overflow: "hidden",
+                            },
+                          ]}
+                        >
+                          <View
+                            style={{
+                              width: "100%",
+                              height: 110,
+                              backgroundColor: bg,
+                              overflow: "hidden",
+                            }}
+                          >
+                            <Animated.View
+                              style={{
+                                position: "absolute",
+                                top: 0,
+                                bottom: 0,
+                                left: -200,
+                                width: 200,
+                                transform: [{ translateX: shimTX }],
+                              }}
+                            >
+                              <LinearGradient
+                                colors={grad}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 0 }}
+                                style={{ flex: 1 }}
+                              />
+                            </Animated.View>
+                          </View>
+                          <View style={{ padding: 10, gap: 8 }}>
+                            <View
+                              style={{
+                                height: 12,
+                                borderRadius: 6,
+                                backgroundColor: bg,
+                                width: "70%",
+                                overflow: "hidden",
+                              }}
+                            >
+                              <Animated.View
+                                style={{
+                                  position: "absolute",
+                                  top: 0,
+                                  bottom: 0,
+                                  left: -200,
+                                  width: 200,
+                                  transform: [{ translateX: shimTX }],
+                                }}
+                              >
+                                <LinearGradient
+                                  colors={grad}
+                                  start={{ x: 0, y: 0 }}
+                                  end={{ x: 1, y: 0 }}
+                                  style={{ flex: 1 }}
+                                />
+                              </Animated.View>
+                            </View>
+                            <View
+                              style={{
+                                height: 10,
+                                borderRadius: 5,
+                                backgroundColor: bg,
+                                width: "50%",
+                                overflow: "hidden",
+                              }}
+                            >
+                              <Animated.View
+                                style={{
+                                  position: "absolute",
+                                  top: 0,
+                                  bottom: 0,
+                                  left: -200,
+                                  width: 200,
+                                  transform: [{ translateX: shimTX }],
+                                }}
+                              >
+                                <LinearGradient
+                                  colors={grad}
+                                  start={{ x: 0, y: 0 }}
+                                  end={{ x: 1, y: 0 }}
+                                  style={{ flex: 1 }}
+                                />
+                              </Animated.View>
+                            </View>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <View style={styles.exploreGrid}>
+                    {displayedExplore.map((person) => (
                     <View
                       key={person.id}
                       style={[
@@ -2474,6 +2627,7 @@ export default function HomeScreen({ route, navigation }) {
                     </View>
                   ))}
                 </View>
+              )}
               </View>
             )}
           </View>
