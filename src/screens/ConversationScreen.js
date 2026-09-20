@@ -1681,6 +1681,9 @@ export default function ConversationScreen({ route, navigation }) {
   }, [recorder]);
 
   const toggleHandsFree = async () => {
+    if (!handsFreeActive && activeCallId) {
+      await endCall(activeCallId, "Switching call mode...");
+    }
     if (handsFreeActive) {
       setHandsFreeActive(false);
       handsFreeActiveRef.current = false;
@@ -1731,6 +1734,19 @@ export default function ConversationScreen({ route, navigation }) {
         setHandsFreeActive(false);
         setIsRecording(false);
       }
+    }
+  };
+
+  const handleMicPress = () => {
+    if (handsFreeActive || activeCallId || isRecording) {
+      if (handsFreeActive) {
+        toggleHandsFree();
+      }
+      if (activeCallId) {
+        endCall(activeCallId, "Call Ended");
+      }
+    } else {
+      setMicMenuVisible(true);
     }
   };
 
@@ -2442,7 +2458,7 @@ export default function ConversationScreen({ route, navigation }) {
 
             <TouchableOpacity
               activeOpacity={0.8}
-              onPress={() => setMicMenuVisible(true)}
+              onPress={handleMicPress}
               style={{ borderRadius: 55 }}
             >
               <Animated.View
@@ -2638,13 +2654,13 @@ export default function ConversationScreen({ route, navigation }) {
                     styles.controlCircle,
                     !isOnline
                       ? { backgroundColor: colors.border }
-                      : isRecording
+                      : (handsFreeActive || activeCallId || isRecording)
                         ? { backgroundColor: colors.danger }
                         : {
                             backgroundColor: colors.primary,
                           },
                   ]}
-                  onPress={() => setMicMenuVisible(true)}
+                  onPress={handleMicPress}
                   activeOpacity={0.7}
                   disabled={false}
                 >
