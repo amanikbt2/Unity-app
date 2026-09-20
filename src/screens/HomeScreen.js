@@ -234,17 +234,9 @@ export default function HomeScreen({ route, navigation }) {
   const { currentUser, getLangDetails, getLangDetailsFromFlag, LANGS } =
     useContext(AppContext);
   const [activeTab, setActiveTab] = useState("chats");
-  const [isTabLoading, setIsTabLoading] = useState(false);
-
   const handleTabSwitch = (newTab) => {
     if (activeTab === newTab) return;
     setActiveTab(newTab);
-    setIsTabLoading(true);
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        setIsTabLoading(false);
-      }, 50);
-    });
   };
   const [callsFilter, setCallsFilter] = useState("all");
   const [callLogs, setCallLogs] = useState([]);
@@ -277,9 +269,10 @@ export default function HomeScreen({ route, navigation }) {
   const [carouselIndex, setCarouselIndex] = useState(0);
   const carouselRef = useRef(null);
   const [newsBadgeCount, setNewsBadgeCount] = useState(0);
-  // Infinite-scroll pagination
-  const [newsDisplayCount, setNewsDisplayCount] = useState(8);
+  // Infinite-scroll pagination (initial 2 articles loaded, 2 more fetched per scroll with shimmer animation)
+  const [newsDisplayCount, setNewsDisplayCount] = useState(2);
   const [newsLoadingMore, setNewsLoadingMore] = useState(false);
+  const newsLoadingMoreRef = useRef(false);
   const newsShimmerPos = useMemo(() => new Animated.Value(-1), []);
   // News count ref (keeps filtered count without causing re-renders)
   const filteredNewsCountRef = useRef(0);
@@ -527,44 +520,50 @@ export default function HomeScreen({ route, navigation }) {
 
         await initDirectories();
 
-        // 1. Load Contacts & purge any legacy fake contacts
-        await deleteDbContact("c1");
-        await deleteDbContact("c2");
-        const localContacts = (await getDbContacts()).filter(c => c.id !== "c1" && c.id !== "c2");
-        if (localContacts.length > 0) {
-          setContacts(localContacts);
-          setImported(true);
-        } else {
-          await saveDbContacts(INITIAL_CONTACTS);
-          const initialWithTime = await getDbContacts();
-          setContacts(initialWithTime);
-        }
+        // 1. Asynchronously purge legacy contacts and display local contacts immediately
+        deleteDbContact("c1").catch(() => {});
+        deleteDbContact("c2").catch(() => {});
 
-        // 2. Load News Articles
-        const localNews = await getDbNewsArticles();
-        if (localNews && localNews.length > 0) {
-          setNewsArticles(localNews);
-        } else {
-          const news = await fetchLatestNews("All");
-          setNewsArticles(news);
-        }
+        getDbContacts().then((localContacts) => {
+          const cleanContacts = (localContacts || []).filter(c => c.id !== "c1" && c.id !== "c2");
+          if (cleanContacts.length > 0) {
+            setContacts(cleanContacts);
+            setImported(true);
+          } else {
+            saveDbContacts(INITIAL_CONTACTS).then(() => {
+              getDbContacts().then((initialWithTime) => setContacts(initialWithTime));
+            });
+          }
+        }).catch(() => {});
 
-        // 3. Load Explore Profiles
-        const localExplore = await getDbExplore();
-        if (localExplore.length > 0) {
-          setExploreProfiles(localExplore);
-        } else {
-          await saveDbExplore(EXPLORE_PEOPLE);
-          setExploreProfiles(EXPLORE_PEOPLE);
-        }
+        // 2. Load recent conversations map immediately
+        loadRecentConversationsData();
 
-        // 4. Pre-fetch from Server
-        preFetchServerData();
+        // 3. Asynchronously load news articles
+        getDbNewsArticles().then((localNews) => {
+          if (localNews && localNews.length > 0) {
+            setNewsArticles(localNews);
+          } else {
+            fetchLatestNews("All").then((news) => setNewsArticles(news));
+          }
+        }).catch(() => {});
 
-        // 5. Cloud Backup Check
-        triggerCloudBackup().catch((err) =>
-          console.warn("Background backup check failed:", err.message)
-        );
+        // 4. Asynchronously load explore profiles
+        getDbExplore().then((localExplore) => {
+          if (localExplore.length > 0) {
+            setExploreProfiles(localExplore);
+          } else {
+            saveDbExplore(EXPLORE_PEOPLE).then(() => setExploreProfiles(EXPLORE_PEOPLE));
+          }
+        }).catch(() => {});
+
+        // 5. Background pre-fetch from server after UI renders
+        setTimeout(() => {
+          preFetchServerData();
+          triggerCloudBackup().catch((err) =>
+            console.warn("Background backup check failed:", err.message)
+          );
+        }, 100);
       } catch (e) {
         console.error("Error loading local DB data on mount:", e);
       }
@@ -1342,16 +1341,21 @@ export default function HomeScreen({ route, navigation }) {
 
           processedCount += batch.length;
 
-          // Save batch to database in background
-          await saveDbContacts(formattedBatch);
-
-          // Update contacts state incrementally in UI
-          const currentContacts = await getDbContacts();
-          setContacts(currentContacts);
+          // Update contacts state incrementally in UI (memory append)
+          setContacts((prev) => {
+            const existingIds = new Set(prev.map((c) => c.id));
+            const newItems = formattedBatch.filter((item) => !existingIds.has(item.id));
+            return newItems.length > 0 ? [...prev, ...newItems] : prev;
+          });
           setSyncedCount(processedCount);
 
-          // Yield UI thread rendering cycles (30ms sleep)
-          await new Promise((resolve) => setTimeout(resolve, 30));
+          // Save batch to database asynchronously in background without blocking UI
+          saveDbContacts(formattedBatch).catch((err) =>
+            console.warn("[Contacts] Background batch save warning:", err.message)
+          );
+
+          // Yield UI thread rendering cycles (10ms non-blocking sleep)
+          await new Promise((resolve) => setTimeout(resolve, 10));
         }
 
         setImported(true);
@@ -1508,6 +1512,31 @@ export default function HomeScreen({ route, navigation }) {
         },
       ]
     );
+  };
+
+  const handleNewsLoadMore = () => {
+    if (newsLoadingMoreRef.current) return;
+    if (newsDisplayCount >= filteredNewsArticles.length) return;
+
+    newsLoadingMoreRef.current = true;
+    setNewsLoadingMore(true);
+
+    Animated.sequence([
+      Animated.timing(newsShimmerPos, {
+        toValue: 1,
+        duration: 350,
+        useNativeDriver: true,
+      }),
+      Animated.timing(newsShimmerPos, {
+        toValue: 0,
+        duration: 350,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setNewsDisplayCount((prev) => Math.min(prev + 2, filteredNewsArticles.length));
+      setNewsLoadingMore(false);
+      newsLoadingMoreRef.current = false;
+    });
   };
 
   // Interpolate animated gradient shifts
@@ -1674,16 +1703,7 @@ export default function HomeScreen({ route, navigation }) {
           />
         }
       >
-        {isTabLoading ? (
-          <View style={{ paddingVertical: 120, alignItems: "center", justifyContent: "center" }}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={{ marginTop: 14, fontSize: 13, fontWeight: "600", color: colors.textMuted }}>
-              Loading...
-            </Text>
-          </View>
-        ) : (
-          <>
-            {activeTab === "chats" && (
+        {activeTab === "chats" && (
               <View>
             {/* Giant start mic CTA */}
             <View style={styles.ctaContainer}>
@@ -3084,6 +3104,33 @@ export default function HomeScreen({ route, navigation }) {
                       );
                     })()}
 
+                    {/* ─── Shimmering Dimming Pulse Load More Indicator ─── */}
+                    {newsDisplayCount < filteredNewsArticles.length && (
+                      <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 24, alignItems: "center" }}>
+                        <Animated.View
+                          style={{
+                            width: "100%",
+                            padding: 16,
+                            borderRadius: 16,
+                            backgroundColor: colors.cardBg,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            opacity: newsShimmerPos.interpolate({
+                              inputRange: [-1, 0, 1],
+                              outputRange: [0.45, 0.25, 0.95],
+                            }),
+                          }}
+                        >
+                          <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: colors.primary, marginBottom: 8 }} />
+                          <Text style={{ fontSize: 12, fontWeight: "600", color: colors.textMuted }}>
+                            Getting more news...
+                          </Text>
+                        </Animated.View>
+                      </View>
+                    )}
+
                     {/* ─── All caught up footer ─── */}
                     {!newsLoadingMore && filteredNewsArticles.length > 0 && newsDisplayCount >= filteredNewsArticles.length && (
                       <View style={{ alignItems: "center", paddingVertical: 36, paddingHorizontal: 20 }}>
@@ -3309,8 +3356,6 @@ export default function HomeScreen({ route, navigation }) {
             })()}
           </View>
         )}
-        </>
-      )}
       </ScrollView>
 
       <UserProfilePopup
