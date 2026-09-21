@@ -222,7 +222,7 @@ export default function ProfileScreen({ route, navigation }) {
           ...existingProfile,
           uid: existingProfile.uid || existingProfile.email || devEmail,
           id: existingProfile.id || existingProfile.email || devEmail,
-          status: "Available on Xaylite",
+          status: "Available",
           isRealUser: true,
         });
       } else {
@@ -233,7 +233,7 @@ export default function ProfileScreen({ route, navigation }) {
           email: devEmail,
           avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=300&h=300&q=80",
           bio: "System Administrator",
-          status: "Available on Xaylite",
+          status: "Available",
           isRealUser: true,
         });
       }
@@ -1438,25 +1438,37 @@ export default function ProfileScreen({ route, navigation }) {
               <View style={{ flex: 1 }}>
                 <Text
                   style={{
-                    fontSize: 16,
-                    color: colors.text,
-                    paddingVertical: 8,
-                    fontWeight: "600",
+                    fontSize: 11,
+                    color: colors.textDimmed,
+                    marginBottom: 2,
                     letterSpacing: 0.5,
+                    textTransform: "uppercase",
+                    fontWeight: "600",
+                  }}
+                >
+                  XLID
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 17,
+                    color: colors.text,
+                    fontWeight: "700",
+                    letterSpacing: 1.5,
+                    fontVariant: ["tabular-nums"],
                   }}
                   numberOfLines={1}
+                  selectable
                 >
-                  {currentUser.uid || "XLID-000000"}
+                  {currentUser.xlid || currentUser.utid || "———"}
                 </Text>
                 <Text
                   style={{
                     fontSize: 11,
                     color: colors.textDimmed,
-                    marginTop: -6,
-                    marginBottom: 2,
+                    marginTop: 2,
                   }}
                 >
-                  XLID · Unique User Identifier
+                  Unique User Identifier
                 </Text>
               </View>
               {/* Lock badge */}

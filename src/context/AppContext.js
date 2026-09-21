@@ -4,6 +4,7 @@ import { clearAllAppData } from "../services/StorageService";
 import { Image, Platform } from "react-native";
 import Constants from "expo-constants";
 import { queueProfileSync } from "../services/ProfileSyncService";
+import { setupPresenceTracker } from "../services/PresenceService";
 
 export const AppContext = createContext();
 
@@ -292,7 +293,7 @@ export const AppProvider = ({ children }) => {
           avatar: updated.avatar,
           flag: flag,
           langName: langName,
-          bio: updated.bio || "Available on Xaylite",
+          bio: updated.bio || "Available",
           email: updated.email || "guest",
           activeAvatarSlot: updated.activeAvatarSlot || 0,
           platform: Platform.OS,
@@ -345,24 +346,12 @@ export const AppProvider = ({ children }) => {
     init();
   }, []);
 
-  // Send periodic heartbeat when user is active to report real-time online status
+  // Send periodic heartbeat & app state signals when user is active to report real-time online status
   useEffect(() => {
-    if (!currentUser.isRealUser || !currentUser.uid) return;
-
-    const sendHeartbeat = () => {
-      const API_URL =
-        process.env.EXPO_PUBLIC_API_URL || "https://unity-3xc2.onrender.com";
-      fetch(`${API_URL}/api/users/heartbeat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid: currentUser.uid }),
-      }).catch((err) => console.warn("[AppContext] Heartbeat error:", err.message));
-    };
-
-    sendHeartbeat();
-    const interval = setInterval(sendHeartbeat, 60000); // 60s
-    return () => clearInterval(interval);
-  }, [currentUser.uid, currentUser.isRealUser]);
+    if (!currentUser?.uid) return;
+    const cleanupPresence = setupPresenceTracker(currentUser.uid);
+    return () => cleanupPresence();
+  }, [currentUser?.uid]);
 
   const logoutUser = async () => {
     try {

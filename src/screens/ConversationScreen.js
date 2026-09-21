@@ -1506,7 +1506,7 @@ export default function ConversationScreen({ route, navigation }) {
             phone: "",
             email: partnerId.includes("@") ? partnerId : "",
             flag: partnerFlag,
-            status: partnerStatus || "Available on Xaylite",
+            status: partnerStatus || "Available",
             avatar: partnerAvatar || "",
             isUnityUser: true,
           },

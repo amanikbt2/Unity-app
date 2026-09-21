@@ -38,6 +38,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { trackEvent } from "../utils/Analytics";
 import * as Contacts from "expo-contacts";
 import { AppContext } from "../context/AppContext";
+import { checkIsUserOnline } from "../services/PresenceService";
 import { fetchLatestNews } from "../services/NewsService";
 import {
   initDatabase,
@@ -1323,7 +1324,7 @@ export default function HomeScreen({ route, navigation }) {
               email: email,
               flag: flag,
               langName: lang,
-              status: isUnityUser ? (unityInfo?.status || "Available on Xaylite") : "Not on Xaylite",
+              status: isUnityUser ? (unityInfo?.status || "Available") : "Not on Xaylite",
               is_synced: 1,
               avatar: localAvatar,
               isUnityUser: isUnityUser ? 1 : 0,
@@ -1549,19 +1550,14 @@ export default function HomeScreen({ route, navigation }) {
     langName: currentUser.nativeLang
       ? getLangDetails(currentUser.nativeLang)?.name || "Universal"
       : "Universal",
-    status: currentUser.bio || "Online",
+    status: currentUser.bio || "Available on Xaylite",
     bio: currentUser.bio || "This is me!",
     isMe: true,
+    isUnityUser: 1,
   }), [currentUser.name, currentUser.avatar, currentUser.nativeLang, currentUser.bio, getLangDetails]);
 
   const isOnlineContact = (item) => {
-    if (item?.isMe || item?.id === "unity_ai") return true;
-    if (typeof item?.isOnline === "boolean") return item.isOnline;
-    if (item?.lastActive) {
-      const lastActiveTs = new Date(item.lastActive).getTime();
-      return (getCurrentTimestamp() - lastActiveTs) <= 300000;
-    }
-    return isOnlineStatus(item?.status);
+    return checkIsUserOnline(item);
   };
 
   const filteredContacts = useMemo(() => contacts.filter((c) => {
@@ -1572,8 +1568,18 @@ export default function HomeScreen({ route, navigation }) {
 
   const normalizeProfileObj = (person) => {
     if (!person) return null;
+    const isReg =
+      person.id === "unity_ai" ||
+      person.id === "me" ||
+      person.isUnityUser === true ||
+      person.isUnityUser === 1 ||
+      person.isUnityUser === "1" ||
+      !!person.bio ||
+      (person.email && person.email.includes("@")) ||
+      (person.status && person.status.includes("Available"));
     return {
       ...person,
+      isUnityUser: isReg ? 1 : 0,
       avatar: person.avatar_local_path || person.avatar || getDefaultAvatar(person.name || "user"),
     };
   };
@@ -1617,6 +1623,50 @@ export default function HomeScreen({ route, navigation }) {
       (person.uid && person.uid.toLowerCase().includes(q))
     );
   }), [myProfile, filteredExploreProfiles, exploreSearchText]);
+
+  // Combined, sweet interleaved list for Start Translation Chat modal (Contact -> Global -> Contact -> Global)
+  const combinedStartConvList = useMemo(() => {
+    const aiContact = displayedContacts.find((c) => c && c.id === "unity_ai") || {
+      id: "unity_ai",
+      name: "Xaylite AI",
+      avatar: require("../../assets/icon.png"),
+      flag: "🌍",
+      langName: "AI Companion",
+      status: "Ready to chat",
+      isUnityUser: 1,
+    };
+
+    const userContacts = displayedContacts.filter(
+      (c) => c && c.id !== "unity_ai" && c.id !== "me" && c.id !== "c1" && c.id !== "c2"
+    );
+
+    const globalPartners = displayedExplore.filter(
+      (e) => e && e.id !== "unity_ai" && e.id !== "me" && e.id !== "e1" && e.id !== "e2"
+    );
+
+    const seenIds = new Set(["unity_ai", "me"]);
+    const interleavedList = [];
+
+    const maxLen = Math.max(userContacts.length, globalPartners.length);
+    for (let i = 0; i < maxLen; i++) {
+      if (i < userContacts.length) {
+        const c = userContacts[i];
+        if (c && !seenIds.has(c.id)) {
+          seenIds.add(c.id);
+          interleavedList.push(c);
+        }
+      }
+      if (i < globalPartners.length) {
+        const e = globalPartners[i];
+        if (e && !seenIds.has(e.id)) {
+          seenIds.add(e.id);
+          interleavedList.push(e);
+        }
+      }
+    }
+
+    return [aiContact, myProfile, ...interleavedList];
+  }, [displayedContacts, displayedExplore, myProfile]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
@@ -2320,7 +2370,7 @@ export default function HomeScreen({ route, navigation }) {
                             ]}
                           >
                             {contact.isUnityUser
-                              ? (contact.status && contact.status !== "Not on Xaylite" ? contact.status : "Available on Xaylite")
+                              ? (contact.status && contact.status !== "Not on Xaylite" ? contact.status : "Available")
                               : "Not on Xaylite"}
                           </Text>
                         </View>
@@ -4332,56 +4382,17 @@ export default function HomeScreen({ route, navigation }) {
               }
             >
               {(() => {
-                const sourceList =
-                  startConvFilter === "contacts"
-                    ? displayedContacts
-                    : displayedExplore;
-
-                let filtered = sourceList.filter(
-                  (item) =>
-                    item.name
-                      .toLowerCase()
-                      .includes(startConvSearch.toLowerCase()) ||
-                    item.id
-                      .toLowerCase()
-                      .includes(startConvSearch.toLowerCase()),
-                );
-
-                // Ensure AI Companion (unity_ai) is always in the list and sorted first
-                const hasAI = filtered.some((item) => item.id === "unity_ai");
-                if (!hasAI) {
-                  const aiContact = displayedContacts.find(
-                    (c) => c.id === "unity_ai",
-                  ) || {
-                    id: "unity_ai",
-                    name: "Xaylite AI",
-                    avatar: require("../../assets/icon.png"),
-                    flag: "🌍",
-                    langName: "AI Companion",
-                    status: "Ready to chat",
-                    isUnityUser: true,
-                  };
-                  const matchesSearch =
-                    aiContact.name
-                      .toLowerCase()
-                      .includes(startConvSearch.toLowerCase()) ||
-                    aiContact.id
-                      .toLowerCase()
-                      .includes(startConvSearch.toLowerCase());
-                  if (matchesSearch) {
-                    filtered = [aiContact, ...filtered];
-                  }
-                }
-
-                // Unity AI always first, then Xaylite-available users
-                filtered.sort((a, b) => {
-                  if (a.id === "unity_ai") return -1;
-                  if (b.id === "unity_ai") return 1;
-                  const aVal =
-                    a.isUnityUser === true || a.isUnityUser === 1 ? 1 : 0;
-                  const bVal =
-                    b.isUnityUser === true || b.isUnityUser === 1 ? 1 : 0;
-                  return bVal - aVal;
+                const searchQ = startConvSearch.toLowerCase().trim();
+                let filtered = combinedStartConvList.filter((item) => {
+                  if (!searchQ) return true;
+                  return (
+                    (item.name && item.name.toLowerCase().includes(searchQ)) ||
+                    (item.id && item.id.toLowerCase().includes(searchQ)) ||
+                    (item.email && item.email.toLowerCase().includes(searchQ)) ||
+                    (item.langName && item.langName.toLowerCase().includes(searchQ)) ||
+                    (item.status && item.status.toLowerCase().includes(searchQ)) ||
+                    (item.bio && item.bio.toLowerCase().includes(searchQ))
+                  );
                 });
 
                 if (filtered.length === 0) {
@@ -4395,191 +4406,190 @@ export default function HomeScreen({ route, navigation }) {
                       >
                         {`No partners found matching "${startConvSearch}"`}
                       </Text>
-                      {startConvFilter === "contacts" &&
-                        startConvSearch.trim().length > 0 && (
-                          <TouchableOpacity
+                      {startConvSearch.trim().length > 0 && (
+                        <TouchableOpacity
+                          style={[
+                            styles.modalAddContactCard,
+                            { borderColor: colors.border },
+                          ]}
+                          onPress={() =>
+                            handleConfirmAddContact(startConvSearch.trim())
+                          }
+                          activeOpacity={0.7}
+                        >
+                          <View
                             style={[
-                              styles.modalAddContactCard,
-                              { borderColor: colors.border },
+                              styles.modalAddContactIconBg,
+                              { backgroundColor: colors.primaryGlow },
                             ]}
-                            onPress={() =>
-                              handleConfirmAddContact(startConvSearch.trim())
-                            }
-                            activeOpacity={0.7}
                           >
-                            <View
+                            <Svg
+                              width="20"
+                              height="20"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke={colors.primary}
+                              strokeWidth="2.5"
+                            >
+                              <Path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                              <Circle cx="9" cy="7" r="4" />
+                              <Line x1="19" y1="8" x2="19" y2="14" />
+                              <Line x1="16" y1="11" x2="22" y2="11" />
+                            </Svg>
+                          </View>
+                          <View style={{ flex: 1, marginLeft: 12 }}>
+                            <Text
                               style={[
-                                styles.modalAddContactIconBg,
-                                { backgroundColor: colors.primaryGlow },
+                                styles.modalAddContactText,
+                                { color: colors.text },
                               ]}
                             >
-                              <Svg
-                                width="20"
-                                height="20"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke={colors.primary}
-                                strokeWidth="2.5"
-                              >
-                                <Path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                                <Circle cx="9" cy="7" r="4" />
-                                <Line x1="19" y1="8" x2="19" y2="14" />
-                                <Line x1="16" y1="11" x2="22" y2="11" />
-                              </Svg>
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <Text
-                                style={[
-                                  styles.modalAddContactText,
-                                  { color: colors.text },
-                                ]}
-                              >
-                                {`Add "${startConvSearch.trim()}" to Contacts`}
-                              </Text>
-                              <Text
-                                style={{
-                                  color: colors.textDimmed,
-                                  fontSize: 11,
-                                  marginTop: 2,
-                                }}
-                              >
-                                Start a new translated conversation
-                              </Text>
-                            </View>
-                          </TouchableOpacity>
-                        )}
+                              {`Add "${startConvSearch.trim()}" to Contacts`}
+                            </Text>
+                            <Text
+                              style={{
+                                color: colors.textDimmed,
+                                fontSize: 11,
+                                marginTop: 2,
+                              }}
+                            >
+                              Start a new translated conversation
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   );
                 }
 
-                return filtered.map((item) => (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={[
-                      styles.modalPartnerCard,
-                      { borderBottomColor: colors.border },
-                    ]}
-                    onPress={() => {
-                      if (!item.isUnityUser) {
-                        const message = "";
-                        const phone = (item.phone || "").replace(/\D/g, "");
-                        Linking.openURL(
-                          `whatsapp://send?text=${encodeURIComponent(message)}&phone=${phone}`,
-                        ).catch(() => {
-                          Alert.alert(
-                            "WhatsApp not found",
-                            "Could not open WhatsApp. Please make sure it is installed.",
-                          );
-                        });
-                        return;
-                      }
-                      setStartConvModalVisible(false);
-                      const targetName = item.name;
-                      const targetAvatar = item.avatar_local_path || item.avatar;
-                      const targetFlag = item.flag;
-                      const targetId = item.id;
-                      setTimeout(() => {
-                        handlePartnerClick(targetName, targetAvatar, targetFlag, targetId);
-                      }, 0);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.modalAvatarContainer}>
-                      <Image
-                        source={getSafeAvatarSource(item.avatar_local_path || item.avatar, item.name || "User")}
-                        style={styles.modalAvatar}
-                      />
-                      {isOnlineContact(item) && (
+                return filtered.map((item) => {
+                  const userIsRegistered =
+                    item.id === "unity_ai" ||
+                    item.isMe ||
+                    item.isUnityUser === true ||
+                    item.isUnityUser === 1 ||
+                    item.isUnityUser === "1" ||
+                    !!item.bio ||
+                    (item.email && item.email.includes("@")) ||
+                    (item.status && item.status.includes("Available"));
+
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={[
+                        styles.modalPartnerCard,
+                        { borderBottomColor: colors.border },
+                      ]}
+                      onPress={() => {
+                        if (!userIsRegistered) {
+                          const message = "Join me on Xaylite for instant translated conversations!";
+                          const phone = (item.phone || "").replace(/\D/g, "");
+                          Linking.openURL(
+                            `whatsapp://send?text=${encodeURIComponent(message)}&phone=${phone}`,
+                          ).catch(() => {
+                            Alert.alert(
+                              "WhatsApp not found",
+                              "Could not open WhatsApp. Please make sure it is installed.",
+                            );
+                          });
+                          return;
+                        }
+                        setStartConvModalVisible(false);
+                        const targetName = item.name;
+                        const targetAvatar = item.avatar_local_path || item.avatar;
+                        const targetFlag = item.flag;
+                        const targetId = item.id;
+                        setTimeout(() => {
+                          handlePartnerClick(targetName, targetAvatar, targetFlag, targetId);
+                        }, 0);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.modalAvatarContainer}>
+                        <Image
+                          source={getSafeAvatarSource(item.avatar_local_path || item.avatar, item.name || "User")}
+                          style={styles.modalAvatar}
+                        />
+                        {isOnlineContact(item) && (
+                          <View
+                            style={[
+                              styles.onlineBadge,
+                              { borderColor: colors.cardBg },
+                            ]}
+                          />
+                        )}
                         <View
                           style={[
-                            styles.onlineBadge,
-                            { borderColor: colors.cardBg },
+                            styles.modalFlagBadge,
+                            { backgroundColor: colors.bg },
                           ]}
-                        />
-                      )}
+                        >
+                          {renderFlagOrEmoji(item.flag)}
+                        </View>
+                      </View>
+                      <View style={styles.modalPartnerInfo}>
+                        <View style={styles.modalNameRow}>
+                          <Text
+                            style={[
+                              styles.modalPartnerName,
+                              { color: colors.text },
+                            ]}
+                          >
+                            {item.name}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.modalPartnerUid,
+                              { color: colors.textDimmed },
+                            ]}
+                          >
+                            #{item.id}
+                          </Text>
+                        </View>
+                        <Text
+                          style={[
+                            styles.modalPartnerLang,
+                            { color: colors.primary },
+                          ]}
+                        >
+                          {item.langName}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.modalPartnerBio,
+                            { color: colors.textMuted },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {item.status || item.bio || "Available on Xaylite"}
+                        </Text>
+                      </View>
                       <View
                         style={[
-                          styles.modalFlagBadge,
-                          { backgroundColor: colors.bg },
-                        ]}
-                      >
-                        {renderFlagOrEmoji(item.flag)}
-                      </View>
-                    </View>
-                    <View style={styles.modalPartnerInfo}>
-                      <View style={styles.modalNameRow}>
-                        <Text
-                          style={[
-                            styles.modalPartnerName,
-                            { color: colors.text },
-                          ]}
-                        >
-                          {item.name}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.modalPartnerUid,
-                            { color: colors.textDimmed },
-                          ]}
-                        >
-                          #{item.id}
-                        </Text>
-                      </View>
-                      <Text
-                        style={[
-                          styles.modalPartnerLang,
-                          { color: colors.primary },
-                        ]}
-                      >
-                        {item.langName}
-                      </Text>
-                      {startConvFilter === "contacts" ? (
-                        <Text
-                          style={[
-                            styles.modalPartnerBio,
-                            { color: colors.textMuted },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {item.status}
-                        </Text>
-                      ) : (
-                        <Text
-                          style={[
-                            styles.modalPartnerBio,
-                            { color: colors.textMuted },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {item.bio}
-                        </Text>
-                      )}
-                    </View>
-                    <View
-                      style={[
-                        styles.modalPartnerCta,
-                        {
-                          backgroundColor: !item.isUnityUser
-                            ? colors.border
-                            : colors.primaryGlow,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.modalPartnerCtaText,
+                          styles.modalPartnerCta,
                           {
-                            color: !item.isUnityUser
-                              ? colors.text
-                              : colors.primary,
+                            backgroundColor: !userIsRegistered
+                              ? colors.border
+                              : colors.primaryGlow,
                           },
                         ]}
                       >
-                        {!item.isUnityUser ? "Invite" : "Chat"}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ));
+                        <Text
+                          style={[
+                            styles.modalPartnerCtaText,
+                            {
+                              color: !userIsRegistered
+                                ? colors.text
+                                : colors.primary,
+                            },
+                          ]}
+                        >
+                          {!userIsRegistered ? "Invite" : "Chat"}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                });
               })()}
             </ScrollView>
           </View>
