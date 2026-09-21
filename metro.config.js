@@ -2,7 +2,10 @@ const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
 
-// Add 'wasm' to the list of supported asset extensions
-config.resolver.assetExts.push('wasm');
+['ttf', 'otf', 'png', 'jpg', 'wasm'].forEach((ext) => {
+  if (!config.resolver.assetExts.includes(ext)) {
+    config.resolver.assetExts.push(ext);
+  }
+});
 
 module.exports = config;

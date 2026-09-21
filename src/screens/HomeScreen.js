@@ -36,7 +36,7 @@ import Svg, {
 } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
 import { trackEvent } from "../utils/Analytics";
-import * as Contacts from "expo-contacts/legacy";
+import * as Contacts from "expo-contacts";
 import { AppContext } from "../context/AppContext";
 import { fetchLatestNews } from "../services/NewsService";
 import {
@@ -1045,16 +1045,7 @@ export default function HomeScreen({ route, navigation }) {
     filteredNewsCountRef.current = filteredNewsArticles.length;
   }, [filteredNewsArticles]);
 
-  // Load the next page of news cards with a natural staggered delay
-  const handleNewsLoadMore = () => {
-    if (newsLoadingMore || newsDisplayCount >= filteredNewsArticles.length) return;
-    setNewsLoadingMore(true);
-    const delay = 700 + Math.random() * 600;
-    setTimeout(() => {
-      setNewsDisplayCount((prev) => prev + 5);
-      setNewsLoadingMore(false);
-    }, delay);
-  };
+
 
   const handleCarouselScroll = (e) => {
     const slideSize = e.nativeEvent.layoutMeasurement.width;

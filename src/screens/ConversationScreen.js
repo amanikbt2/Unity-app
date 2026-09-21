@@ -50,7 +50,7 @@ import {
   IOSOutputFormat,
 } from "expo-audio";
 import * as Speech from "expo-speech";
-import * as FileSystem from "expo-file-system/legacy";
+import * as FileSystem from "expo-file-system";
 import { getSafeAvatarSource } from "../utils/avatarUtils";
 import {
   translateText,
